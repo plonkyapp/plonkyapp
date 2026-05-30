@@ -114,12 +114,16 @@ def upsert_game():
     if not game_id:
         abort(400, "missing game id")
 
+    account_id = data.get("account_id")
+    if account_id and db.session.get(Account, account_id) is None:
+        db.session.add(Account(id=account_id))
+
     game = db.session.get(Game, game_id)
     if game is None:
         game = Game(id=game_id)
         db.session.add(game)
 
-    game.account_id = data.get("account_id")
+    game.account_id = account_id
     game.date = data.get("date")
     game.venue = data.get("venue") or ""
     game.mode = data.get("mode") or ""
