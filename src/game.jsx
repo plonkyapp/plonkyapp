@@ -38,38 +38,52 @@ const navBtn = dis => ({
 });
 
 // ── Player score row ──────────────────────────────────────
-function ScoreRow({ p, hole, focused, onFocus, onSet, showTotals }) {
+function ScoreRow({ p, hole, focused, onFocus, onSet, showTotals, editable = true, isMe = false }) {
   const v = p.scores[hole] || 0;
   const t = totals(p);
   return (
     <div style={{
       background: 'var(--card)', borderRadius: 18,
-      border: focused ? '2px solid var(--accent)' : '1px solid var(--line)',
-      padding: focused ? '11px 13px' : '12px 14px', transition: 'border .15s',
+      border: isMe ? '2px solid var(--accent)' : focused ? '2px solid var(--accent)' : '1px solid var(--line)',
+      padding: (focused && editable) ? '11px 13px' : '12px 14px', transition: 'border .15s',
+      opacity: editable ? 1 : 0.92,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <UI.Avatar name={p.name} color={p.color} size={40} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+          <div style={{ fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 7 }}>
+            {p.name}
+            {isMe && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 14%, transparent)', borderRadius: 999, padding: '2px 7px', letterSpacing: 0.3 }}>DU</span>}
+          </div>
           {showTotals && (
             <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 1 }}>
               {t.played ? `Gesamt ${t.strokes} · ${t.played} Bahnen` : 'noch nichts'}
             </div>
           )}
         </div>
-        {/* stepper */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 2 }}>
-          <button onClick={() => onSet(p.id, Math.max(0, v - 1))} style={stepBtn(v <= 0)}><Ic.minus size={20} /></button>
-          <button onClick={() => onFocus(focused ? null : p.id)} style={{
-            width: 46, height: 44, borderRadius: 13, border: 'none', cursor: 'pointer',
-            background: v > 0 ? 'var(--ink)' : 'var(--line-2)', color: v > 0 ? '#fff' : 'var(--ink-3)',
+        {editable ? (
+          /* stepper */
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 2 }}>
+            <button onClick={() => onSet(p.id, Math.max(0, v - 1))} style={stepBtn(v <= 0)}><Ic.minus size={20} /></button>
+            <button onClick={() => onFocus(focused ? null : p.id)} style={{
+              width: 46, height: 44, borderRadius: 13, border: 'none', cursor: 'pointer',
+              background: v > 0 ? 'var(--ink)' : 'var(--line-2)', color: v > 0 ? '#fff' : 'var(--ink-3)',
+              fontFamily: 'var(--num)', fontSize: 22, fontWeight: 600,
+            }}>{v > 0 ? v : '–'}</button>
+            <button onClick={() => onSet(p.id, Math.min(9, v + 1))} style={stepBtn(false, true)}><Ic.plus size={20} /></button>
+          </div>
+        ) : (
+          /* read-only score (other players, when you joined as a single player) */
+          <div style={{
+            width: 46, height: 44, borderRadius: 13, marginLeft: 2, flexShrink: 0,
+            background: 'var(--line-2)', color: v > 0 ? 'var(--ink)' : 'var(--ink-3)',
             fontFamily: 'var(--num)', fontSize: 22, fontWeight: 600,
-          }}>{v > 0 ? v : '–'}</button>
-          <button onClick={() => onSet(p.id, Math.min(9, v + 1))} style={stepBtn(false, true)}><Ic.plus size={20} /></button>
-        </div>
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>{v > 0 ? v : '–'}</div>
+        )}
       </div>
       {/* quick digits */}
-      {focused && (
+      {editable && focused && (
         <div style={{ display: 'flex', gap: 6, marginTop: 11, animation: 'fadeUp .2s both' }}>
           {[1, 2, 3, 4, 5, 6, 7].map(n => (
             <button key={n} onClick={() => { onSet(p.id, n); onFocus(null); }} style={{
@@ -281,6 +295,7 @@ function GameScreen({ players, setPlayers, mode, go, voiceOn, showTotals, openRe
     ACC.API.sessionScore(sessionCode, id, h, val).catch(() => {});
   };
   const set = (id, val) => {
+    if (me != null && String(id) !== String(me)) return; // joined as one player: only your own score
     setPlayers(ps => ps.map(p => p.id === id ? { ...p, scores: { ...p.scores, [hole]: val } } : p));
     pushScore(id, hole, val);
   };
@@ -315,6 +330,11 @@ function GameScreen({ players, setPlayers, mode, go, voiceOn, showTotals, openRe
     const iv = setInterval(tick, 3000);
     return () => { alive = false; clearInterval(iv); };
   }, [sessionCode]);
+  const canEdit = (pid) => me == null || String(pid) === String(me);
+  const ordered = me == null ? players : [...players].sort((a, b) => {
+    const am = String(a.id) === String(me), bm = String(b.id) === String(me);
+    return am === bm ? 0 : am ? -1 : 1;
+  });
   const allEntered = players.length > 0 && players.every(p => (p.scores[hole] || 0) > 0);
   const allDone = players.length > 0 && players.every(p => totals(p).played === HOLES);
   const last = hole >= HOLES;
@@ -336,8 +356,9 @@ function GameScreen({ players, setPlayers, mode, go, voiceOn, showTotals, openRe
 
       <UI.Body pad={16} style={{ paddingTop: 6 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-          {players.map(p => (
-            <ScoreRow key={p.id} p={p} hole={hole} focused={focus === p.id} onFocus={setFocus} onSet={set} showTotals={showTotals} />
+          {ordered.map(p => (
+            <ScoreRow key={p.id} p={p} hole={hole} focused={focus === p.id} onFocus={setFocus} onSet={set} showTotals={showTotals}
+              editable={canEdit(p.id)} isMe={me != null && String(p.id) === String(me)} />
           ))}
         </div>
       </UI.Body>
@@ -346,7 +367,7 @@ function GameScreen({ players, setPlayers, mode, go, voiceOn, showTotals, openRe
       <div style={{ flexShrink: 0, padding: '10px 16px 26px', background: 'linear-gradient(to top, var(--paper) 70%, rgba(244,244,241,0))', display: 'flex', flexDirection: 'column', gap: 12 }}>
         <Timeline hole={hole} players={players} mode={mode} onJump={h => { setFocus(null); setHole(h); }} />
         <div style={{ display: 'flex', gap: 10 }}>
-          {voiceOn && (
+          {voiceOn && me == null && (
             <button onClick={() => setVoice(true)} title="Spracheingabe" style={{
               width: 56, height: 56, borderRadius: 18, flexShrink: 0, cursor: 'pointer',
               border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--accent)',
