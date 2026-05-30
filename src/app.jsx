@@ -45,6 +45,29 @@ function App() {
   // load once
   useAE(() => {
     const d = ACC.STORE.load();
+    const linkMatch = typeof location !== 'undefined' && location.pathname.match(/^\/m\/([^\/?#]+)/);
+
+    // opened via a personal link (/m/<code>): adopt that account on this device
+    if (linkMatch) {
+      const token = decodeURIComponent(linkMatch[1]);
+      if (window.history && window.history.replaceState) window.history.replaceState({}, '', '/');
+      if (d.family) setFamily(d.family);
+      if (d.defaultMode) setDefaultMode(d.defaultMode);
+      if (d.autoCrew != null) setAutoCrew(d.autoCrew);
+      ACC.API.getAccount(token)
+        .then(acc => {
+          setAccount(acc && acc.id
+            ? { id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], created: acc.created || Date.now() }
+            : { id: token, name: 'Spieler', color: AV[0], created: Date.now() });
+          setScreen('home');
+          return ACC.API.listGames(token);
+        })
+        .then(server => setHistory(server || []))
+        .catch(() => {}) // link unreachable: stay on cover, nothing lost
+        .finally(() => setHydrated(true));
+      return;
+    }
+
     let acc = d.account || null;
     if (acc && !acc.id) acc = { ...acc, id: ACC.newAccountId() }; // backfill id for pre-DB accounts
     if (acc) { setAccount(acc); setScreen('home'); }
@@ -59,6 +82,8 @@ function App() {
   }, []);
   // persist
   useAE(() => { if (hydrated) ACC.STORE.save({ account, family, history, defaultMode, autoCrew }); }, [hydrated, account, family, history, defaultMode, autoCrew]);
+  // keep the server copy of the account (name/color) in sync
+  useAE(() => { if (hydrated && account && account.id) ACC.API.saveAccount(account).catch(() => {}); }, [hydrated, account]);
 
   useAE(() => { document.documentElement.style.setProperty('--accent', t.accent); }, [t.accent]);
   useAE(() => { window.__fitPhone && window.__fitPhone(); }, []);
@@ -92,7 +117,13 @@ function App() {
   const firstStep = () => (t.onboardingFlow === 'express' ? 'express' : 'welcome');
   const newGame = () => { gameSavedRef.current = false; setPlayers(buildInitialPlayers()); setRole(account ? 'me' : null); setMode(defaultMode); setMe(null); go(scanEnabled ? 'scan' : firstStep()); };
   const openResults = (fin) => { if (fin && account) saveGame(players); setResultsFinal(fin); go('results'); };
-  const createAccount = (name) => { const acc = { id: ACC.newAccountId(), name, color: AV[0], created: Date.now() }; setAccount(acc); saveGame(players, acc); };
+  const createAccount = (name) => {
+    const acc = { id: ACC.newAccountId(), name, color: AV[0], created: Date.now() };
+    setAccount(acc);
+    ACC.API.saveAccount(acc).catch(() => {});
+    saveGame(players, acc);
+    return acc;
+  };
   const logout = () => { setAccount(null); go('cover'); };
 
   const jump = (s) => {

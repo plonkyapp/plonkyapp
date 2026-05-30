@@ -156,8 +156,35 @@ def delete_game(game_id):
     return jsonify({"ok": True})
 
 
+@app.route("/api/account/<account_id>", methods=["GET"])
+def get_account(account_id):
+    acc = db.session.get(Account, account_id)
+    if acc is None:
+        abort(404)
+    return jsonify({"id": acc.id, "name": acc.name, "color": acc.color, "created": acc.created_at})
+
+
+@app.route("/api/account", methods=["POST"])
+def upsert_account():
+    data = request.get_json(silent=True) or {}
+    account_id = data.get("id")
+    if not account_id:
+        abort(400, "missing account id")
+    acc = db.session.get(Account, account_id)
+    if acc is None:
+        acc = Account(id=account_id)
+        db.session.add(acc)
+    if data.get("name") is not None:
+        acc.name = data.get("name")
+    if data.get("color") is not None:
+        acc.color = data.get("color")
+    db.session.commit()
+    return jsonify({"id": acc.id, "name": acc.name, "color": acc.color, "created": acc.created_at})
+
+
 @app.route("/")
-def index():
+@app.route("/m/<token>")
+def index(token=None):
     return send_from_directory(APP_DIR, "index.html")
 
 

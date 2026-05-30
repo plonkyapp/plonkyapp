@@ -78,6 +78,14 @@ function AccountScreen({ go, onCreate }) {
   const { Screen, AppHeader, Body, Footer, Btn } = UI;
   const [name, setName] = useStateOB('');
   const [saved, setSaved] = useStateOB(false);
+  const [created, setCreated] = useStateOB(null);
+  const [copied, setCopied] = useStateOB(false);
+  const link = created ? ACC.accountLink(created.id) : '';
+  const copyLink = () => {
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1800); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done).catch(done);
+    else done();
+  };
   const benefits = [
     ['Resultate bleiben gespeichert', Ic.clock],
     ['Familie einmal anlegen, immer dabei', Ic.users],
@@ -107,20 +115,23 @@ function AccountScreen({ go, onCreate }) {
         ) : (
           <div style={{ textAlign: 'center', paddingTop: 36, animation: 'fadeUp .4s both' }}>
             <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--accent)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', animation: 'plonkPop .5s both' }}><Ic.check size={42} sw={2.6} /></div>
-            <div style={{ fontSize: 21, fontWeight: 700, marginTop: 18 }}>Link gespeichert</div>
+            <div style={{ fontSize: 21, fontWeight: 700, marginTop: 18 }}>Konto bereit</div>
             <div style={{ fontSize: 14.5, color: 'var(--ink-2)', marginTop: 8, lineHeight: 1.45, padding: '0 10px' }}>
-              Dieser Link auf deinem Handy führt immer direkt zu deinem Konto. Als Lesezeichen sichern!
+              Dieser Link führt auf jedem Gerät direkt zu deinem Konto. Speichere ihn als Lesezeichen!
             </div>
             <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 10, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '13px 16px', textAlign: 'left' }}>
               <Ic.link size={18} color="var(--ink-3)" />
-              <span style={{ fontSize: 13.5, color: 'var(--ink-2)', fontFamily: 'var(--num)' }}>plonky.golf/m/{(name || 'du').toLowerCase()}-7x2k</span>
+              <span style={{ flex: 1, fontSize: 13.5, color: 'var(--ink-2)', fontFamily: 'var(--num)', wordBreak: 'break-all' }}>{link.replace(/^https?:\/\//, '')}</span>
             </div>
+            <button onClick={copyLink} style={{ marginTop: 12, width: '100%', height: 48, borderRadius: 14, border: '1px solid var(--line)', background: copied ? 'var(--accent)' : 'var(--card)', color: copied ? '#fff' : 'var(--ink)', fontSize: 14.5, fontWeight: 600, fontFamily: 'var(--font)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all .15s' }}>
+              {copied ? <><Ic.check size={18} /> Kopiert!</> : <><Ic.link size={17} /> Link kopieren</>}
+            </button>
           </div>
         )}
       </Body>
       <Footer>
         {!saved
-          ? <Btn kind="primary" disabled={!name.trim()} onClick={() => { onCreate && onCreate(name.trim()); setSaved(true); }} icon={<Ic.link size={19} />}>Link erstellen</Btn>
+          ? <Btn kind="primary" disabled={!name.trim()} onClick={() => { const acc = onCreate && onCreate(name.trim()); setCreated(acc); setSaved(true); }} icon={<Ic.link size={19} />}>Link erstellen</Btn>
           : <Btn kind="primary" onClick={() => go('home')} iconR={<Ic.arrowR size={20} />}>Zu meinem plonky</Btn>}
         {!saved && <Btn kind="ghost" onClick={() => go('cover')}>Später</Btn>}
       </Footer>

@@ -27,7 +27,25 @@ const API = {
     if (!r.ok) throw new Error('save ' + r.status);
     return r.json();
   },
+  async getAccount(accountId) {
+    const r = await fetch('/api/account/' + encodeURIComponent(accountId));
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error('account ' + r.status);
+    return r.json();
+  },
+  async saveAccount(account) {
+    const r = await fetch('/api/account', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: account.id, name: account.name, color: account.color }),
+    });
+    if (!r.ok) throw new Error('saveAccount ' + r.status);
+    return r.json();
+  },
 };
+
+// the personal restore link for an account
+const accountLink = (id) => (typeof location !== 'undefined' ? location.origin : 'https://app.plonky.ch') + '/m/' + id;
 
 // union of local + server games keyed by id (server wins), kept oldest-first
 function mergeGames(local, server) {
@@ -312,4 +330,4 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
 }
 const iconBtn = { width: 34, height: 34, borderRadius: 10, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 };
 
-window.ACC = { STORE, API, newAccountId, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, aTotals, fmtDate, fmtShort };
+window.ACC = { STORE, API, newAccountId, accountLink, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, aTotals, fmtDate, fmtShort };
