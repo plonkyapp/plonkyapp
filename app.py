@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import time
 
 from flask import Flask, abort, jsonify, request, send_from_directory
@@ -76,12 +77,48 @@ class Score(db.Model):
     strokes = db.Column(db.Integer, nullable=True)
 
 
+class Session(db.Model):
+    """A live, shared round. Devices poll it and patch scores in real time."""
+    __tablename__ = "session"
+    code = db.Column(db.String, primary_key=True)
+    mode = db.Column(db.String, nullable=False, default="sequential")
+    venue = db.Column(db.String, nullable=False, default="")
+    data = db.Column(db.Text, nullable=False, default="{}")  # {"players":[{id,name,color,scores,claimed}]}
+    rev = db.Column(db.Integer, nullable=False, default=0)  # bumped on every change for cheap polling
+    created_at = db.Column(db.BigInteger, nullable=False, default=lambda: int(time.time() * 1000))
+
+
+# unambiguous alphabet (no 0/O/1/I) for human-readable join codes
+CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def new_session_code():
+    while True:
+        code = "".join(random.choice(CODE_ALPHABET) for _ in range(4))
+        if db.session.get(Session, code) is None:
+            return code
+
+
 def account_to_dict(acc):
     try:
         crew = json.loads(acc.crew or "[]")
     except (ValueError, TypeError):
         crew = []
     return {"id": acc.id, "name": acc.name, "color": acc.color, "crew": crew, "created": acc.created_at}
+
+
+def session_to_dict(s):
+    try:
+        payload = json.loads(s.data or "{}")
+    except (ValueError, TypeError):
+        payload = {}
+    return {
+        "code": s.code,
+        "mode": s.mode,
+        "venue": s.venue,
+        "rev": s.rev,
+        "players": payload.get("players", []),
+    }
 
 
 def game_to_dict(game):
@@ -194,8 +231,89 @@ def upsert_account():
     return jsonify(account_to_dict(acc))
 
 
+@app.route("/api/session", methods=["POST"])
+def create_session():
+    data = request.get_json(silent=True) or {}
+    players = [
+        {
+            "id": p.get("id"),
+            "name": p.get("name") or "",
+            "color": p.get("color") or "",
+            "scores": p.get("scores") or {},
+            "claimed": bool(p.get("claimed")),
+        }
+        for p in (data.get("players") or [])
+    ]
+    s = Session(
+        code=new_session_code(),
+        mode=data.get("mode") or "sequential",
+        venue=data.get("venue") or "",
+        data=json.dumps({"players": players}),
+        rev=1,
+    )
+    db.session.add(s)
+    db.session.commit()
+    return jsonify(session_to_dict(s))
+
+
+@app.route("/api/session/<code>", methods=["GET"])
+def get_session(code):
+    s = db.session.get(Session, (code or "").upper())
+    if s is None:
+        abort(404)
+    return jsonify(session_to_dict(s))
+
+
+def _mutate_session(code):
+    """Load a session for update, returning (session, payload, players) or aborting 404."""
+    s = db.session.get(Session, (code or "").upper())
+    if s is None:
+        abort(404)
+    try:
+        payload = json.loads(s.data or "{}")
+    except (ValueError, TypeError):
+        payload = {}
+    players = payload.get("players", [])
+    return s, payload, players
+
+
+@app.route("/api/session/<code>/score", methods=["POST"])
+def session_score(code):
+    body = request.get_json(silent=True) or {}
+    pid, hole, strokes = body.get("player_id"), body.get("hole"), body.get("strokes")
+    s, payload, players = _mutate_session(code)
+    for p in players:
+        if str(p.get("id")) == str(pid):
+            scores = p.get("scores") or {}
+            scores[str(hole)] = strokes
+            p["scores"] = scores
+            break
+    payload["players"] = players
+    s.data = json.dumps(payload)
+    s.rev = (s.rev or 0) + 1
+    db.session.commit()
+    return jsonify(session_to_dict(s))
+
+
+@app.route("/api/session/<code>/claim", methods=["POST"])
+def session_claim(code):
+    body = request.get_json(silent=True) or {}
+    pid = body.get("player_id")
+    s, payload, players = _mutate_session(code)
+    for p in players:
+        if str(p.get("id")) == str(pid):
+            p["claimed"] = True
+            break
+    payload["players"] = players
+    s.data = json.dumps(payload)
+    s.rev = (s.rev or 0) + 1
+    db.session.commit()
+    return jsonify(session_to_dict(s))
+
+
 @app.route("/")
 @app.route("/m/<token>")
+@app.route("/j/<token>")
 def index(token=None):
     return send_from_directory(APP_DIR, "index.html")
 

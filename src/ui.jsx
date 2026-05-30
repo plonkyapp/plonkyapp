@@ -152,6 +152,24 @@ function QRMock({ size = 200, fg = '#191A15', bg = '#fff' }) {
   );
 }
 
+// ── Real QR code (qrcode-generator global; falls back to mock) ──
+function QRCode({ value, size = 200, fg = '#191A15', bg = '#fff' }) {
+  if (!value || typeof window.qrcode !== 'function') return <QRMock size={size} fg={fg} bg={bg} />;
+  let qr;
+  try { qr = window.qrcode(0, 'M'); qr.addData(value); qr.make(); }
+  catch (e) { return <QRMock size={size} fg={fg} bg={bg} />; }
+  const n = qr.getModuleCount();
+  const cells = [];
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    if (qr.isDark(y, x)) cells.push(<rect key={x + '-' + y} x={x} y={y} width="1.02" height="1.02" rx="0.12" fill={fg} />);
+  }
+  return (
+    <svg width={size} height={size} viewBox={`-1 -1 ${n + 2} ${n + 2}`} style={{ borderRadius: 14, background: bg }}>
+      {cells}
+    </svg>
+  );
+}
+
 // ── Onboarding step dots ─────────────────────────────────
 function Steps({ n, i }) {
   return (
@@ -167,4 +185,4 @@ function Steps({ n, i }) {
   );
 }
 
-window.UI = { Screen, Body, AppHeader, Footer, Btn, Avatar, ChoiceCard, QRMock, Steps, AV_COLORS };
+window.UI = { Screen, Body, AppHeader, Footer, Btn, Avatar, ChoiceCard, QRMock, QRCode, Steps, AV_COLORS };

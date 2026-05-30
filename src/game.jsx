@@ -269,15 +269,52 @@ function VoiceSheet({ players, hole, onApply, onClose }) {
 }
 
 // ── Game screen ───────────────────────────────────────────
-function GameScreen({ players, setPlayers, mode, go, voiceOn, showTotals, openResults }) {
+function GameScreen({ players, setPlayers, mode, go, voiceOn, showTotals, openResults, sessionCode, me }) {
   const [hole, setHole] = useS(1);
   const [focus, setFocus] = useS(null);
   const [voice, setVoice] = useS(false);
-  const set = (id, val) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, scores: { ...p.scores, [hole]: val } } : p));
+  const pendingRef = useR({}); // "pid:hole" -> value not yet confirmed by the server
+
+  const pushScore = (id, h, val) => {
+    if (!sessionCode) return;
+    pendingRef.current[id + ':' + h] = val;
+    ACC.API.sessionScore(sessionCode, id, h, val).catch(() => {});
+  };
+  const set = (id, val) => {
+    setPlayers(ps => ps.map(p => p.id === id ? { ...p, scores: { ...p.scores, [hole]: val } } : p));
+    pushScore(id, hole, val);
+  };
   const applyVoice = (parsed) => {
     setPlayers(ps => ps.map(p => { const e = parsed.find(x => x.id === p.id); return e ? { ...p, scores: { ...p.scores, [hole]: e.v } } : p; }));
+    parsed.forEach(e => pushScore(e.id, hole, e.v));
     setVoice(false);
   };
+
+  // live session: pull others' scores; local pending writes win until the server echoes them back
+  useE(() => {
+    if (!sessionCode) return;
+    let alive = true;
+    const tick = () => ACC.API.getSession(sessionCode).then(sess => {
+      if (!alive || !sess) return;
+      const srv = {}; (sess.players || []).forEach(sp => { srv[sp.id] = sp; });
+      const pending = pendingRef.current;
+      setPlayers(prev => prev.map(p => {
+        const sp = srv[p.id];
+        if (!sp) return p;
+        const merged = { ...(sp.scores || {}) };
+        Object.keys(pending).forEach(k => {
+          const sep = k.indexOf(':'); const pid = k.slice(0, sep); const h = k.slice(sep + 1);
+          if (pid !== String(p.id)) return;
+          if (String(merged[h]) === String(pending[k])) delete pending[k]; // server caught up
+          else merged[h] = pending[k];                                     // keep local for now
+        });
+        return { ...p, scores: merged };
+      }));
+    }).catch(() => {});
+    tick();
+    const iv = setInterval(tick, 3000);
+    return () => { alive = false; clearInterval(iv); };
+  }, [sessionCode]);
   const allEntered = players.length > 0 && players.every(p => (p.scores[hole] || 0) > 0);
   const allDone = players.length > 0 && players.every(p => totals(p).played === HOLES);
   const last = hole >= HOLES;

@@ -319,41 +319,87 @@ function PlayersScreen({ go, players, setPlayers, role, family = [] }) {
   );
 }
 
-// ── 6. Invite (role B) ────────────────────────────────────
-function InviteScreen({ go, players }) {
-  const { Screen, AppHeader, Body, Footer, Btn, Steps, QRMock, Avatar } = UI;
-  const [joined, setJoined] = useStateOB([0]);
+// ── 6. Invite (role B) — real live session ────────────────
+function InviteScreen({ go, players, mode, sessionCode, setSessionCode }) {
+  const { Screen, AppHeader, Body, Footer, Btn, Steps, QRCode, Avatar } = UI;
+  const [code, setCode] = useStateOB(sessionCode || null);
+  const [claimed, setClaimed] = useStateOB({});
+  const [copied, setCopied] = useStateOB(false);
+  const [err, setErr] = useStateOB(false);
+  const creatingRef = useRefOB(false);
+
+  // create the shared session once
   useEffectOB(() => {
-    const timers = [];
-    [1, 2].forEach((idx, k) => timers.push(setTimeout(() => setJoined(j => j.includes(idx) ? j : [...j, idx]), 1400 + k * 1500)));
-    return () => timers.forEach(clearTimeout);
+    if (code || creatingRef.current) return;
+    creatingRef.current = true;
+    ACC.API.createSession({
+      mode: mode || 'sequential', venue: VENUE,
+      players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {} })),
+    }).then(sess => { setCode(sess.code); setSessionCode && setSessionCode(sess.code); })
+      .catch(() => setErr(true));
   }, []);
+
+  // poll for who has claimed a slot
+  useEffectOB(() => {
+    if (!code) return;
+    let alive = true;
+    const tick = () => ACC.API.getSession(code).then(sess => {
+      if (!alive || !sess) return;
+      const m = {}; (sess.players || []).forEach(p => { if (p.claimed) m[p.id] = true; });
+      setClaimed(m);
+    }).catch(() => {});
+    tick();
+    const iv = setInterval(tick, 2500);
+    return () => { alive = false; clearInterval(iv); };
+  }, [code]);
+
+  const link = code ? ACC.sessionLink(code) : '';
+  const copy = () => {
+    if (!link) return;
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1600); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done).catch(done);
+    else done();
+  };
+  // the lead (index 0) is this very device — always counts as "in"
+  const isIn = (p, i) => i === 0 || claimed[p.id];
+  const joinedCount = players.filter((p, i) => isIn(p, i)).length;
+
   return (
     <Screen>
       <AppHeader title="Anderen Code geben" sub="Mitspielen" onBack={() => go('players')} />
       <Body>
         <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45, marginBottom: 16, textAlign: 'center' }}>
-          Du hast das Spiel eingerichtet. Lass die anderen <b>diesen Code scannen</b> — dann tippen sie selbst ein.
+          Lass die anderen <b>diesen QR scannen</b> oder den Code eingeben — dann sind sie in derselben Runde.
         </div>
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
           <div style={{ padding: 16, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 24, boxShadow: '0 12px 30px -18px rgba(0,0,0,0.4)' }}>
-            <QRMock size={186} fg="var(--ink)" />
-            <div style={{ textAlign: 'center', fontSize: 12.5, color: 'var(--ink-3)', marginTop: 10, fontFamily: 'var(--num)', letterSpacing: 1 }}>SESSION · 7X2K</div>
+            {err
+              ? <div style={{ width: 186, height: 186, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontSize: 13, color: 'var(--ink-3)', padding: 16 }}>Offline — Code konnte nicht erstellt werden. Ihr könnt trotzdem auf einem Handy spielen.</div>
+              : code ? <QRCode value={link} size={186} fg="var(--ink)" />
+                : <div style={{ width: 186, height: 186, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-3)', fontSize: 13 }}>Code wird erstellt…</div>}
+            <div style={{ textAlign: 'center', fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginTop: 12, fontFamily: 'var(--num)', letterSpacing: 4 }}>{code || '····'}</div>
           </div>
         </div>
+        {code && (
+          <button onClick={copy} style={{ width: '100%', textAlign: 'left', cursor: 'pointer', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 11, fontFamily: 'var(--font)', marginBottom: 18 }}>
+            <Ic.link size={18} color="var(--accent)" />
+            <span style={{ flex: 1, fontSize: 13, color: 'var(--ink-2)', fontFamily: 'var(--num)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{link.replace(/^https?:\/\//, '')}</span>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent)' }}>{copied ? '✓ Kopiert' : 'Kopieren'}</span>
+          </button>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Dabei</div>
           <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-          <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>{joined.length}/{players.length}</div>
+          <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>{joinedCount}/{players.length}</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {players.map((p, i) => {
-            const on = joined.includes(i);
+            const on = isIn(p, i);
             return (
               <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '10px 14px', opacity: on ? 1 : 0.5, transition: 'opacity .4s' }}>
                 <Avatar name={p.name} color={p.color} size={32} dim={!on} />
-                <div style={{ flex: 1, fontSize: 15, fontWeight: 600 }}>{p.name}</div>
-                {on ? <span style={{ fontSize: 12.5, color: 'var(--accent)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><Ic.check size={15} /> verbunden</span>
+                <div style={{ flex: 1, fontSize: 15, fontWeight: 600 }}>{p.name}{i === 0 ? ' (du)' : ''}</div>
+                {on ? <span style={{ fontSize: 12.5, color: 'var(--accent)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><Ic.check size={15} /> {i === 0 ? 'Host' : 'verbunden'}</span>
                   : <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>wartet…</span>}
               </div>
             );
@@ -363,24 +409,28 @@ function InviteScreen({ go, players }) {
       <Footer>
         <Steps n={4} i={3} />
         <Btn kind="primary" onClick={() => go('game')} iconR={<Ic.arrowR size={20} />}>Spiel starten</Btn>
-        <Btn kind="ghost" onClick={() => go('join')}>So sieht das Beitreten aus →</Btn>
       </Footer>
     </Screen>
   );
 }
 
-// ── Join (other device preview) ───────────────────────────
-function JoinScreen({ go, players, setMe }) {
+// ── Join (joiner picks who they are in the live session) ──
+function JoinScreen({ go, players, setMe, sessionCode }) {
   const { Screen, Body, Footer, Btn, Avatar } = UI;
   const [sel, setSel] = useStateOB(null);
-  const [seeAll, setSeeAll] = useStateOB(true);
+  const enter = () => {
+    if (sel == null) return;
+    if (sessionCode) ACC.API.sessionClaim(sessionCode, sel).catch(() => {});
+    setMe && setMe(sel);
+    go('game');
+  };
   return (
     <Screen>
       <div style={{ paddingTop: 70, padding: '70px 24px 4px', flexShrink: 0 }}>
-        <button onClick={() => go('invite')} style={{ fontSize: 13, color: 'var(--ink-3)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 16 }}><Ic.chevL size={15} /> anderes Gerät</button>
         <Wordmark size={26} />
-        <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: -0.4, marginTop: 22 }}>Wer bist du?</div>
-        <div style={{ fontSize: 14.5, color: 'var(--ink-2)', marginTop: 6 }}>Tippe deinen Namen an — dann zählst nur du dich.</div>
+        {sessionCode && <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 16, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 12px', fontSize: 12.5, fontWeight: 700, color: 'var(--ink-2)', fontFamily: 'var(--num)', letterSpacing: 1 }}><Ic.users size={14} color="var(--accent)" /> SESSION {sessionCode}</div>}
+        <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: -0.4, marginTop: 18 }}>Wer bist du?</div>
+        <div style={{ fontSize: 14.5, color: 'var(--ink-2)', marginTop: 6 }}>Tippe deinen Namen an — dann trägst du deine Schläge ein.</div>
       </div>
       <Body style={{ paddingTop: 16 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -395,16 +445,11 @@ function JoinScreen({ go, players, setMe }) {
               {sel === p.id && <div style={{ color: 'var(--accent)' }}><Ic.check size={22} /></div>}
             </button>
           ))}
+          {players.length === 0 && <div style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 14, padding: '30px 0' }}>Diese Runde ist nicht mehr aktiv.</div>}
         </div>
-        <div style={{ marginTop: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: 4, display: 'flex' }}>
-          {[['Alle sehen', true], ['Nur ich', false]].map(([t, v]) => (
-            <button key={t} onClick={() => setSeeAll(v)} style={{ flex: 1, height: 40, borderRadius: 12, border: 'none', cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 13.5, fontWeight: 600, background: seeAll === v ? 'var(--accent)' : 'transparent', color: seeAll === v ? '#fff' : 'var(--ink-2)', transition: 'all .15s' }}>{t}</button>
-          ))}
-        </div>
-        <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 8, textAlign: 'center' }}>Willst du die Resultate der anderen sehen oder nur deine?</div>
       </Body>
       <Footer>
-        <Btn kind="primary" disabled={!sel} onClick={() => { setMe && setMe(sel); go('game'); }} iconR={<Ic.arrowR size={20} />}>Eintreten</Btn>
+        <Btn kind="primary" disabled={sel == null} onClick={enter} iconR={<Ic.arrowR size={20} />}>Eintreten</Btn>
       </Footer>
     </Screen>
   );

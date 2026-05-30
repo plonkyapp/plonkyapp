@@ -30,6 +30,7 @@ function App() {
   const [mode, setMode] = useAS(null);
   const [players, setPlayers] = useAS([]);
   const [me, setMe] = useAS(null);
+  const [sessionCode, setSessionCode] = useAS(null);
   // persistent
   const [account, setAccount] = useAS(null);
   const [family, setFamily] = useAS([]);
@@ -46,6 +47,31 @@ function App() {
   useAE(() => {
     const d = ACC.STORE.load();
     const linkMatch = typeof location !== 'undefined' && location.pathname.match(/^\/m\/([^\/?#]+)/);
+    const joinMatch = typeof location !== 'undefined' && location.pathname.match(/^\/j\/([^\/?#]+)/);
+
+    // opened via a live-session link (/j/<code>): join that shared round
+    if (joinMatch) {
+      const code = decodeURIComponent(joinMatch[1]).toUpperCase();
+      if (window.history && window.history.replaceState) window.history.replaceState({}, '', '/');
+      let acc = d.account || null;
+      if (acc && !acc.id) acc = { ...acc, id: ACC.newAccountId() };
+      if (acc) setAccount(acc);
+      if (d.family) setFamily(d.family);
+      if (d.defaultMode) setDefaultMode(d.defaultMode);
+      if (d.autoCrew != null) setAutoCrew(d.autoCrew);
+      ACC.API.getSession(code)
+        .then(sess => {
+          if (!sess) { setScreen(acc ? 'home' : 'cover'); return; } // code expired/unknown
+          setSessionCode(sess.code);
+          setMode(sess.mode || 'sequential');
+          setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {} })));
+          setRole('others');
+          setScreen('join');
+        })
+        .catch(() => setScreen(acc ? 'home' : 'cover'))
+        .finally(() => setHydrated(true));
+      return;
+    }
 
     // opened via a personal link (/m/<code>): adopt that account on this device
     if (linkMatch) {
@@ -90,7 +116,7 @@ function App() {
   useAE(() => { window.__fitPhone && window.__fitPhone(); }, []);
 
   const go = (s) => { setScreen(s); const el = document.querySelector('.noscroll'); if (el) el.scrollTop = 0; };
-  const restart = () => { gameSavedRef.current = false; setPlayers([]); setRole(null); setMode(null); setMe(null); go(account ? 'home' : 'cover'); };
+  const restart = () => { gameSavedRef.current = false; setPlayers([]); setRole(null); setMode(null); setMe(null); setSessionCode(null); go(account ? 'home' : 'cover'); };
 
   const saveGame = (pls, acc) => {
     if (gameSavedRef.current) return;
@@ -116,7 +142,7 @@ function App() {
     return list;
   };
   const firstStep = () => (t.onboardingFlow === 'express' ? 'express' : 'welcome');
-  const newGame = () => { gameSavedRef.current = false; setPlayers(buildInitialPlayers()); setRole(account ? 'me' : null); setMode(defaultMode); setMe(null); go(scanEnabled ? 'scan' : firstStep()); };
+  const newGame = () => { gameSavedRef.current = false; setPlayers(buildInitialPlayers()); setRole(account ? 'me' : null); setMode(defaultMode); setMe(null); setSessionCode(null); go(scanEnabled ? 'scan' : firstStep()); };
   const openResults = (fin) => { if (fin && account) saveGame(players); setResultsFinal(fin); go('results'); };
   const createAccount = (name) => {
     const acc = { id: ACC.newAccountId(), name, color: AV[0], created: Date.now() };
@@ -148,10 +174,10 @@ function App() {
     case 'welcome': view = <OB.RoleScreen go={go} role={role} setRole={setRole} back={scanEnabled ? 'scan' : 'cover'} />; break;
     case 'mode': view = <OB.ModeScreen go={go} mode={mode} setMode={setMode} role={role} />; break;
     case 'players': view = <OB.PlayersScreen go={go} players={players} setPlayers={setPlayers} role={role} family={family} />; break;
-    case 'invite': view = <OB.InviteScreen go={go} players={players} />; break;
-    case 'join': view = <OB.JoinScreen go={go} players={players} setMe={setMe} />; break;
+    case 'invite': view = <OB.InviteScreen go={go} players={players} mode={mode} sessionCode={sessionCode} setSessionCode={setSessionCode} />; break;
+    case 'join': view = <OB.JoinScreen go={go} players={players} setMe={setMe} sessionCode={sessionCode} />; break;
     case 'express': view = <GAME.ExpressSetup go={go} role={role} setRole={setRole} mode={mode} setMode={setMode} players={players} setPlayers={setPlayers} family={family} />; break;
-    case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} mode={mode || 'sequential'} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} />; break;
+    case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} mode={mode || 'sequential'} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} />; break;
     case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} onSave={saveGame} final={resultsFinal} onFinish={() => openResults(true)} />; break;
     default: view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} />;
   }

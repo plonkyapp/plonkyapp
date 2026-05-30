@@ -44,10 +44,46 @@ const API = {
     if (!r.ok) throw new Error('saveAccount ' + r.status);
     return r.json();
   },
+  async createSession(session) {
+    const r = await fetch('/api/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(session),
+    });
+    if (!r.ok) throw new Error('createSession ' + r.status);
+    return r.json();
+  },
+  async getSession(code) {
+    const r = await fetch('/api/session/' + encodeURIComponent(code));
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error('getSession ' + r.status);
+    return r.json();
+  },
+  async sessionScore(code, playerId, hole, strokes) {
+    const r = await fetch('/api/session/' + encodeURIComponent(code) + '/score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ player_id: playerId, hole, strokes }),
+    });
+    if (!r.ok) throw new Error('sessionScore ' + r.status);
+    return r.json();
+  },
+  async sessionClaim(code, playerId) {
+    const r = await fetch('/api/session/' + encodeURIComponent(code) + '/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ player_id: playerId }),
+    });
+    if (!r.ok) throw new Error('sessionClaim ' + r.status);
+    return r.json();
+  },
 };
 
+const appOrigin = () => (typeof location !== 'undefined' ? location.origin : 'https://app.plonky.ch');
 // the personal restore link for an account
-const accountLink = (id) => (typeof location !== 'undefined' ? location.origin : 'https://app.plonky.ch') + '/m/' + id;
+const accountLink = (id) => appOrigin() + '/m/' + id;
+// the live-session join link other devices open / scan
+const sessionLink = (code) => appOrigin() + '/j/' + code;
 
 // union of local + server games keyed by id (server wins), kept oldest-first
 function mergeGames(local, server) {
@@ -333,4 +369,4 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
 }
 const iconBtn = { width: 34, height: 34, borderRadius: 10, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 };
 
-window.ACC = { STORE, API, newAccountId, accountLink, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, aTotals, fmtDate, fmtShort };
+window.ACC = { STORE, API, newAccountId, accountLink, sessionLink, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, aTotals, fmtDate, fmtShort };
