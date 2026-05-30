@@ -3,3 +3,11 @@
 z_backup/
 scraps/
 uploads/
+
+# Python backend
+.venv/
+__pycache__/
+*.pyc
+*.db
+instance/
+.env
