@@ -33,11 +33,13 @@ const API = {
     if (!r.ok) throw new Error('account ' + r.status);
     return r.json();
   },
-  async saveAccount(account) {
+  async saveAccount(account, crew) {
+    const body = { id: account.id, name: account.name, color: account.color };
+    if (crew !== undefined) body.crew = crew;
     const r = await fetch('/api/account', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: account.id, name: account.name, color: account.color }),
+      body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error('saveAccount ' + r.status);
     return r.json();
@@ -247,9 +249,10 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
   const [editId, setEditId] = useAcS(null);
   const [newName, setNewName] = useAcS('');
   const [copied, setCopied] = useAcS(false);
-  const link = 'plonky.golf/m/' + (account.name || 'du').toLowerCase() + '-7x2k';
+  const fullLink = account.id ? accountLink(account.id) : '';
+  const link = fullLink.replace(/^https?:\/\//, '');
 
-  const copy = () => { try { navigator.clipboard.writeText('https://' + link); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1600); };
+  const copy = () => { if (!fullLink) return; try { navigator.clipboard.writeText(fullLink); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1600); };
   const addMember = () => { const n = newName.trim(); if (!n) return; setFamily(f => [...f, { id: Date.now(), name: n, color: AV_COLORS[f.length % AV_COLORS.length] }]); setNewName(''); };
   const recolor = (id) => setFamily(f => f.map(m => m.id === id ? { ...m, color: AV_COLORS[(AV_COLORS.indexOf(m.color) + 1) % AV_COLORS.length] } : m));
   const rename = (id, name) => setFamily(f => f.map(m => m.id === id ? { ...m, name } : m));

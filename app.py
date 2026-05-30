@@ -1,3 +1,4 @@
+import json
 import os
 import time
 
@@ -38,6 +39,7 @@ class Account(db.Model):
     id = db.Column(db.String, primary_key=True)
     name = db.Column(db.String, nullable=False, default="")
     color = db.Column(db.String, nullable=False, default="")
+    crew = db.Column(db.Text, nullable=False, default="[]")  # JSON: [{id,name,color}]
     created_at = db.Column(db.BigInteger, nullable=False, default=lambda: int(time.time() * 1000))
 
 
@@ -72,6 +74,14 @@ class Score(db.Model):
     player_id = db.Column(db.Integer, db.ForeignKey("player.id", ondelete="CASCADE"), nullable=False, index=True)
     hole = db.Column(db.Integer, nullable=False)
     strokes = db.Column(db.Integer, nullable=True)
+
+
+def account_to_dict(acc):
+    try:
+        crew = json.loads(acc.crew or "[]")
+    except (ValueError, TypeError):
+        crew = []
+    return {"id": acc.id, "name": acc.name, "color": acc.color, "crew": crew, "created": acc.created_at}
 
 
 def game_to_dict(game):
@@ -161,7 +171,7 @@ def get_account(account_id):
     acc = db.session.get(Account, account_id)
     if acc is None:
         abort(404)
-    return jsonify({"id": acc.id, "name": acc.name, "color": acc.color, "created": acc.created_at})
+    return jsonify(account_to_dict(acc))
 
 
 @app.route("/api/account", methods=["POST"])
@@ -178,8 +188,10 @@ def upsert_account():
         acc.name = data.get("name")
     if data.get("color") is not None:
         acc.color = data.get("color")
+    if data.get("crew") is not None:
+        acc.crew = json.dumps(data.get("crew"))
     db.session.commit()
-    return jsonify({"id": acc.id, "name": acc.name, "color": acc.color, "created": acc.created_at})
+    return jsonify(account_to_dict(acc))
 
 
 @app.route("/")
@@ -199,8 +211,21 @@ def static_files(path):
     return send_from_directory(APP_DIR, path)
 
 
+def ensure_schema():
+    """Add columns introduced after the table was first created. db.create_all()
+    only makes missing tables, never alters existing ones."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(db.engine)
+    cols = {c["name"] for c in inspector.get_columns("account")}
+    if "crew" not in cols:
+        db.session.execute(text("ALTER TABLE account ADD COLUMN crew TEXT NOT NULL DEFAULT '[]'"))
+        db.session.commit()
+
+
 with app.app_context():
     db.create_all()
+    ensure_schema()
 
 
 if __name__ == "__main__":

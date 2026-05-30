@@ -59,6 +59,7 @@ function App() {
           setAccount(acc && acc.id
             ? { id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], created: acc.created || Date.now() }
             : { id: token, name: 'Spieler', color: AV[0], created: Date.now() });
+          if (acc && Array.isArray(acc.crew)) setFamily(acc.crew); // server crew wins on a fresh device
           setScreen('home');
           return ACC.API.listGames(token);
         })
@@ -83,7 +84,7 @@ function App() {
   // persist
   useAE(() => { if (hydrated) ACC.STORE.save({ account, family, history, defaultMode, autoCrew }); }, [hydrated, account, family, history, defaultMode, autoCrew]);
   // keep the server copy of the account (name/color) in sync
-  useAE(() => { if (hydrated && account && account.id) ACC.API.saveAccount(account).catch(() => {}); }, [hydrated, account]);
+  useAE(() => { if (hydrated && account && account.id) ACC.API.saveAccount(account, family).catch(() => {}); }, [hydrated, account, family]);
 
   useAE(() => { document.documentElement.style.setProperty('--accent', t.accent); }, [t.accent]);
   useAE(() => { window.__fitPhone && window.__fitPhone(); }, []);
