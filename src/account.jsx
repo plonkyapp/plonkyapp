@@ -1,0 +1,286 @@
+// account.jsx — persistence, home hub, settings, history
+const { useState: useAcS, useEffect: useAcE, useRef: useAcR } = React;
+
+// ── storage ───────────────────────────────────────────────
+const STORE = {
+  KEY: 'plonky.v1',
+  load() { try { return JSON.parse(localStorage.getItem(this.KEY) || 'null') || {}; } catch (e) { return {}; } },
+  save(d) { try { localStorage.setItem(this.KEY, JSON.stringify(d)); } catch (e) {} },
+};
+
+const fmtDate = (ts) => {
+  const d = new Date(ts);
+  return d.toLocaleDateString('de-CH', { day: 'numeric', month: 'long' }) + ', ' +
+    d.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
+};
+const fmtShort = (ts) => new Date(ts).toLocaleDateString('de-CH', { day: 'numeric', month: 'short' });
+
+// ── shared scoring helpers (mirror game.jsx) ──────────────
+const aPar = h => GAME.PARS[(h - 1) % GAME.PARS.length];
+function aTotals(p) {
+  let strokes = 0, played = 0, pp = 0;
+  for (let h = 1; h <= 18; h++) { const v = p.scores[h]; if (v > 0) { strokes += v; played++; pp += aPar(h); } }
+  return { strokes, played, toPar: strokes - pp };
+}
+const aFmtPar = n => n === 0 ? 'Par' : n > 0 ? '+' + n : '' + n;
+const aRelCol = n => n < 0 ? 'var(--accent)' : n > 0 ? 'var(--bad)' : 'var(--ink-2)';
+
+// ── Home hub ──────────────────────────────────────────────
+function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabled = true }) {
+  const { Screen, Body, Btn, Avatar } = UI;
+  const recent = [...history].slice(-3).reverse();
+  return (
+    <Screen>
+      <div style={{ paddingTop: 64, padding: '64px 22px 6px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: 13, color: 'var(--ink-3)', fontWeight: 600 }}>Willkommen zurück</div>
+          <div style={{ fontSize: 27, fontWeight: 800, letterSpacing: -0.6 }}>Hoi {account.name} 👋</div>
+        </div>
+        <button onClick={() => go('settings')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}>
+          <Avatar name={account.name} color={account.color} size={48} />
+        </button>
+      </div>
+      <Body style={{ paddingTop: 14 }}>
+        <button onClick={newGame} style={{
+          width: '100%', textAlign: 'left', cursor: 'pointer', border: 'none',
+          background: 'var(--accent)', color: '#fff', borderRadius: 'var(--r-card)',
+          padding: '20px 22px', display: 'flex', alignItems: 'center', gap: 16,
+          boxShadow: '0 14px 30px -14px color-mix(in srgb, var(--accent) 75%, transparent)',
+        }}>
+          <div style={{ width: 50, height: 50, borderRadius: 15, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic.scan size={26} color="#fff" /></div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>Neues Spiel</div>
+            <div style={{ fontSize: 13.5, opacity: 0.85 }}>{scanEnabled ? 'QR scannen & loslegen' : 'Crew ist dabei · direkt loslegen'}</div>
+          </div>
+          <Ic.arrowR size={22} color="#fff" />
+        </button>
+
+        {/* recent games */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 10px' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Letzte Spiele</div>
+          {history.length > 0 && <button onClick={() => go('history')} style={ghostLink}>Alle ansehen</button>}
+        </div>
+        {history.length === 0 ? (
+          <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 18, padding: '22px 18px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 14 }}>
+            <Ic.clock size={26} color="var(--ink-3)" style={{ marginBottom: 8 }} />
+            <div>Noch keine Spiele.<br />Dein erstes Resultat landet automatisch hier.</div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+            {recent.map(g => <HistoryCard key={g.id} g={g} onClick={() => openGame(g.id)} />)}
+          </div>
+        )}
+
+        {/* family */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 10px' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Familie & Crew</div>
+          <button onClick={() => go('settings')} style={ghostLink}>Verwalten</button>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {family.length === 0 && <div style={{ fontSize: 13.5, color: 'var(--ink-3)' }}>Spieler:innen aus deinen Spielen erscheinen hier.</div>}
+          {family.map(m => (
+            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 13px 5px 5px' }}>
+              <Avatar name={m.name} color={m.color} size={28} />
+              <span style={{ fontSize: 14, fontWeight: 600 }}>{m.name}</span>
+            </div>
+          ))}
+        </div>
+      </Body>
+    </Screen>
+  );
+}
+const ghostLink = { border: 'none', background: 'transparent', color: 'var(--accent)', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', fontFamily: 'var(--font)', padding: 0 };
+
+function HistoryCard({ g, onClick }) {
+  const { Avatar } = UI;
+  const ranked = [...g.players].map(p => ({ p, t: aTotals(p) })).sort((a, b) => a.t.strokes - b.t.strokes);
+  const win = ranked[0];
+  return (
+    <button onClick={onClick} style={{
+      width: '100%', textAlign: 'left', cursor: 'pointer', background: 'var(--card)',
+      border: '1px solid var(--line)', borderRadius: 18, padding: '13px 15px',
+      display: 'flex', alignItems: 'center', gap: 13, fontFamily: 'var(--font)',
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
+          <Ic.pin size={13} color="var(--accent)" />
+          <span style={{ fontSize: 14.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.venue}</span>
+        </div>
+        <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>{fmtShort(g.date)} · {g.players.length} Spieler · {g.mode === 'sequential' ? 'Bahn für Bahn' : 'Guerilla'}</div>
+      </div>
+      {win && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 18 }}>🥇</span>
+          <Avatar name={win.p.name} color={win.p.color} size={30} />
+        </div>
+      )}
+      <Ic.chevR size={18} color="var(--ink-3)" />
+    </button>
+  );
+}
+
+// ── History list ──────────────────────────────────────────
+function HistoryScreen({ history, go, openGame }) {
+  const { Screen, AppHeader, Body } = UI;
+  const games = [...history].reverse();
+  return (
+    <Screen>
+      <AppHeader title="Verlauf" sub={`${history.length} Spiele`} onBack={() => go('home')} />
+      <Body>
+        {games.length === 0 ? (
+          <div style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 14, padding: '40px 0' }}>Noch keine Spiele gespeichert.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+            {games.map(g => <HistoryCard key={g.id} g={g} onClick={() => openGame(g.id)} />)}
+          </div>
+        )}
+      </Body>
+    </Screen>
+  );
+}
+
+// ── History detail (scorecard) ────────────────────────────
+function HistoryDetailScreen({ game, go, from }) {
+  const { Screen, AppHeader, Body, Avatar } = UI;
+  if (!game) return <Screen><AppHeader title="Spiel" onBack={() => go(from)} /></Screen>;
+  const ranked = [...game.players].map(p => ({ p, t: aTotals(p) })).sort((a, b) => a.t.strokes - b.t.strokes);
+  const holes = Array.from({ length: 18 }, (_, i) => i + 1);
+  const cell = (w) => ({ minWidth: 30, width: 30, textAlign: 'center', fontFamily: 'var(--num)', fontSize: 14, padding: '7px 0', flexShrink: 0 });
+  return (
+    <Screen>
+      <AppHeader title={game.venue} sub={fmtDate(game.date)} onBack={() => go(from)} />
+      <Body>
+        {/* winner */}
+        {ranked[0] && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'color-mix(in srgb, var(--accent) 9%, var(--card))', border: '1px solid var(--accent)', borderRadius: 16, padding: '12px 16px', marginBottom: 16 }}>
+            <span style={{ fontSize: 24 }}>🏆</span>
+            <Avatar name={ranked[0].p.name} color={ranked[0].p.color} size={36} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>{ranked[0].p.name} gewinnt</div>
+              <div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{ranked[0].t.strokes} Schläge · {ranked[0].t.played} Bahnen</div>
+            </div>
+          </div>
+        )}
+        {/* scorecard */}
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>Scorecard</div>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }} className="noscroll">
+            <div style={{ minWidth: 'max-content' }}>
+              {/* header row: hole numbers */}
+              <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', background: 'var(--line-2)' }}>
+                <div style={{ width: 96, minWidth: 96, padding: '7px 12px', fontSize: 11, fontWeight: 700, color: 'var(--ink-3)', position: 'sticky', left: 0, background: 'var(--line-2)', display: 'flex', alignItems: 'center' }}>BAHN</div>
+                {holes.map(h => <div key={h} style={{ ...cell(), fontSize: 11.5, fontWeight: 700, color: 'var(--ink-3)' }}>{h}</div>)}
+                <div style={{ ...cell(), minWidth: 44, width: 44, fontSize: 11, fontWeight: 800, color: 'var(--ink-2)' }}>TOT</div>
+              </div>
+              {/* player rows */}
+              {ranked.map(({ p, t }) => (
+                <div key={p.id} style={{ display: 'flex', borderBottom: '1px solid var(--line-2)' }}>
+                  <div style={{ width: 96, minWidth: 96, padding: '7px 12px', position: 'sticky', left: 0, background: 'var(--card)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Avatar name={p.name} color={p.color} size={22} />
+                    <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
+                  </div>
+                  {holes.map(h => {
+                    const v = p.scores[h] || 0;
+                    return <div key={h} style={{ ...cell(), color: v ? 'var(--ink)' : 'var(--ink-3)', fontWeight: 500 }}>{v || '·'}</div>;
+                  })}
+                  <div style={{ ...cell(), minWidth: 44, width: 44, fontWeight: 800, color: 'var(--ink)' }}>{t.strokes}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Body>
+    </Screen>
+  );
+}
+
+// ── Settings ──────────────────────────────────────────────
+function SettingsScreen({ account, setAccount, family, setFamily, go, logout, defaultMode, setDefaultMode, autoCrew, setAutoCrew }) {
+  const { Screen, AppHeader, Body, Avatar, AV_COLORS } = UI;
+  const [editId, setEditId] = useAcS(null);
+  const [newName, setNewName] = useAcS('');
+  const [copied, setCopied] = useAcS(false);
+  const link = 'plonky.golf/m/' + (account.name || 'du').toLowerCase() + '-7x2k';
+
+  const copy = () => { try { navigator.clipboard.writeText('https://' + link); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1600); };
+  const addMember = () => { const n = newName.trim(); if (!n) return; setFamily(f => [...f, { id: Date.now(), name: n, color: AV_COLORS[f.length % AV_COLORS.length] }]); setNewName(''); };
+  const recolor = (id) => setFamily(f => f.map(m => m.id === id ? { ...m, color: AV_COLORS[(AV_COLORS.indexOf(m.color) + 1) % AV_COLORS.length] } : m));
+  const rename = (id, name) => setFamily(f => f.map(m => m.id === id ? { ...m, name } : m));
+  const removeM = (id) => setFamily(f => f.filter(m => m.id !== id));
+
+  return (
+    <Screen>
+      <AppHeader title="Mein Konto" onBack={() => go('home')} />
+      <Body>
+        {/* profile */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 15, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 20, padding: 16 }}>
+          <button onClick={() => setAccount(a => ({ ...a, color: AV_COLORS[(AV_COLORS.indexOf(a.color) + 1) % AV_COLORS.length] }))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}>
+            <Avatar name={account.name} color={account.color} size={56} />
+          </button>
+          <div style={{ flex: 1 }}>
+            <input value={account.name} onChange={e => setAccount(a => ({ ...a, name: e.target.value }))}
+              style={{ width: '100%', border: 'none', background: 'transparent', fontFamily: 'var(--font)', fontSize: 19, fontWeight: 700, outline: 'none', padding: 0, color: 'var(--ink)' }} />
+            <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>Tipp auf den Avatar für eine andere Farbe</div>
+          </div>
+        </div>
+
+        {/* magic link */}
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4, margin: '22px 0 8px' }}>Dein Zugangslink</div>
+        <button onClick={copy} style={{ width: '100%', textAlign: 'left', cursor: 'pointer', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '13px 16px', display: 'flex', alignItems: 'center', gap: 12, fontFamily: 'var(--font)' }}>
+          <Ic.link size={19} color="var(--accent)" />
+          <span style={{ flex: 1, fontSize: 13.5, color: 'var(--ink-2)', fontFamily: 'var(--num)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{link}</span>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent)' }}>{copied ? '✓ Kopiert' : 'Kopieren'}</span>
+        </button>
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 7, lineHeight: 1.4 }}>Als Lesezeichen speichern — dieser Link öffnet immer dein Konto. Kein Passwort nötig.</div>
+
+        {/* family management */}
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4, margin: '24px 0 8px' }}>Familie & Crew</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {family.map(m => (
+            <div key={m.id} style={{ background: 'var(--card)', border: editId === m.id ? '2px solid var(--accent)' : '1px solid var(--line)', borderRadius: 14, padding: editId === m.id ? '9px 11px' : '10px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+                <button onClick={() => recolor(m.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><Avatar name={m.name} color={m.color} size={34} /></button>
+                {editId === m.id
+                  ? <input autoFocus value={m.name} onChange={e => rename(m.id, e.target.value)} onKeyDown={e => e.key === 'Enter' && setEditId(null)}
+                      style={{ flex: 1, border: 'none', background: 'transparent', fontFamily: 'var(--font)', fontSize: 15.5, fontWeight: 600, outline: 'none', color: 'var(--ink)' }} />
+                  : <div style={{ flex: 1, fontSize: 15.5, fontWeight: 600 }}>{m.name}</div>}
+                <button onClick={() => setEditId(editId === m.id ? null : m.id)} style={iconBtn}>{editId === m.id ? <Ic.check size={18} color="var(--accent)" /> : <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-3)' }}>Bearb.</span>}</button>
+                <button onClick={() => removeM(m.id)} style={iconBtn}><Ic.x size={17} color="var(--ink-3)" /></button>
+              </div>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 9 }}>
+            <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addMember()} placeholder="Mitglied hinzufügen"
+              style={{ flex: 1, height: 46, borderRadius: 13, border: '1px solid var(--line)', background: 'var(--card)', padding: '0 14px', fontSize: 15, fontFamily: 'var(--font)', outline: 'none' }} />
+            <button onClick={addMember} style={{ width: 46, height: 46, borderRadius: 13, border: 'none', background: 'var(--accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><Ic.plus size={22} /></button>
+          </div>
+        </div>
+
+        {/* defaults */}
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4, margin: '24px 0 8px' }}>Standard-Spielmodus</div>
+        <div style={{ display: 'flex', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 4, gap: 4 }}>
+          {[['sequential', 'Bahn für Bahn', Ic.list], ['guerilla', 'Guerilla', Ic.shuffle]].map(([v, l, I]) => (
+            <button key={v} onClick={() => setDefaultMode(v)} style={{ flex: 1, height: 44, borderRadius: 11, border: 'none', cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: defaultMode === v ? 'var(--accent)' : 'transparent', color: defaultMode === v ? '#fff' : 'var(--ink-2)' }}><I size={16} /> {l}</button>
+          ))}
+        </div>
+
+        {/* auto crew */}
+        <button onClick={() => setAutoCrew(!autoCrew)} style={{ width: '100%', marginTop: 18, display: 'flex', alignItems: 'center', gap: 13, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '13px 15px', cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font)' }}>
+          <div style={{ width: 38, height: 38, borderRadius: 11, background: autoCrew ? 'var(--accent)' : 'var(--line-2)', color: autoCrew ? '#fff' : 'var(--ink-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic.users size={20} /></div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Crew automatisch dazu</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>Neues Spiel startet direkt mit dir &amp; deiner Crew</div>
+          </div>
+          <div style={{ width: 46, height: 28, borderRadius: 999, background: autoCrew ? 'var(--accent)' : 'var(--line)', position: 'relative', flexShrink: 0, transition: 'background .15s' }}>
+            <div style={{ position: 'absolute', top: 3, left: autoCrew ? 21 : 3, width: 22, height: 22, borderRadius: '50%', background: '#fff', transition: 'left .15s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+          </div>
+        </button>
+
+        <button onClick={logout} style={{ width: '100%', marginTop: 26, marginBottom: 10, height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'transparent', color: 'var(--bad)', fontFamily: 'var(--font)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Konto abmelden</button>
+      </Body>
+    </Screen>
+  );
+}
+const iconBtn = { width: 34, height: 34, borderRadius: 10, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 };
+
+window.ACC = { STORE, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, aTotals, fmtDate, fmtShort };
