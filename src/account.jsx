@@ -8,6 +8,35 @@ const STORE = {
   save(d) { try { localStorage.setItem(this.KEY, JSON.stringify(d)); } catch (e) {} },
 };
 
+// stable, shareable account token (basis for link-based accounts later)
+const newAccountId = () => 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+// ── backend API (same-origin; degrades to localStorage-only if unreachable) ──
+const API = {
+  async listGames(accountId) {
+    const r = await fetch('/api/games?account_id=' + encodeURIComponent(accountId));
+    if (!r.ok) throw new Error('list ' + r.status);
+    return r.json();
+  },
+  async saveGame(accountId, game) {
+    const r = await fetch('/api/games', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({ account_id: accountId }, game)),
+    });
+    if (!r.ok) throw new Error('save ' + r.status);
+    return r.json();
+  },
+};
+
+// union of local + server games keyed by id (server wins), kept oldest-first
+function mergeGames(local, server) {
+  const byId = {};
+  (local || []).forEach(g => { byId[g.id] = g; });
+  (server || []).forEach(g => { byId[g.id] = g; });
+  return Object.values(byId).sort((a, b) => (a.date || 0) - (b.date || 0));
+}
+
 const fmtDate = (ts) => {
   const d = new Date(ts);
   return d.toLocaleDateString('de-CH', { day: 'numeric', month: 'long' }) + ', ' +
@@ -283,4 +312,4 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
 }
 const iconBtn = { width: 34, height: 34, borderRadius: 10, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 };
 
-window.ACC = { STORE, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, aTotals, fmtDate, fmtShort };
+window.ACC = { STORE, API, newAccountId, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, aTotals, fmtDate, fmtShort };

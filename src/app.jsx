@@ -45,12 +45,17 @@ function App() {
   // load once
   useAE(() => {
     const d = ACC.STORE.load();
-    if (d.account) { setAccount(d.account); setScreen('home'); }
+    let acc = d.account || null;
+    if (acc && !acc.id) acc = { ...acc, id: ACC.newAccountId() }; // backfill id for pre-DB accounts
+    if (acc) { setAccount(acc); setScreen('home'); }
     if (d.family) setFamily(d.family);
     if (d.history) setHistory(d.history);
     if (d.defaultMode) setDefaultMode(d.defaultMode);
     if (d.autoCrew != null) setAutoCrew(d.autoCrew);
     setHydrated(true);
+    if (acc && acc.id) ACC.API.listGames(acc.id)
+      .then(server => setHistory(local => ACC.mergeGames(local, server)))
+      .catch(() => {}); // offline / old static host: keep localStorage only
   }, []);
   // persist
   useAE(() => { if (hydrated) ACC.STORE.save({ account, family, history, defaultMode, autoCrew }); }, [hydrated, account, family, history, defaultMode, autoCrew]);
@@ -61,7 +66,7 @@ function App() {
   const go = (s) => { setScreen(s); const el = document.querySelector('.noscroll'); if (el) el.scrollTop = 0; };
   const restart = () => { gameSavedRef.current = false; setPlayers([]); setRole(null); setMode(null); setMe(null); go(account ? 'home' : 'cover'); };
 
-  const saveGame = (pls) => {
+  const saveGame = (pls, acc) => {
     if (gameSavedRef.current) return;
     if (!pls.some(p => GAME.totals(p).played > 0)) return;
     gameSavedRef.current = true;
@@ -73,6 +78,8 @@ function App() {
       const add = pls.filter(p => !names.has(p.name.toLowerCase())).map(p => ({ id: 'f' + p.id, name: p.name, color: p.color }));
       return [...fam, ...add];
     });
+    const aid = (acc || account) && (acc || account).id;
+    if (aid) ACC.API.saveGame(aid, game).catch(() => {}); // best-effort; local copy already saved
   };
 
   const openGame = (id) => { setHistId(id); setHistFrom(screen); go('historyDetail'); };
@@ -85,7 +92,7 @@ function App() {
   const firstStep = () => (t.onboardingFlow === 'express' ? 'express' : 'welcome');
   const newGame = () => { gameSavedRef.current = false; setPlayers(buildInitialPlayers()); setRole(account ? 'me' : null); setMode(defaultMode); setMe(null); go(scanEnabled ? 'scan' : firstStep()); };
   const openResults = (fin) => { if (fin && account) saveGame(players); setResultsFinal(fin); go('results'); };
-  const createAccount = (name) => { setAccount({ name, color: AV[0], created: Date.now() }); saveGame(players); };
+  const createAccount = (name) => { const acc = { id: ACC.newAccountId(), name, color: AV[0], created: Date.now() }; setAccount(acc); saveGame(players, acc); };
   const logout = () => { setAccount(null); go('cover'); };
 
   const jump = (s) => {
