@@ -41,6 +41,9 @@
     background:
       radial-gradient(120% 90% at 50% -10%, #F2F2EE 0%, #E4E4DF 55%, #DCDCD6 100%);
   }
+  /* fill mode (real phone / installed PWA): app fills the screen, thin
+     bezel tone shows through the rounded corners */
+  html[data-fill="1"] #stage{ background:#DCDCD6; }
   #fit{ transform-origin:center center; }
   button{font-family:inherit;}
   ::-webkit-scrollbar{width:0;height:0;}
@@ -81,10 +84,22 @@
   <script type="text/babel" src="src/app.jsx"></script>
 
   <script>
-    // Fit the 402x874 phone into the viewport
+    // Real phone / installed PWA → fill the viewport. Desktop → fit the
+    // 402x874 phone mockup with letterbox.
     function fitPhone(){
       var fit = document.getElementById('fit');
       if(!fit) return;
+      var fill = Math.min(window.innerWidth, window.innerHeight) <= 520
+        || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+      document.documentElement.dataset.fill = fill ? '1' : '0';
+      if(fill){
+        fit.style.transform = 'none';
+        fit.style.width = '100%';
+        fit.style.height = '100%';
+        return;
+      }
+      fit.style.width = '';
+      fit.style.height = '';
       var W = 402, H = 874, pad = 24;
       var s = Math.min((window.innerWidth - pad*2)/W, (window.innerHeight - pad*2)/H);
       s = Math.min(s, 1.18);

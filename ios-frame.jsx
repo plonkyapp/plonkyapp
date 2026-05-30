@@ -195,12 +195,65 @@ function IOSList({ header, children, dark = false }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Fill mode: true on a real phone or installed PWA → app fills the
+// whole viewport (no fake status bar/island). False on desktop → the
+// 402×874 mockup with bezel is shown.
+// ─────────────────────────────────────────────────────────────
+function isFill() {
+  if (typeof window === 'undefined') return false;
+  return Math.min(window.innerWidth, window.innerHeight) <= 520
+    || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+}
+function useFill() {
+  const [fill, setFill] = React.useState(isFill);
+  React.useEffect(() => {
+    const on = () => setFill(isFill());
+    window.addEventListener('resize', on);
+    let mq;
+    if (window.matchMedia) {
+      mq = window.matchMedia('(display-mode: standalone)');
+      if (mq.addEventListener) mq.addEventListener('change', on);
+    }
+    return () => {
+      window.removeEventListener('resize', on);
+      if (mq && mq.removeEventListener) mq.removeEventListener('change', on);
+    };
+  }, []);
+  return fill;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Device frame
 // ─────────────────────────────────────────────────────────────
 function IOSDevice({
   children, width = 402, height = 874, dark = false,
   title, keyboard = false,
 }) {
+  const fill = useFill();
+
+  // Real phone / installed PWA: fill the viewport, drop the fake chrome.
+  if (fill) {
+    return (
+      <div style={{
+        width: '100%', height: '100dvh', borderRadius: 28, overflow: 'hidden',
+        position: 'relative', background: dark ? '#000' : '#F2F2F7',
+        fontFamily: '-apple-system, system-ui, sans-serif',
+        WebkitFontSmoothing: 'antialiased',
+        display: 'flex', flexDirection: 'column',
+      }}>
+        <div style={{
+          flex: 1, overflow: 'auto',
+          paddingTop: 'env(safe-area-inset-top)',
+        }}>
+          {title !== undefined && <IOSNavBar title={title} dark={dark} />}
+          {children}
+        </div>
+        {keyboard && <IOSKeyboard dark={dark} />}
+      </div>
+    );
+  }
+
+  // Desktop preview: framed iPhone mockup.
   return (
     <div style={{
       width, height, borderRadius: 48, overflow: 'hidden',
