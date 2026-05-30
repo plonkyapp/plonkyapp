@@ -339,6 +339,12 @@ function InviteScreen({ go, players, mode, sessionCode, setSessionCode }) {
       .catch(() => setErr(true));
   }, []);
 
+  // keep the server roster in sync while the host edits the line-up
+  useEffectOB(() => {
+    if (!code) return;
+    ACC.API.sessionPlayers(code, players).catch(() => {});
+  }, [code, players]);
+
   // poll for who has claimed a slot
   useEffectOB(() => {
     if (!code) return;

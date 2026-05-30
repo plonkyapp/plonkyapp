@@ -77,6 +77,16 @@ const API = {
     if (!r.ok) throw new Error('sessionClaim ' + r.status);
     return r.json();
   },
+  // replace the session roster (keeps claimed/scores for ids that already exist)
+  async sessionPlayers(code, players) {
+    const r = await fetch('/api/session/' + encodeURIComponent(code) + '/players', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ players: (players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {} })) }),
+    });
+    if (!r.ok) throw new Error('sessionPlayers ' + r.status);
+    return r.json();
+  },
 };
 
 const appOrigin = () => (typeof location !== 'undefined' ? location.origin : 'https://app.plonky.ch');

@@ -295,6 +295,31 @@ def session_score(code):
     return jsonify(session_to_dict(s))
 
 
+@app.route("/api/session/<code>/players", methods=["POST"])
+def session_players(code):
+    """Replace the roster (host adding/removing players during setup),
+    preserving claimed/scores for ids that already exist."""
+    body = request.get_json(silent=True) or {}
+    incoming = body.get("players") or []
+    s, payload, existing = _mutate_session(code)
+    by_id = {str(p.get("id")): p for p in existing}
+    merged = []
+    for p in incoming:
+        old = by_id.get(str(p.get("id"))) or {}
+        merged.append({
+            "id": p.get("id"),
+            "name": p.get("name"),
+            "color": p.get("color"),
+            "scores": old.get("scores") or p.get("scores") or {},
+            "claimed": bool(old.get("claimed")),
+        })
+    payload["players"] = merged
+    s.data = json.dumps(payload)
+    s.rev = (s.rev or 0) + 1
+    db.session.commit()
+    return jsonify(session_to_dict(s))
+
+
 @app.route("/api/session/<code>/claim", methods=["POST"])
 def session_claim(code):
     body = request.get_json(silent=True) or {}
