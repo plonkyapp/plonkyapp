@@ -23,7 +23,7 @@ function Wordmark({ size = 34, color = 'var(--ink)' }) {
 }
 
 // ── 1. Cover ──────────────────────────────────────────────
-function CoverScreen({ go, account, scanEnabled = true, onStart }) {
+function CoverScreen({ go, account, scanEnabled = true, onStart, companion = false }) {
   const { Screen, Btn, Avatar } = UI;
   return (
     <Screen bg="var(--paper)">
@@ -61,9 +61,11 @@ function CoverScreen({ go, account, scanEnabled = true, onStart }) {
         </div>
       </div>
       <div style={{ padding: '0 22px 30px', display: 'flex', flexDirection: 'column', gap: 11 }}>
-        {scanEnabled
-          ? <Btn kind="primary" icon={<Ic.scan size={21} />} onClick={() => go('scan')}>QR-Code scannen</Btn>
-          : <Btn kind="primary" icon={<Ic.flag size={20} />} onClick={onStart}>Spiel starten</Btn>}
+        {companion
+          ? <Btn kind="primary" icon={<Ic.scan size={21} />} onClick={() => go('joinCode')}>Spiel beitreten</Btn>
+          : scanEnabled
+            ? <Btn kind="primary" icon={<Ic.scan size={21} />} onClick={() => go('scan')}>QR-Code scannen</Btn>
+            : <Btn kind="primary" icon={<Ic.flag size={20} />} onClick={onStart}>Spiel starten</Btn>}
         {account
           ? <Btn kind="secondary" icon={<Ic.home size={19} />} onClick={() => go('home')}>Zu meinem plonky</Btn>
           : <Btn kind="secondary" onClick={() => go('account')}>Konto einrichten</Btn>}
