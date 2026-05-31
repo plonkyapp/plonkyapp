@@ -74,9 +74,9 @@ function CoverScreen({ go, account, scanEnabled = true, onStart }) {
 }
 
 // ── Account (passwordless link) ───────────────────────────
-function AccountScreen({ go, onCreate }) {
+function AccountScreen({ go, onCreate, companion = false, presetName = '', back = 'cover' }) {
   const { Screen, AppHeader, Body, Footer, Btn } = UI;
-  const [name, setName] = useStateOB('');
+  const [name, setName] = useStateOB(presetName || '');
   const [saved, setSaved] = useStateOB(false);
   const [created, setCreated] = useStateOB(null);
   const [copied, setCopied] = useStateOB(false);
@@ -86,19 +86,25 @@ function AccountScreen({ go, onCreate }) {
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done).catch(done);
     else done();
   };
-  const benefits = [
+  const benefits = companion ? [
+    ['Beim nächsten Mal per QR direkt wieder dabei', Ic.users],
+    ['Eigener Link — kein Passwort', Ic.link],
+    ['Deine Crew bleibt deine — nichts vom Gastgeber übernommen', Ic.check],
+  ] : [
     ['Resultate bleiben gespeichert', Ic.clock],
     ['Familie einmal anlegen, immer dabei', Ic.users],
     ['Kein Passwort — nur ein Link', Ic.link],
   ];
   return (
     <Screen>
-      <AppHeader title="Konto einrichten" sub="Optional" onBack={() => go('cover')} />
+      <AppHeader title={companion ? 'Mitspieler-Konto' : 'Konto einrichten'} sub="Optional" onBack={() => go(back)} />
       <Body>
         {!saved ? (
           <>
             <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45, marginBottom: 18 }}>
-              Wir hassen Registrierungen genauso. Darum: ein Name, ein Link — fertig.
+              {companion
+                ? 'Sichere dich als Mitspieler. So steigst du beim nächsten Mal mit einem Scan direkt wieder ein — ein Name, ein Link, fertig.'
+                : 'Wir hassen Registrierungen genauso. Darum: ein Name, ein Link — fertig.'}
             </div>
             <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-2)' }}>Dein Name</label>
             <input value={name} onChange={e => setName(e.target.value)} placeholder="z.B. Marco"
@@ -133,7 +139,7 @@ function AccountScreen({ go, onCreate }) {
         {!saved
           ? <Btn kind="primary" disabled={!name.trim()} onClick={() => { const acc = onCreate && onCreate(name.trim()); setCreated(acc); setSaved(true); }} icon={<Ic.link size={19} />}>Link erstellen</Btn>
           : <Btn kind="primary" onClick={() => go('home')} iconR={<Ic.arrowR size={20} />}>Zu meinem plonky</Btn>}
-        {!saved && <Btn kind="ghost" onClick={() => go('cover')}>Später</Btn>}
+        {!saved && <Btn kind="ghost" onClick={() => go(back)}>Später</Btn>}
       </Footer>
     </Screen>
   );
@@ -421,9 +427,17 @@ function InviteScreen({ go, players, mode, sessionCode, setSessionCode }) {
 }
 
 // ── Join (joiner picks who they are in the live session) ──
-function JoinScreen({ go, players, setMe, sessionCode }) {
+function JoinScreen({ go, players, setMe, sessionCode, account = null }) {
   const { Screen, Body, Footer, Btn, Avatar } = UI;
   const [sel, setSel] = useStateOB(null);
+  const myName = account && account.name ? account.name.toLowerCase() : null;
+  // Wiedereinstieg: hat dieses Gerät ein Konto, wird der passende (freie) Slot
+  // automatisch vorausgewählt — Lena scannt Tommys QR und ist sofort als Lena dabei.
+  useEffectOB(() => {
+    if (!myName || sel != null) return;
+    const mine = players.find(p => !p.host && !p.claimed && p.name && p.name.toLowerCase() === myName);
+    if (mine) setSel(mine.id);
+  }, [myName, players]);
   const enter = () => {
     if (sel == null) return;
     if (sessionCode) ACC.API.sessionClaim(sessionCode, sel).catch(() => {});
@@ -442,7 +456,8 @@ function JoinScreen({ go, players, setMe, sessionCode }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {players.map(p => {
             const taken = !!p.host || !!p.claimed;       // host slot & already-joined slots aren't pickable
-            const note = p.host ? 'Gastgeber' : p.claimed ? 'schon dabei' : null;
+            const isMine = !taken && myName && p.name && p.name.toLowerCase() === myName;
+            const note = p.host ? 'Gastgeber' : p.claimed ? 'schon dabei' : isMine ? 'du' : null;
             return (
               <button key={p.id} disabled={taken} onClick={() => !taken && setSel(p.id)} style={{
                 display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left', cursor: taken ? 'default' : 'pointer',
@@ -451,7 +466,7 @@ function JoinScreen({ go, players, setMe, sessionCode }) {
               }}>
                 <Avatar name={p.name} color={p.color} size={42} dim={taken} />
                 <div style={{ flex: 1, fontSize: 17, fontWeight: 600 }}>{p.name}</div>
-                {note && <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-3)' }}>{note}</div>}
+                {note && <div style={{ fontSize: 12.5, fontWeight: 700, color: isMine ? 'var(--accent)' : 'var(--ink-3)' }}>{note}</div>}
                 {sel === p.id && <div style={{ color: 'var(--accent)' }}><Ic.check size={22} /></div>}
               </button>
             );

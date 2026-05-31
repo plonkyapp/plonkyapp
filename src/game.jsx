@@ -436,9 +436,18 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
       </div>
       <UI.Body>
         {final && (joined ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 13, fontWeight: 600, color: 'var(--ink-2)', marginBottom: 14, textAlign: 'center', lineHeight: 1.4 }}>
-            <Ic.users size={16} color="var(--accent)" /> Der Gastgeber speichert den Endstand für alle.
-          </div>
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 13, fontWeight: 600, color: 'var(--ink-2)', marginBottom: 14, textAlign: 'center', lineHeight: 1.4 }}>
+              <Ic.users size={16} color="var(--accent)" /> Der Gastgeber speichert den Endstand für alle.
+            </div>
+            {!account && (
+              <button onClick={() => go('account')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, background: 'color-mix(in srgb, var(--accent) 8%, var(--card))', border: '1px solid color-mix(in srgb, var(--accent) 35%, var(--line))', borderRadius: 16, padding: '13px 15px', marginBottom: 14, cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font)' }}>
+                <Ic.link size={20} color="var(--accent)" />
+                <div style={{ flex: 1 }}><div style={{ fontSize: 14.5, fontWeight: 700 }}>Als Mitspieler sichern?</div><div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>Eigener Link — beim nächsten Mal per QR direkt wieder dabei.</div></div>
+                <Ic.chevR size={18} color="var(--ink-3)" />
+              </button>
+            )}
+          </>
         ) : account ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 13, fontWeight: 600, color: 'var(--accent)', marginBottom: 14 }}>
             <Ic.check size={16} /> Im Verlauf gespeichert

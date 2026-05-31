@@ -172,6 +172,21 @@ function App() {
     saveGame(players, acc);
     return acc;
   };
+  // Mitspieler-Konto: ein per QR beigetretener Gast sichert nur seine eigene
+  // Identität (Name/Farbe + persönlicher Link). Er übernimmt NICHT die Crew des
+  // Hosts und speichert das Spiel NICHT (der Gastgeber besitzt den Endstand).
+  const createCompanion = (name) => {
+    const meP = players.find(p => String(p.id) === String(me));
+    const acc = {
+      id: ACC.newAccountId(),
+      name: (name || '').trim() || (meP && meP.name) || 'Spieler',
+      color: (meP && meP.color) || AV[0],
+      created: Date.now(),
+    };
+    setAccount(acc);
+    ACC.API.saveAccount(acc, family).catch(() => {});
+    return acc;
+  };
   const logout = () => { setAccount(null); go('cover'); };
 
   const jump = (s) => {
@@ -186,7 +201,7 @@ function App() {
   let view;
   switch (screen) {
     case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} />; break;
-    case 'account': view = <OB.AccountScreen go={go} onCreate={createAccount} />; break;
+    case 'account': view = <OB.AccountScreen go={go} onCreate={me != null ? createCompanion : createAccount} companion={me != null} presetName={me != null ? ((players.find(p => String(p.id) === String(me)) || {}).name || '') : ''} back={me != null ? 'results' : 'cover'} />; break;
     case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={newGame} scanEnabled={scanEnabled} />; break;
     case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} />; break;
     case 'history': view = <ACC.HistoryScreen history={history} go={go} openGame={openGame} />; break;
@@ -196,7 +211,7 @@ function App() {
     case 'mode': view = <OB.ModeScreen go={go} mode={mode} setMode={setMode} role={role} />; break;
     case 'players': view = <OB.PlayersScreen go={go} players={players} setPlayers={setPlayers} role={role} family={family} />; break;
     case 'invite': view = <OB.InviteScreen go={go} players={players} mode={mode} sessionCode={sessionCode} setSessionCode={setSessionCode} />; break;
-    case 'join': view = <OB.JoinScreen go={go} players={players} setMe={setMe} sessionCode={sessionCode} />; break;
+    case 'join': view = <OB.JoinScreen go={go} players={players} setMe={setMe} sessionCode={sessionCode} account={account} />; break;
     case 'express': view = <GAME.ExpressSetup go={go} role={role} setRole={setRole} mode={mode} setMode={setMode} players={players} setPlayers={setPlayers} family={family} />; break;
     case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} mode={mode || 'sequential'} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} />; break;
     case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} onSave={saveGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} />; break;
