@@ -35,6 +35,7 @@ const API = {
   },
   async saveAccount(account, crew) {
     const body = { id: account.id, name: account.name, color: account.color };
+    if (account.kind) body.kind = account.kind;
     if (crew !== undefined) body.crew = crew;
     const r = await fetch('/api/account', {
       method: 'POST',
@@ -121,14 +122,14 @@ const aFmtPar = n => n === 0 ? 'Par' : n > 0 ? '+' + n : '' + n;
 const aRelCol = n => n < 0 ? 'var(--accent)' : n > 0 ? 'var(--bad)' : 'var(--ink-2)';
 
 // ── Home hub ──────────────────────────────────────────────
-function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabled = true }) {
+function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabled = true, companion = false }) {
   const { Screen, Body, Btn, Avatar } = UI;
   const recent = [...history].slice(-3).reverse();
   return (
     <Screen>
       <div style={{ paddingTop: 64, padding: '64px 22px 6px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div style={{ fontSize: 13, color: 'var(--ink-3)', fontWeight: 600 }}>Willkommen zurück</div>
+          <div style={{ fontSize: 13, color: 'var(--ink-3)', fontWeight: 600 }}>{companion ? 'Mitspieler-Konto' : 'Willkommen zurück'}</div>
           <div style={{ fontSize: 27, fontWeight: 800, letterSpacing: -0.6 }}>Hoi {account.name} 👋</div>
         </div>
         <button onClick={() => go('settings')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}>
@@ -136,19 +137,35 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
         </button>
       </div>
       <Body style={{ paddingTop: 14 }}>
-        <button onClick={newGame} style={{
-          width: '100%', textAlign: 'left', cursor: 'pointer', border: 'none',
-          background: 'var(--accent)', color: '#fff', borderRadius: 'var(--r-card)',
-          padding: '20px 22px', display: 'flex', alignItems: 'center', gap: 16,
-          boxShadow: '0 14px 30px -14px color-mix(in srgb, var(--accent) 75%, transparent)',
-        }}>
-          <div style={{ width: 50, height: 50, borderRadius: 15, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic.scan size={26} color="#fff" /></div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>Neues Spiel</div>
-            <div style={{ fontSize: 13.5, opacity: 0.85 }}>{scanEnabled ? 'QR scannen & loslegen' : 'Crew ist dabei · direkt loslegen'}</div>
-          </div>
-          <Ic.arrowR size={22} color="#fff" />
-        </button>
+        {companion ? (
+          <button onClick={() => go('joinCode')} style={{
+            width: '100%', textAlign: 'left', cursor: 'pointer', border: 'none',
+            background: 'var(--accent)', color: '#fff', borderRadius: 'var(--r-card)',
+            padding: '20px 22px', display: 'flex', alignItems: 'center', gap: 16,
+            boxShadow: '0 14px 30px -14px color-mix(in srgb, var(--accent) 75%, transparent)',
+          }}>
+            <div style={{ width: 50, height: 50, borderRadius: 15, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic.scan size={26} color="#fff" /></div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>Spiel beitreten</div>
+              <div style={{ fontSize: 13.5, opacity: 0.85 }}>QR des Gastgebers scannen oder Code eingeben</div>
+            </div>
+            <Ic.arrowR size={22} color="#fff" />
+          </button>
+        ) : (
+          <button onClick={newGame} style={{
+            width: '100%', textAlign: 'left', cursor: 'pointer', border: 'none',
+            background: 'var(--accent)', color: '#fff', borderRadius: 'var(--r-card)',
+            padding: '20px 22px', display: 'flex', alignItems: 'center', gap: 16,
+            boxShadow: '0 14px 30px -14px color-mix(in srgb, var(--accent) 75%, transparent)',
+          }}>
+            <div style={{ width: 50, height: 50, borderRadius: 15, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic.scan size={26} color="#fff" /></div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>Neues Spiel</div>
+              <div style={{ fontSize: 13.5, opacity: 0.85 }}>{scanEnabled ? 'QR scannen & loslegen' : 'Crew ist dabei · direkt loslegen'}</div>
+            </div>
+            <Ic.arrowR size={22} color="#fff" />
+          </button>
+        )}
 
         {/* recent games */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 10px' }}>
@@ -158,7 +175,7 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
         {history.length === 0 ? (
           <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 18, padding: '22px 18px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 14 }}>
             <Ic.clock size={26} color="var(--ink-3)" style={{ marginBottom: 8 }} />
-            <div>Noch keine Spiele.<br />Dein erstes Resultat landet automatisch hier.</div>
+            <div>{companion ? <>Noch keine Spiele.<br />Tritt einer Runde bei — dein Resultat landet hier.</> : <>Noch keine Spiele.<br />Dein erstes Resultat landet automatisch hier.</>}</div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
@@ -166,20 +183,24 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
           </div>
         )}
 
-        {/* family */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 10px' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Familie & Crew</div>
-          <button onClick={() => go('settings')} style={ghostLink}>Verwalten</button>
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {family.length === 0 && <div style={{ fontSize: 13.5, color: 'var(--ink-3)' }}>Spieler:innen aus deinen Spielen erscheinen hier.</div>}
-          {family.map(m => (
-            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 13px 5px 5px' }}>
-              <Avatar name={m.name} color={m.color} size={28} />
-              <span style={{ fontSize: 14, fontWeight: 600 }}>{m.name}</span>
+        {/* family — master accounts only */}
+        {!companion && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 10px' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Familie & Crew</div>
+              <button onClick={() => go('settings')} style={ghostLink}>Verwalten</button>
             </div>
-          ))}
-        </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {family.length === 0 && <div style={{ fontSize: 13.5, color: 'var(--ink-3)' }}>Spieler:innen aus deinen Spielen erscheinen hier.</div>}
+              {family.map(m => (
+                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 13px 5px 5px' }}>
+                  <Avatar name={m.name} color={m.color} size={28} />
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>{m.name}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </Body>
     </Screen>
   );
@@ -290,7 +311,7 @@ function HistoryDetailScreen({ game, go, from }) {
 }
 
 // ── Settings ──────────────────────────────────────────────
-function SettingsScreen({ account, setAccount, family, setFamily, go, logout, defaultMode, setDefaultMode, autoCrew, setAutoCrew }) {
+function SettingsScreen({ account, setAccount, family, setFamily, go, logout, defaultMode, setDefaultMode, autoCrew, setAutoCrew, companion = false }) {
   const { Screen, AppHeader, Body, Avatar, AV_COLORS } = UI;
   const [editId, setEditId] = useAcS(null);
   const [newName, setNewName] = useAcS('');
@@ -306,7 +327,7 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
 
   return (
     <Screen>
-      <AppHeader title="Mein Konto" onBack={() => go('home')} />
+      <AppHeader title={companion ? 'Mein Mitspieler-Konto' : 'Mein Konto'} onBack={() => go('home')} />
       <Body>
         {/* profile */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 15, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 20, padding: 16 }}>
@@ -329,6 +350,7 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
         </button>
         <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 7, lineHeight: 1.4 }}>Als Lesezeichen speichern — dieser Link öffnet immer dein Konto. Kein Passwort nötig.</div>
 
+        {!companion && (<>
         {/* family management */}
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4, margin: '24px 0 8px' }}>Familie & Crew</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -371,6 +393,9 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
             <div style={{ position: 'absolute', top: 3, left: autoCrew ? 21 : 3, width: 22, height: 22, borderRadius: '50%', background: '#fff', transition: 'left .15s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
           </div>
         </button>
+        </>)}
+
+        {companion && <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 22, lineHeight: 1.45 }}>Als Mitspieler siehst du nur die Spiele, bei denen du dabei warst. Spiele eröffnet der Gastgeber.</div>}
 
         <button onClick={logout} style={{ width: '100%', marginTop: 26, marginBottom: 10, height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'transparent', color: 'var(--bad)', fontFamily: 'var(--font)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Konto abmelden</button>
       </Body>

@@ -481,4 +481,49 @@ function JoinScreen({ go, players, setMe, sessionCode, account = null }) {
   );
 }
 
-window.OB = { Wordmark, CoverScreen, AccountScreen, ScanScreen, RoleScreen, ModeScreen, PlayersScreen, InviteScreen, JoinScreen, VENUE };
+// ── Join by code (companion: enter the host's session code) ──
+function JoinCodeScreen({ go, onJoined, back = 'home' }) {
+  const { Screen, AppHeader, Body, Footer, Btn } = UI;
+  const [code, setCode] = useStateOB('');
+  const [busy, setBusy] = useStateOB(false);
+  const [err, setErr] = useStateOB('');
+  const clean = code.trim().toUpperCase();
+  const join = () => {
+    if (clean.length < 4 || busy) return;
+    setBusy(true); setErr('');
+    ACC.API.getSession(clean)
+      .then(sess => {
+        if (!sess) { setErr('Diesen Code gibt es nicht (mehr). Prüfe die 4 Zeichen.'); setBusy(false); return; }
+        onJoined && onJoined(sess);
+      })
+      .catch(() => { setErr('Verbindung fehlgeschlagen. Nochmal versuchen.'); setBusy(false); });
+  };
+  return (
+    <Screen>
+      <AppHeader title="Spiel beitreten" onBack={() => go(back)} />
+      <Body>
+        <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45, marginBottom: 18 }}>
+          Richte deine <b>Handy-Kamera</b> auf den QR-Code des Gastgebers — oder gib hier den 4-stelligen Code ein, den er dir zeigt.
+        </div>
+        <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-2)' }}>Session-Code</label>
+        <input
+          value={code}
+          onChange={e => { setCode(e.target.value.slice(0, 4)); setErr(''); }}
+          onKeyDown={e => e.key === 'Enter' && join()}
+          placeholder="z.B. H432"
+          autoCapitalize="characters" autoCorrect="off" spellCheck={false}
+          style={{ width: '100%', marginTop: 8, height: 60, borderRadius: 16, border: err ? '1px solid var(--bad)' : '1px solid var(--line)', background: 'var(--card)', padding: '0 18px', fontSize: 26, fontWeight: 700, letterSpacing: 8, textTransform: 'uppercase', fontFamily: 'var(--num)', outline: 'none' }} />
+        {err && <div style={{ fontSize: 13, color: 'var(--bad)', marginTop: 9, fontWeight: 600 }}>{err}</div>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 13, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '14px 16px', marginTop: 22 }}>
+          <div style={{ color: 'var(--accent)' }}><Ic.users size={21} /></div>
+          <div style={{ fontSize: 13.5, color: 'var(--ink-2)', lineHeight: 1.4 }}>Du steigst als Mitspieler ein und trägst nur deine eigenen Schläge ein.</div>
+        </div>
+      </Body>
+      <Footer>
+        <Btn kind="primary" disabled={clean.length < 4 || busy} onClick={join} iconR={<Ic.arrowR size={20} />}>{busy ? 'Suche Runde …' : 'Beitreten'}</Btn>
+      </Footer>
+    </Screen>
+  );
+}
+
+window.OB = { Wordmark, CoverScreen, AccountScreen, ScanScreen, RoleScreen, ModeScreen, PlayersScreen, InviteScreen, JoinScreen, JoinCodeScreen, VENUE };

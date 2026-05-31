@@ -41,6 +41,7 @@ class Account(db.Model):
     name = db.Column(db.String, nullable=False, default="")
     color = db.Column(db.String, nullable=False, default="")
     crew = db.Column(db.Text, nullable=False, default="[]")  # JSON: [{id,name,color}]
+    kind = db.Column(db.String, nullable=False, default="master")  # "master" | "companion"
     created_at = db.Column(db.BigInteger, nullable=False, default=lambda: int(time.time() * 1000))
 
 
@@ -104,7 +105,7 @@ def account_to_dict(acc):
         crew = json.loads(acc.crew or "[]")
     except (ValueError, TypeError):
         crew = []
-    return {"id": acc.id, "name": acc.name, "color": acc.color, "crew": crew, "created": acc.created_at}
+    return {"id": acc.id, "name": acc.name, "color": acc.color, "crew": crew, "kind": acc.kind or "master", "created": acc.created_at}
 
 
 def session_to_dict(s):
@@ -227,6 +228,8 @@ def upsert_account():
         acc.color = data.get("color")
     if data.get("crew") is not None:
         acc.crew = json.dumps(data.get("crew"))
+    if data.get("kind") is not None:
+        acc.kind = data.get("kind")
     db.session.commit()
     return jsonify(account_to_dict(acc))
 
@@ -365,6 +368,9 @@ def ensure_schema():
     cols = {c["name"] for c in inspector.get_columns("account")}
     if "crew" not in cols:
         db.session.execute(text("ALTER TABLE account ADD COLUMN crew TEXT NOT NULL DEFAULT '[]'"))
+        db.session.commit()
+    if "kind" not in cols:
+        db.session.execute(text("ALTER TABLE account ADD COLUMN kind TEXT NOT NULL DEFAULT 'master'"))
         db.session.commit()
 
 

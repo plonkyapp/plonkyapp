@@ -83,8 +83,8 @@ function App() {
       ACC.API.getAccount(token)
         .then(acc => {
           setAccount(acc && acc.id
-            ? { id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], created: acc.created || Date.now() }
-            : { id: token, name: 'Spieler', color: AV[0], created: Date.now() });
+            ? { id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', created: acc.created || Date.now() }
+            : { id: token, name: 'Spieler', color: AV[0], kind: 'master', created: Date.now() });
           if (acc && Array.isArray(acc.crew)) setFamily(acc.crew); // server crew wins on a fresh device
           setScreen('home');
           return ACC.API.listGames(token);
@@ -134,6 +134,19 @@ function App() {
     if (aid) ACC.API.saveGame(aid, game).catch(() => {}); // best-effort; local copy already saved
   };
 
+  // A joined guest with a Mitspieler-Konto keeps a READ-ONLY copy of the round in
+  // her own history. Unlike saveGame this never imports anyone into her crew.
+  const saveCompanionGame = (pls, acc) => {
+    if (gameSavedRef.current) return;
+    if (!pls.some(p => GAME.totals(p).played > 0)) return;
+    gameSavedRef.current = true;
+    const game = { id: 'g' + Date.now(), date: Date.now(), venue: OB.VENUE, mode: mode || 'sequential',
+      players: pls.map(p => ({ id: p.id, name: p.name, color: p.color, scores: { ...p.scores } })) };
+    setHistory(h => [...h, game]);
+    const aid = (acc || account) && (acc || account).id;
+    if (aid) ACC.API.saveGame(aid, game).catch(() => {});
+  };
+
   const openGame = (id) => { setHistId(id); setHistFrom(screen); go('historyDetail'); };
   const buildInitialPlayers = () => {
     const list = []; const seen = new Set();
@@ -147,7 +160,14 @@ function App() {
     setResultsFinal(fin);
     go('results');
     if (!fin) return;
-    if (me != null) return; // joined participant: the host owns and saves the game
+    // Host owns & saves the authoritative game. A joined guest with her own
+    // Mitspieler-Konto keeps a read-only copy in her history; a joined guest
+    // without an account saves nothing here (she can still create one on this screen).
+    const finalize = (finalPlayers) => {
+      if (!account) return;
+      if (me != null) saveCompanionGame(finalPlayers, account);
+      else saveGame(finalPlayers);
+    };
     if (sessionCode) {
       // pull the authoritative final scores from the server so every device agrees
       ACC.API.getSession(sessionCode).then(sess => {
@@ -159,10 +179,10 @@ function App() {
           });
           setPlayers(finalPlayers);
         }
-        if (account) saveGame(finalPlayers);
-      }).catch(() => { if (account) saveGame(players); });
-    } else if (account) {
-      saveGame(players);
+        finalize(finalPlayers);
+      }).catch(() => finalize(players));
+    } else {
+      finalize(players);
     }
   };
   const createAccount = (name) => {
@@ -173,19 +193,45 @@ function App() {
     return acc;
   };
   // Mitspieler-Konto: ein per QR beigetretener Gast sichert nur seine eigene
-  // Identität (Name/Farbe + persönlicher Link). Er übernimmt NICHT die Crew des
-  // Hosts und speichert das Spiel NICHT (der Gastgeber besitzt den Endstand).
+  // Identität (Name/Farbe + persönlicher Link, kind="companion"). Er übernimmt
+  // NICHT die Crew des Hosts und kann KEINE Spiele eröffnen — der Gastgeber
+  // besitzt das Spiel. Die gerade gespielte Runde wird als read-only Kopie in
+  // seinen Verlauf gelegt, damit "Letzte Spiele" gefüllt ist.
   const createCompanion = (name) => {
     const meP = players.find(p => String(p.id) === String(me));
     const acc = {
       id: ACC.newAccountId(),
       name: (name || '').trim() || (meP && meP.name) || 'Spieler',
       color: (meP && meP.color) || AV[0],
+      kind: 'companion',
       created: Date.now(),
     };
     setAccount(acc);
     ACC.API.saveAccount(acc, family).catch(() => {});
+    // keep a copy of the round she just finished (pull final scores from the server)
+    if (resultsFinal) {
+      if (sessionCode) {
+        ACC.API.getSession(sessionCode).then(sess => {
+          const fp = (sess && sess.players)
+            ? players.map(p => { const sp = sess.players.find(x => String(x.id) === String(p.id)); return sp ? { ...p, scores: sp.scores || {} } : p; })
+            : players;
+          saveCompanionGame(fp, acc);
+        }).catch(() => saveCompanionGame(players, acc));
+      } else {
+        saveCompanionGame(players, acc);
+      }
+    }
     return acc;
+  };
+  // Companion joins a host's round by code (or via the scanned QR deep-link).
+  const enterSession = (sess) => {
+    gameSavedRef.current = false;
+    setSessionCode(sess.code);
+    setMode(sess.mode || 'sequential');
+    setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host })));
+    setRole('others');
+    setMe(null);
+    go('join');
   };
   const logout = () => { setAccount(null); go('cover'); };
 
@@ -198,12 +244,14 @@ function App() {
     go(s);
   };
 
+  const isCompanion = !!(account && account.kind === 'companion');
   let view;
   switch (screen) {
     case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} />; break;
     case 'account': view = <OB.AccountScreen go={go} onCreate={me != null ? createCompanion : createAccount} companion={me != null} presetName={me != null ? ((players.find(p => String(p.id) === String(me)) || {}).name || '') : ''} back={me != null ? 'results' : 'cover'} />; break;
-    case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={newGame} scanEnabled={scanEnabled} />; break;
-    case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} />; break;
+    case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={newGame} scanEnabled={scanEnabled} companion={isCompanion} />; break;
+    case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} />; break;
+    case 'joinCode': view = <OB.JoinCodeScreen go={go} onJoined={enterSession} back={account ? 'home' : 'cover'} />; break;
     case 'history': view = <ACC.HistoryScreen history={history} go={go} openGame={openGame} />; break;
     case 'historyDetail': view = <ACC.HistoryDetailScreen game={history.find(g => g.id === histId)} go={go} from={histFrom} />; break;
     case 'scan': view = <OB.ScanScreen go={go} express={t.onboardingFlow === 'express'} />; break;
