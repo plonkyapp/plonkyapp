@@ -382,7 +382,7 @@ function GameScreen({ players, setPlayers, mode, go, voiceOn, showTotals, openRe
           {mode === 'sequential' ? (
             <UI.Btn kind={allEntered || last ? 'primary' : 'secondary'} onClick={() => { if (last) openResults(true); else { setFocus(null); setHole(h => h + 1); } }} style={{ flex: 1 }}
               iconR={!last && <Ic.arrowR size={20} />} icon={last && <Ic.trophy size={20} />}>
-              {last ? 'Spiel beenden' : allEntered ? 'Nächste Bahn' : 'Weiter'}
+              {last ? (me != null ? 'Endstand ansehen' : 'Spiel beenden') : allEntered ? 'Nächste Bahn' : 'Weiter'}
             </UI.Btn>
           ) : (
             <UI.Btn kind="primary" onClick={() => { if (allDone) openResults(true); else { setFocus(null); setHole(h => Math.min(HOLES, h + 1)); } }} style={{ flex: 1 }}
@@ -399,7 +399,7 @@ function GameScreen({ players, setPlayers, mode, go, voiceOn, showTotals, openRe
 }
 
 // ── Results / standings ───────────────────────────────────
-function ResultsScreen({ players, go, restart, account, onSave, final = true, onFinish }) {
+function ResultsScreen({ players, go, restart, account, onSave, final = true, onFinish, joined = false }) {
   const ranked = [...players].map(p => ({ p, t: totals(p) })).sort((a, b) => a.t.strokes - b.t.strokes);
   const medal = ['🥇', '🥈', '🥉'];
   const leader = ranked.find(r => r.t.played > 0) ? ranked[0] : null;
@@ -411,7 +411,11 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
         {leader && <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.4, marginTop: 4 }}>{leader.p.name} {final ? 'gewinnt! 🎉' : 'führt'}</div>}
       </div>
       <UI.Body>
-        {final && (account ? (
+        {final && (joined ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 13, fontWeight: 600, color: 'var(--ink-2)', marginBottom: 14, textAlign: 'center', lineHeight: 1.4 }}>
+            <Ic.users size={16} color="var(--accent)" /> Der Gastgeber speichert den Endstand für alle.
+          </div>
+        ) : account ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 13, fontWeight: 600, color: 'var(--accent)', marginBottom: 14 }}>
             <Ic.check size={16} /> Im Verlauf gespeichert
           </div>
