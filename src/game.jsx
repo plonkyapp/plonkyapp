@@ -399,16 +399,40 @@ function GameScreen({ players, setPlayers, mode, go, voiceOn, showTotals, openRe
 }
 
 // ── Results / standings ───────────────────────────────────
-function ResultsScreen({ players, go, restart, account, onSave, final = true, onFinish, joined = false }) {
-  const ranked = [...players].map(p => ({ p, t: totals(p) })).sort((a, b) => a.t.strokes - b.t.strokes);
+function ResultsScreen({ players, go, restart, account, onSave, final = true, onFinish, joined = false, sessionCode }) {
+  // joined players watch the live session so the standings converge to the real endstand
+  const [rows, setRows] = useS(players);
+  useE(() => { setRows(players); }, [players]);
+  useE(() => {
+    if (!joined || !sessionCode) return;
+    let alive = true;
+    const tick = () => ACC.API.getSession(sessionCode).then(sess => {
+      if (!alive || !sess || !sess.players) return;
+      setRows(prev => prev.map(p => {
+        const sp = sess.players.find(x => String(x.id) === String(p.id));
+        return sp ? { ...p, scores: sp.scores || {} } : p;
+      }));
+    }).catch(() => {});
+    tick();
+    const iv = setInterval(tick, 3000);
+    return () => { alive = false; clearInterval(iv); };
+  }, [joined, sessionCode]);
+
+  const ranked = [...rows].map(p => ({ p, t: totals(p) })).sort((a, b) => a.t.strokes - b.t.strokes);
   const medal = ['🥇', '🥈', '🥉'];
+  // only crown a winner once everyone has finished all 18 — otherwise a player
+  // who has played few holes has a low total and would look like the leader
+  const allComplete = rows.length > 0 && rows.every(p => totals(p).played === HOLES);
+  const doneCount = rows.filter(p => totals(p).played === HOLES).length;
   const leader = ranked.find(r => r.t.played > 0) ? ranked[0] : null;
   return (
     <UI.Screen>
       <div style={{ paddingTop: 64, padding: '64px 24px 8px', textAlign: 'center', flexShrink: 0 }}>
-        <div style={{ width: 70, height: 70, borderRadius: '50%', background: final ? 'var(--accent)' : 'var(--line-2)', color: final ? '#fff' : 'var(--ink-2)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', animation: 'plonkPop .5s both' }}>{final ? <Ic.trophy size={36} /> : <Ic.list size={32} />}</div>
-        <div style={{ fontSize: 14, color: 'var(--ink-3)', fontWeight: 600, marginTop: 14, letterSpacing: 0.3 }}>{final ? 'ENDSTAND' : 'ZWISCHENSTAND'} · {OB.VENUE}</div>
-        {leader && <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.4, marginTop: 4 }}>{leader.p.name} {final ? 'gewinnt! 🎉' : 'führt'}</div>}
+        <div style={{ width: 70, height: 70, borderRadius: '50%', background: allComplete ? 'var(--accent)' : 'var(--line-2)', color: allComplete ? '#fff' : 'var(--ink-2)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', animation: 'plonkPop .5s both' }}>{allComplete ? <Ic.trophy size={36} /> : <Ic.list size={32} />}</div>
+        <div style={{ fontSize: 14, color: 'var(--ink-3)', fontWeight: 600, marginTop: 14, letterSpacing: 0.3 }}>{allComplete ? 'ENDSTAND' : 'ZWISCHENSTAND'} · {OB.VENUE}</div>
+        {allComplete && leader
+          ? <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.4, marginTop: 4 }}>{leader.p.name} gewinnt! 🎉</div>
+          : <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink-2)', marginTop: 6 }}>Spiel läuft noch · {doneCount}/{rows.length} fertig</div>}
       </div>
       <UI.Body>
         {final && (joined ? (
@@ -430,10 +454,10 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
           {ranked.map(({ p, t }, i) => (
             <div key={p.id} style={{
               display: 'flex', alignItems: 'center', gap: 13, padding: '14px 16px', borderRadius: 18,
-              background: i === 0 && t.played > 0 ? 'color-mix(in srgb, var(--accent) 9%, var(--card))' : 'var(--card)',
-              border: i === 0 && t.played > 0 ? '2px solid var(--accent)' : '1px solid var(--line)',
+              background: i === 0 && allComplete ? 'color-mix(in srgb, var(--accent) 9%, var(--card))' : 'var(--card)',
+              border: i === 0 && allComplete ? '2px solid var(--accent)' : '1px solid var(--line)',
             }}>
-              <div style={{ width: 26, textAlign: 'center', fontSize: i < 3 ? 22 : 15, fontWeight: 700, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{t.played > 0 ? (medal[i] || i + 1) : '·'}</div>
+              <div style={{ width: 26, textAlign: 'center', fontSize: allComplete && i < 3 ? 22 : 15, fontWeight: 700, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{t.played > 0 ? (allComplete ? (medal[i] || i + 1) : i + 1) : '·'}</div>
               <UI.Avatar name={p.name} color={p.color} size={40} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 16.5, fontWeight: 700 }}>{p.name}</div>
@@ -445,7 +469,12 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
         </div>
       </UI.Body>
       <UI.Footer>
-        {final ? (
+        {joined ? (
+          <>
+            <UI.Btn kind="primary" onClick={() => go('game')} icon={<Ic.flag size={19} />}>Zurück zum Spiel</UI.Btn>
+            <UI.Btn kind="ghost" onClick={restart}>Runde verlassen</UI.Btn>
+          </>
+        ) : final ? (
           <>
             <UI.Btn kind="primary" onClick={restart} icon={<Ic.home size={19} />}>{account ? 'Zur Startseite' : 'Neues Spiel'}</UI.Btn>
             <UI.Btn kind="ghost" onClick={() => go('game')}>Zurück zum Spiel</UI.Btn>

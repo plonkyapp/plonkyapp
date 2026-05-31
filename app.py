@@ -241,8 +241,9 @@ def create_session():
             "color": p.get("color") or "",
             "scores": p.get("scores") or {},
             "claimed": bool(p.get("claimed")),
+            "host": (i == 0),  # the lead device that created the round
         }
-        for p in (data.get("players") or [])
+        for i, p in enumerate(data.get("players") or [])
     ]
     s = Session(
         code=new_session_code(),
@@ -304,7 +305,7 @@ def session_players(code):
     s, payload, existing = _mutate_session(code)
     by_id = {str(p.get("id")): p for p in existing}
     merged = []
-    for p in incoming:
+    for i, p in enumerate(incoming):
         old = by_id.get(str(p.get("id"))) or {}
         merged.append({
             "id": p.get("id"),
@@ -312,6 +313,7 @@ def session_players(code):
             "color": p.get("color"),
             "scores": old.get("scores") or p.get("scores") or {},
             "claimed": bool(old.get("claimed")),
+            "host": (i == 0),
         })
     payload["players"] = merged
     s.data = json.dumps(payload)

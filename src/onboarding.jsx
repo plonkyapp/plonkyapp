@@ -440,17 +440,22 @@ function JoinScreen({ go, players, setMe, sessionCode }) {
       </div>
       <Body style={{ paddingTop: 16 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {players.map(p => (
-            <button key={p.id} onClick={() => setSel(p.id)} style={{
-              display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left', cursor: 'pointer',
-              background: 'var(--card)', borderRadius: 18, padding: '12px 16px',
-              border: sel === p.id ? '2px solid var(--accent)' : '1px solid var(--line)', fontFamily: 'var(--font)',
-            }}>
-              <Avatar name={p.name} color={p.color} size={42} />
-              <div style={{ flex: 1, fontSize: 17, fontWeight: 600 }}>{p.name}</div>
-              {sel === p.id && <div style={{ color: 'var(--accent)' }}><Ic.check size={22} /></div>}
-            </button>
-          ))}
+          {players.map(p => {
+            const taken = !!p.host || !!p.claimed;       // host slot & already-joined slots aren't pickable
+            const note = p.host ? 'Gastgeber' : p.claimed ? 'schon dabei' : null;
+            return (
+              <button key={p.id} disabled={taken} onClick={() => !taken && setSel(p.id)} style={{
+                display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left', cursor: taken ? 'default' : 'pointer',
+                background: 'var(--card)', borderRadius: 18, padding: '12px 16px', opacity: taken ? 0.5 : 1,
+                border: sel === p.id ? '2px solid var(--accent)' : '1px solid var(--line)', fontFamily: 'var(--font)',
+              }}>
+                <Avatar name={p.name} color={p.color} size={42} dim={taken} />
+                <div style={{ flex: 1, fontSize: 17, fontWeight: 600 }}>{p.name}</div>
+                {note && <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-3)' }}>{note}</div>}
+                {sel === p.id && <div style={{ color: 'var(--accent)' }}><Ic.check size={22} /></div>}
+              </button>
+            );
+          })}
           {players.length === 0 && <div style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 14, padding: '30px 0' }}>Diese Runde ist nicht mehr aktiv.</div>}
         </div>
       </Body>

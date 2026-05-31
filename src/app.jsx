@@ -64,7 +64,7 @@ function App() {
           if (!sess) { setScreen(acc ? 'home' : 'cover'); return; } // code expired/unknown
           setSessionCode(sess.code);
           setMode(sess.mode || 'sequential');
-          setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {} })));
+          setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host })));
           setRole('others');
           setScreen('join');
         })
@@ -199,7 +199,7 @@ function App() {
     case 'join': view = <OB.JoinScreen go={go} players={players} setMe={setMe} sessionCode={sessionCode} />; break;
     case 'express': view = <GAME.ExpressSetup go={go} role={role} setRole={setRole} mode={mode} setMode={setMode} players={players} setPlayers={setPlayers} family={family} />; break;
     case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} mode={mode || 'sequential'} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} />; break;
-    case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} onSave={saveGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} />; break;
+    case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} onSave={saveGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} />; break;
     default: view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} />;
   }
 
