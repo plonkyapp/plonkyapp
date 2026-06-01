@@ -17,7 +17,7 @@ function totals(p) {
 const fmtPar = n => (n === 0 ? 'Par' : n > 0 ? '+' + n : '' + n);
 
 // ── Bahn header (master) ──────────────────────────────────
-function BahnHeader({ hole, mode, onPrev, onNext }) {
+function BahnHeader({ hole, onPrev, onNext }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18, padding: '2px 0 6px' }}>
       <button onClick={onPrev} disabled={hole <= 1} style={navBtn(hole <= 1)}><Ic.chevL size={22} /></button>
@@ -106,7 +106,7 @@ const stepBtn = (dis, accent) => ({
 });
 
 // ── Timeline ──────────────────────────────────────────────
-function Timeline({ hole, players, mode, onJump }) {
+function Timeline({ hole, players, onJump }) {
   const playedHole = h => players.length > 0 && players.every(p => (p.scores[h] || 0) > 0);
   return (
     <div style={{ padding: '4px 2px 0' }}>
@@ -283,7 +283,7 @@ function VoiceSheet({ players, hole, onApply, onClose }) {
 }
 
 // ── Game screen ───────────────────────────────────────────
-function GameScreen({ players, setPlayers, mode, go, voiceOn, showTotals, openResults, sessionCode, me }) {
+function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults, sessionCode, me }) {
   const [hole, setHole] = useS(1);
   const [focus, setFocus] = useS(null);
   const [voice, setVoice] = useS(false);
@@ -336,22 +336,16 @@ function GameScreen({ players, setPlayers, mode, go, voiceOn, showTotals, openRe
     return am === bm ? 0 : am ? -1 : 1;
   });
   const allEntered = players.length > 0 && players.every(p => (p.scores[hole] || 0) > 0);
-  const allDone = players.length > 0 && players.every(p => totals(p).played === HOLES);
   const last = hole >= HOLES;
 
   return (
     <UI.Screen>
       {/* top chrome */}
       <div style={{ paddingTop: 56, padding: '56px 18px 0', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--ink-2)', fontWeight: 600 }}>
-            <Ic.pin size={14} color="var(--accent)" /> {OB.VENUE}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--ink-2)', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 11px', whiteSpace: 'nowrap' }}>
-            {mode === 'sequential' ? <><Ic.list size={13} /> Bahn für Bahn</> : <><Ic.shuffle size={13} /> Guerilla</>}
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--ink-2)', fontWeight: 600, marginBottom: 4 }}>
+          <Ic.pin size={14} color="var(--accent)" /> {OB.VENUE}
         </div>
-        <BahnHeader hole={hole} mode={mode} onPrev={() => { setFocus(null); setHole(h => Math.max(1, h - 1)); }} onNext={() => { setFocus(null); setHole(h => Math.min(HOLES, h + 1)); }} />
+        <BahnHeader hole={hole} onPrev={() => { setFocus(null); setHole(h => Math.max(1, h - 1)); }} onNext={() => { setFocus(null); setHole(h => Math.min(HOLES, h + 1)); }} />
       </div>
 
       <UI.Body pad={16} style={{ paddingTop: 6 }}>
@@ -365,7 +359,7 @@ function GameScreen({ players, setPlayers, mode, go, voiceOn, showTotals, openRe
 
       {/* bottom: voice + timeline + advance */}
       <div style={{ flexShrink: 0, padding: '10px 16px 26px', background: 'linear-gradient(to top, var(--paper) 70%, rgba(244,244,241,0))', display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <Timeline hole={hole} players={players} mode={mode} onJump={h => { setFocus(null); setHole(h); }} />
+        <Timeline hole={hole} players={players} onJump={h => { setFocus(null); setHole(h); }} />
         <div style={{ display: 'flex', gap: 10 }}>
           {voiceOn && me == null && (
             <button onClick={() => setVoice(true)} title="Spracheingabe" style={{
@@ -379,17 +373,10 @@ function GameScreen({ players, setPlayers, mode, go, voiceOn, showTotals, openRe
             border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}><Ic.list size={23} /></button>
-          {mode === 'sequential' ? (
-            <UI.Btn kind={allEntered || last ? 'primary' : 'secondary'} onClick={() => { if (last) openResults(true); else { setFocus(null); setHole(h => h + 1); } }} style={{ flex: 1 }}
-              iconR={!last && <Ic.arrowR size={20} />} icon={last && <Ic.trophy size={20} />}>
-              {last ? (me != null ? 'Endstand ansehen' : 'Spiel beenden') : allEntered ? 'Nächste Bahn' : 'Weiter'}
-            </UI.Btn>
-          ) : (
-            <UI.Btn kind="primary" onClick={() => { if (allDone) openResults(true); else { setFocus(null); setHole(h => Math.min(HOLES, h + 1)); } }} style={{ flex: 1 }}
-              iconR={!allDone && <Ic.arrowR size={20} />} icon={allDone && <Ic.trophy size={20} />}>
-              {allDone ? 'Endstand ansehen' : 'Nächste Bahn'}
-            </UI.Btn>
-          )}
+          <UI.Btn kind={allEntered || last ? 'primary' : 'secondary'} onClick={() => { if (last) openResults(true); else { setFocus(null); setHole(h => h + 1); } }} style={{ flex: 1 }}
+            iconR={!last && <Ic.arrowR size={20} />} icon={last && <Ic.trophy size={20} />}>
+            {last ? (me != null ? 'Endstand ansehen' : 'Spiel beenden') : allEntered ? 'Nächste Bahn' : 'Weiter'}
+          </UI.Btn>
         </div>
       </div>
 
@@ -521,8 +508,6 @@ function ExpressSetup({ go, role, setRole, mode, setMode, players, setPlayers, f
       <Body style={{ paddingTop: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.4 }}>Wer tippt?</div>
         <Seg opts={[['me', 'Ich für alle', Ic.user], ['others', 'Alle selbst', Ic.users]]} value={role} onPick={setRole} />
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', margin: '18px 0 8px', textTransform: 'uppercase', letterSpacing: 0.4 }}>Modus</div>
-        <Seg opts={[['sequential', 'Bahn für Bahn', Ic.list], ['guerilla', 'Guerilla', Ic.shuffle]]} value={mode} onPick={setMode} />
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', margin: '18px 0 8px', textTransform: 'uppercase', letterSpacing: 0.4 }}>Spieler:innen</div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => e.key === 'Enter' && add(val)} placeholder="Name + Enter"
@@ -543,7 +528,7 @@ function ExpressSetup({ go, role, setRole, mode, setMode, players, setPlayers, f
         </div>
       </Body>
       <Footer>
-        <Btn kind="primary" disabled={!role || !mode || players.length === 0} onClick={() => go(role === 'others' ? 'invite' : 'game')} iconR={<Ic.arrowR size={20} />}>
+        <Btn kind="primary" disabled={!role || players.length === 0} onClick={() => go(role === 'others' ? 'invite' : 'game')} iconR={<Ic.arrowR size={20} />}>
           {players.length ? `Los · ${players.length} dabei` : 'Los geht\u2019s'}
         </Btn>
       </Footer>

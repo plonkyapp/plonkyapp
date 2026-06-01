@@ -233,41 +233,14 @@ function RoleScreen({ go, role, setRole, back = 'scan' }) {
         </div>
       </Body>
       <Footer>
-        <Steps n={4} i={0} />
-        <Btn kind="primary" disabled={!role} onClick={() => go('mode')} iconR={<Ic.arrowR size={20} />}>Weiter</Btn>
+        <Steps n={3} i={0} />
+        <Btn kind="primary" disabled={!role} onClick={() => go('players')} iconR={<Ic.arrowR size={20} />}>Weiter</Btn>
       </Footer>
     </Screen>
   );
 }
 
-// ── 4. Mode ───────────────────────────────────────────────
-function ModeScreen({ go, mode, setMode, role }) {
-  const { Screen, AppHeader, Body, Footer, Btn, Steps } = UI;
-  return (
-    <Screen>
-      <AppHeader title="Wie spielt ihr?" sub="Spielmodus" onBack={() => go('welcome')} />
-      <Body>
-        <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45, marginBottom: 18 }}>
-          Cool. Spielt ihr Bahn für Bahn oder kreuz und quer?
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <UI.ChoiceCard icon={<Ic.list size={25} />} title="Bahn für Bahn"
-            desc="Alle spielen Bahn 1, dann Bahn 2 … klassisch der Reihe nach."
-            selected={mode === 'sequential'} onClick={() => setMode('sequential')} />
-          <UI.ChoiceCard icon={<Ic.shuffle size={25} />} title="Guerilla"
-            desc="Frei verteilt auf der Anlage. Spring zu jeder Bahn, wie's grad passt."
-            selected={mode === 'guerilla'} onClick={() => setMode('guerilla')} />
-        </div>
-      </Body>
-      <Footer>
-        <Steps n={4} i={1} />
-        <Btn kind="primary" disabled={!mode} onClick={() => go('players')} iconR={<Ic.arrowR size={20} />}>Weiter</Btn>
-      </Footer>
-    </Screen>
-  );
-}
-
-// ── 5. Players ────────────────────────────────────────────
+// ── 4. Players ────────────────────────────────────────────
 function PlayersScreen({ go, players, setPlayers, role, family = [] }) {
   const { Screen, AppHeader, Body, Footer, Btn, Steps, Avatar, AV_COLORS } = UI;
   const [val, setVal] = useStateOB('');
@@ -283,7 +256,7 @@ function PlayersScreen({ go, players, setPlayers, role, family = [] }) {
   const next = role === 'others' ? 'invite' : 'game';
   return (
     <Screen>
-      <AppHeader title="Wer spielt mit?" sub={role === 'others' ? 'Spieler:innen anlegen' : 'Familie & Freunde'} onBack={() => go('mode')} />
+      <AppHeader title="Wer spielt mit?" sub={role === 'others' ? 'Spieler:innen anlegen' : 'Familie & Freunde'} onBack={() => go('welcome')} />
       <Body>
         <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
           <input ref={inputRef} value={val} onChange={e => setVal(e.target.value)}
@@ -317,7 +290,7 @@ function PlayersScreen({ go, players, setPlayers, role, family = [] }) {
         )}
       </Body>
       <Footer>
-        <Steps n={4} i={2} />
+        <Steps n={3} i={1} />
         <Btn kind="primary" disabled={players.length === 0} onClick={() => go(next)}
           iconR={<Ic.arrowR size={20} />}>
           {role === 'others' ? 'Andere einladen' : players.length ? `Spiel starten · ${players.length}` : 'Spiel starten'}
@@ -421,7 +394,7 @@ function InviteScreen({ go, players, mode, sessionCode, setSessionCode }) {
         </div>
       </Body>
       <Footer>
-        <Steps n={4} i={3} />
+        <Steps n={3} i={2} />
         <Btn kind="primary" onClick={() => go('game')} iconR={<Ic.arrowR size={20} />}>Spiel starten</Btn>
       </Footer>
     </Screen>
@@ -528,4 +501,4 @@ function JoinCodeScreen({ go, onJoined, back = 'home' }) {
   );
 }
 
-window.OB = { Wordmark, CoverScreen, AccountScreen, ScanScreen, RoleScreen, ModeScreen, PlayersScreen, InviteScreen, JoinScreen, JoinCodeScreen, VENUE };
+window.OB = { Wordmark, CoverScreen, AccountScreen, ScanScreen, RoleScreen, PlayersScreen, InviteScreen, JoinScreen, JoinCodeScreen, VENUE };

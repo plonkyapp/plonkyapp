@@ -222,7 +222,7 @@ function HistoryCard({ g, onClick }) {
           <Ic.pin size={13} color="var(--accent)" />
           <span style={{ fontSize: 14.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.venue}</span>
         </div>
-        <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>{fmtShort(g.date)} · {g.players.length} Spieler · {g.mode === 'sequential' ? 'Bahn für Bahn' : 'Guerilla'}</div>
+        <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>{fmtShort(g.date)} · {g.players.length} Spieler</div>
       </div>
       {win && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -261,7 +261,7 @@ function HistoryDetailScreen({ game, go, from }) {
   if (!game) return <Screen><AppHeader title="Spiel" onBack={() => go(from)} /></Screen>;
   const ranked = [...game.players].map(p => ({ p, t: aTotals(p) })).sort((a, b) => a.t.strokes - b.t.strokes);
   const holes = Array.from({ length: 18 }, (_, i) => i + 1);
-  const cell = (w) => ({ minWidth: 30, width: 30, textAlign: 'center', fontFamily: 'var(--num)', fontSize: 14, padding: '7px 0', flexShrink: 0 });
+  const half = Math.ceil(holes.length / 2); // 18 → two rows of 9 so it fits a phone without scrolling
   return (
     <Screen>
       <AppHeader title={game.venue} sub={fmtDate(game.date)} onBack={() => go(from)} />
@@ -277,33 +277,35 @@ function HistoryDetailScreen({ game, go, from }) {
             </div>
           </div>
         )}
-        {/* scorecard */}
+        {/* scorecard — one card per player, two rows of 9 holes so it fits a phone */}
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>Scorecard</div>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }} className="noscroll">
-            <div style={{ minWidth: 'max-content' }}>
-              {/* header row: hole numbers */}
-              <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', background: 'var(--line-2)' }}>
-                <div style={{ width: 96, minWidth: 96, padding: '7px 12px', fontSize: 11, fontWeight: 700, color: 'var(--ink-3)', position: 'sticky', left: 0, background: 'var(--line-2)', display: 'flex', alignItems: 'center' }}>BAHN</div>
-                {holes.map(h => <div key={h} style={{ ...cell(), fontSize: 11.5, fontWeight: 700, color: 'var(--ink-3)' }}>{h}</div>)}
-                <div style={{ ...cell(), minWidth: 44, width: 44, fontSize: 11, fontWeight: 800, color: 'var(--ink-2)' }}>TOT</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {ranked.map(({ p, t }, i) => (
+            <div key={p.id} style={{ background: 'var(--card)', border: i === 0 ? '1.5px solid var(--accent)' : '1px solid var(--line)', borderRadius: 16, padding: '12px 13px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                <div style={{ width: 16, textAlign: 'center', fontSize: 13, fontWeight: 800, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{i + 1}</div>
+                <Avatar name={p.name} color={p.color} size={26} />
+                <span style={{ flex: 1, fontSize: 14.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
+                <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontFamily: 'var(--num)', fontSize: 21, fontWeight: 800 }}>{t.strokes}</span>
+                  <span style={{ fontSize: 11, color: 'var(--ink-3)', fontWeight: 600 }}> · {t.played}/{holes.length}</span>
+                </div>
               </div>
-              {/* player rows */}
-              {ranked.map(({ p, t }) => (
-                <div key={p.id} style={{ display: 'flex', borderBottom: '1px solid var(--line-2)' }}>
-                  <div style={{ width: 96, minWidth: 96, padding: '7px 12px', position: 'sticky', left: 0, background: 'var(--card)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Avatar name={p.name} color={p.color} size={22} />
-                    <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
-                  </div>
-                  {holes.map(h => {
+              {[[0, half], [half, holes.length]].map(([a, b], ri) => (
+                <div key={ri} style={{ display: 'flex', gap: 3, marginTop: 5 }}>
+                  {holes.slice(a, b).map(h => {
                     const v = p.scores[h] || 0;
-                    return <div key={h} style={{ ...cell(), color: v ? 'var(--ink)' : 'var(--ink-3)', fontWeight: 500 }}>{v || '·'}</div>;
+                    return (
+                      <div key={h} style={{ flex: 1, textAlign: 'center', background: 'var(--line-2)', borderRadius: 7, padding: '4px 0' }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-3)', lineHeight: 1 }}>{h}</div>
+                        <div style={{ fontFamily: 'var(--num)', fontSize: 14.5, fontWeight: 600, color: v ? 'var(--ink)' : 'var(--ink-3)', lineHeight: 1.3 }}>{v || '·'}</div>
+                      </div>
+                    );
                   })}
-                  <div style={{ ...cell(), minWidth: 44, width: 44, fontWeight: 800, color: 'var(--ink)' }}>{t.strokes}</div>
                 </div>
               ))}
             </div>
-          </div>
+          ))}
         </div>
       </Body>
     </Screen>
@@ -372,14 +374,6 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
               style={{ flex: 1, height: 46, borderRadius: 13, border: '1px solid var(--line)', background: 'var(--card)', padding: '0 14px', fontSize: 15, fontFamily: 'var(--font)', outline: 'none' }} />
             <button onClick={addMember} style={{ width: 46, height: 46, borderRadius: 13, border: 'none', background: 'var(--accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><Ic.plus size={22} /></button>
           </div>
-        </div>
-
-        {/* defaults */}
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4, margin: '24px 0 8px' }}>Standard-Spielmodus</div>
-        <div style={{ display: 'flex', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 4, gap: 4 }}>
-          {[['sequential', 'Bahn für Bahn', Ic.list], ['guerilla', 'Guerilla', Ic.shuffle]].map(([v, l, I]) => (
-            <button key={v} onClick={() => setDefaultMode(v)} style={{ flex: 1, height: 44, borderRadius: 11, border: 'none', cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: defaultMode === v ? 'var(--accent)' : 'transparent', color: defaultMode === v ? '#fff' : 'var(--ink-2)' }}><I size={16} /> {l}</button>
-          ))}
         </div>
 
         {/* auto crew */}
