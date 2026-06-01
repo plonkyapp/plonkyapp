@@ -41,8 +41,12 @@ function LandingScreen({ go }) {
           <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#fff', boxShadow: '0 6px 14px -6px rgba(0,0,0,0.4), inset -4px -4px 0 rgba(0,0,0,0.04)', marginBottom: 4, animation: 'ballRoll 1.6s ease-in-out infinite alternate' }} />
         </div>
       </div>
-      <div style={{ padding: '0 22px 34px', animation: 'fadeUp .5s .25s both' }}>
+      <div style={{ padding: '0 22px 30px', animation: 'fadeUp .5s .25s both' }}>
         <Btn kind="primary" iconR={<Ic.arrowR size={20} />} onClick={() => go('cover')}>Los geht's</Btn>
+        <div style={{ marginTop: 14, display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 11.5, lineHeight: 1.45, color: 'var(--ink-3)', textAlign: 'left' }}>
+          <span style={{ flexShrink: 0 }}>ℹ️</span>
+          <span><b>Beta-Version.</b> Diese App wird gerade getestet — keine Gewähr auf Verfügbarkeit oder Richtigkeit der Resultate. Alles dient nur dem Ausprobieren. Viel Spaß!</span>
+        </div>
       </div>
     </Screen>
   );
@@ -57,7 +61,7 @@ function CoverScreen({ go, account, scanEnabled = true, onStart, companion = fal
         <div style={{ position: 'absolute', top: 60, right: 20, zIndex: 5 }}>
           <button onClick={() => go('home')} style={{ display: 'flex', alignItems: 'center', gap: 9, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 7px 5px 14px', cursor: 'pointer', fontFamily: 'var(--font)' }}>
             <span style={{ fontSize: 13.5, fontWeight: 600 }}>Mein plonky</span>
-            <Avatar name={account.name} color={account.color} size={30} />
+            <Avatar name={account.name} color={account.color} size={30} src={account.avatar} />
           </button>
         </div>
       )}
