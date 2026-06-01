@@ -386,7 +386,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
 }
 
 // ── Results / standings ───────────────────────────────────
-function ResultsScreen({ players, go, restart, account, onSave, final = true, onFinish, joined = false, sessionCode }) {
+function ResultsScreen({ players, go, restart, account, onSave, final = true, onFinish, joined = false, sessionCode, me = null }) {
   // joined players watch the live session so the standings converge to the real endstand
   const [rows, setRows] = useS(players);
   useE(() => { setRows(players); }, [players]);
@@ -397,7 +397,11 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
       if (!alive || !sess || !sess.players) return;
       setRows(prev => prev.map(p => {
         const sp = sess.players.find(x => String(x.id) === String(p.id));
-        return sp ? { ...p, scores: sp.scores || {} } : p;
+        if (!sp) return p;
+        // For MY own row keep my locally-entered scores (the server may not have
+        // echoed my latest taps yet) and overlay anything extra from the server.
+        const mine = me != null && String(p.id) === String(me);
+        return { ...p, scores: mine ? { ...(sp.scores || {}), ...(p.scores || {}) } : (sp.scores || {}) };
       }));
     }).catch(() => {});
     tick();
@@ -423,18 +427,15 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
       </div>
       <UI.Body>
         {final && (joined ? (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 13, fontWeight: 600, color: 'var(--ink-2)', marginBottom: 14, textAlign: 'center', lineHeight: 1.4 }}>
-              <Ic.users size={16} color="var(--accent)" /> Der Gastgeber speichert den Endstand für alle.
+          account ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 13, fontWeight: 600, color: 'var(--accent)', marginBottom: 14 }}>
+              <Ic.check size={16} /> In deinem Verlauf gespeichert
             </div>
-            {!account && (
-              <button onClick={() => go('account')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, background: 'color-mix(in srgb, var(--accent) 8%, var(--card))', border: '1px solid color-mix(in srgb, var(--accent) 35%, var(--line))', borderRadius: 16, padding: '13px 15px', marginBottom: 14, cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font)' }}>
-                <Ic.link size={20} color="var(--accent)" />
-                <div style={{ flex: 1 }}><div style={{ fontSize: 14.5, fontWeight: 700 }}>Als Mitspieler sichern?</div><div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>Eigener Link — beim nächsten Mal per QR direkt wieder dabei.</div></div>
-                <Ic.chevR size={18} color="var(--ink-3)" />
-              </button>
-            )}
-          </>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 13, fontWeight: 600, color: 'var(--ink-2)', marginBottom: 14, textAlign: 'center', lineHeight: 1.4 }}>
+              <Ic.users size={16} color="var(--accent)" /> Der Gastgeber speichert für alle. Für deinen eigenen Verlauf: unten als Mitspieler sichern.
+            </div>
+          )
         ) : account ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 13, fontWeight: 600, color: 'var(--accent)', marginBottom: 14 }}>
             <Ic.check size={16} /> Im Verlauf gespeichert
@@ -447,29 +448,44 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
           </button>
         ))}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-          {ranked.map(({ p, t }, i) => (
-            <div key={p.id} style={{
-              display: 'flex', alignItems: 'center', gap: 13, padding: '14px 16px', borderRadius: 18,
-              background: i === 0 && allComplete ? 'color-mix(in srgb, var(--accent) 9%, var(--card))' : 'var(--card)',
-              border: i === 0 && allComplete ? '2px solid var(--accent)' : '1px solid var(--line)',
-            }}>
-              <div style={{ width: 26, textAlign: 'center', fontSize: allComplete && i < 3 ? 22 : 15, fontWeight: 700, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{t.played > 0 ? (allComplete ? (medal[i] || i + 1) : i + 1) : '·'}</div>
-              <UI.Avatar name={p.name} color={p.color} size={40} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 16.5, fontWeight: 700 }}>{p.name}</div>
-                <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>{t.played}/{HOLES} Bahnen</div>
+          {ranked.map(({ p, t }, i) => {
+            const isMine = me != null && String(p.id) === String(me);
+            const hl = isMine || (i === 0 && allComplete);
+            return (
+              <div key={p.id} style={{
+                display: 'flex', alignItems: 'center', gap: 13, padding: '14px 16px', borderRadius: 18,
+                background: hl ? 'color-mix(in srgb, var(--accent) 9%, var(--card))' : 'var(--card)',
+                border: hl ? '2px solid var(--accent)' : '1px solid var(--line)',
+              }}>
+                <div style={{ width: 26, textAlign: 'center', fontSize: allComplete && i < 3 ? 22 : 15, fontWeight: 700, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{t.played > 0 ? (allComplete ? (medal[i] || i + 1) : i + 1) : '·'}</div>
+                <UI.Avatar name={p.name} color={p.color} size={40} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 16.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 7 }}>
+                    {p.name}
+                    {isMine && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 14%, transparent)', borderRadius: 999, padding: '2px 7px', letterSpacing: 0.3 }}>DU</span>}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>{t.played}/{HOLES} Bahnen</div>
+                </div>
+                <div style={{ fontFamily: 'var(--num)', fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{t.strokes || '–'}</div>
               </div>
-              <div style={{ fontFamily: 'var(--num)', fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{t.strokes || '–'}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </UI.Body>
       <UI.Footer>
         {joined ? (
-          <>
-            <UI.Btn kind="primary" onClick={() => go('game')} icon={<Ic.flag size={19} />}>Zurück zum Spiel</UI.Btn>
-            <UI.Btn kind="ghost" onClick={restart}>Runde verlassen</UI.Btn>
-          </>
+          account ? (
+            <>
+              <UI.Btn kind="primary" onClick={restart} icon={<Ic.home size={19} />}>Zu meinem plonky</UI.Btn>
+              <UI.Btn kind="ghost" onClick={() => go('game')}>Zurück zum Spiel</UI.Btn>
+            </>
+          ) : (
+            <>
+              <UI.Btn kind="primary" onClick={() => go('account')} icon={<Ic.link size={19} />}>Als Mitspieler sichern</UI.Btn>
+              <UI.Btn kind="ghost" onClick={() => go('game')}>Zurück zum Spiel</UI.Btn>
+              <button onClick={restart} style={{ border: 'none', background: 'transparent', color: 'var(--ink-3)', fontFamily: 'var(--font)', fontSize: 13, fontWeight: 600, cursor: 'pointer', padding: '6px 4px 0' }}>Ohne Speichern verlassen</button>
+            </>
+          )
         ) : final ? (
           <>
             <UI.Btn kind="primary" onClick={restart} icon={<Ic.home size={19} />}>{account ? 'Zur Startseite' : 'Neues Spiel'}</UI.Btn>

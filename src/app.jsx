@@ -175,7 +175,10 @@ function App() {
         if (sess && sess.players) {
           finalPlayers = players.map(p => {
             const sp = sess.players.find(x => String(x.id) === String(p.id));
-            return sp ? { ...p, scores: sp.scores || {} } : p;
+            if (!sp) return p;
+            // my own latest taps may not have reached the server yet → keep them
+            const mine = me != null && String(p.id) === String(me);
+            return { ...p, scores: mine ? { ...(sp.scores || {}), ...(p.scores || {}) } : (sp.scores || {}) };
           });
           setPlayers(finalPlayers);
         }
@@ -213,7 +216,12 @@ function App() {
       if (sessionCode) {
         ACC.API.getSession(sessionCode).then(sess => {
           const fp = (sess && sess.players)
-            ? players.map(p => { const sp = sess.players.find(x => String(x.id) === String(p.id)); return sp ? { ...p, scores: sp.scores || {} } : p; })
+            ? players.map(p => {
+                const sp = sess.players.find(x => String(x.id) === String(p.id));
+                if (!sp) return p;
+                const mine = me != null && String(p.id) === String(me);
+                return { ...p, scores: mine ? { ...(sp.scores || {}), ...(p.scores || {}) } : (sp.scores || {}) };
+              })
             : players;
           saveCompanionGame(fp, acc);
         }).catch(() => saveCompanionGame(players, acc));
@@ -261,7 +269,7 @@ function App() {
     case 'join': view = <OB.JoinScreen go={go} players={players} setMe={setMe} sessionCode={sessionCode} account={account} />; break;
     case 'express': view = <GAME.ExpressSetup go={go} role={role} setRole={setRole} mode={mode} setMode={setMode} players={players} setPlayers={setPlayers} family={family} />; break;
     case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} />; break;
-    case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} onSave={saveGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} />; break;
+    case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} onSave={saveGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} me={me} />; break;
     default: view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} />;
   }
 
