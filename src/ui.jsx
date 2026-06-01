@@ -1,6 +1,35 @@
 // ui.jsx — shared UI primitives for plonky
 const { useState, useEffect, useRef } = React;
 
+// Open the device photo picker / camera, downscale the chosen image to a small
+// square JPEG and hand back a base64 data URL (~10 KB) for storing in the DB.
+function pickPhoto(onResult) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const S = 160;
+        const c = document.createElement('canvas');
+        c.width = S; c.height = S;
+        const ctx = c.getContext('2d');
+        const scale = Math.max(S / img.width, S / img.height); // cover-crop, centered
+        const w = img.width * scale, h = img.height * scale;
+        ctx.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+        try { onResult(c.toDataURL('image/jpeg', 0.82)); } catch (e) {}
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
+}
+
 // ── Phone screen scaffold ─────────────────────────────────
 function Screen({ children, bg = 'var(--paper)', style = {} }) {
   return (
@@ -187,4 +216,4 @@ function Steps({ n, i }) {
   );
 }
 
-window.UI = { Screen, Body, AppHeader, Footer, Btn, Avatar, ChoiceCard, QRMock, QRCode, Steps, AV_COLORS };
+window.UI = { Screen, Body, AppHeader, Footer, Btn, Avatar, ChoiceCard, QRMock, QRCode, Steps, AV_COLORS, pickPhoto };

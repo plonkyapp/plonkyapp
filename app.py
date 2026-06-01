@@ -40,8 +40,9 @@ class Account(db.Model):
     id = db.Column(db.String, primary_key=True)
     name = db.Column(db.String, nullable=False, default="")
     color = db.Column(db.String, nullable=False, default="")
-    crew = db.Column(db.Text, nullable=False, default="[]")  # JSON: [{id,name,color}]
+    crew = db.Column(db.Text, nullable=False, default="[]")  # JSON: [{id,name,color,avatar}]
     kind = db.Column(db.String, nullable=False, default="master")  # "master" | "companion"
+    avatar = db.Column(db.Text, nullable=False, default="")  # small base64 photo (data URL) or ""
     created_at = db.Column(db.BigInteger, nullable=False, default=lambda: int(time.time() * 1000))
 
 
@@ -105,7 +106,7 @@ def account_to_dict(acc):
         crew = json.loads(acc.crew or "[]")
     except (ValueError, TypeError):
         crew = []
-    return {"id": acc.id, "name": acc.name, "color": acc.color, "crew": crew, "kind": acc.kind or "master", "created": acc.created_at}
+    return {"id": acc.id, "name": acc.name, "color": acc.color, "crew": crew, "kind": acc.kind or "master", "avatar": acc.avatar or "", "created": acc.created_at}
 
 
 def session_to_dict(s):
@@ -231,6 +232,8 @@ def upsert_account():
         acc.crew = json.dumps(data.get("crew"))
     if data.get("kind") is not None:
         acc.kind = data.get("kind")
+    if data.get("avatar") is not None:
+        acc.avatar = data.get("avatar")
     db.session.commit()
     return jsonify(account_to_dict(acc))
 
@@ -383,6 +386,9 @@ def ensure_schema():
         db.session.commit()
     if "kind" not in cols:
         db.session.execute(text("ALTER TABLE account ADD COLUMN kind TEXT NOT NULL DEFAULT 'master'"))
+        db.session.commit()
+    if "avatar" not in cols:
+        db.session.execute(text("ALTER TABLE account ADD COLUMN avatar TEXT NOT NULL DEFAULT ''"))
         db.session.commit()
 
 

@@ -36,6 +36,7 @@ const API = {
   async saveAccount(account, crew) {
     const body = { id: account.id, name: account.name, color: account.color };
     if (account.kind) body.kind = account.kind;
+    if (account.avatar !== undefined) body.avatar = account.avatar || '';
     if (crew !== undefined) body.crew = crew;
     const r = await fetch('/api/account', {
       method: 'POST',
@@ -142,7 +143,7 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
           <div style={{ fontSize: 27, fontWeight: 800, letterSpacing: -0.6 }}>Hoi {account.name} 👋</div>
         </div>
         <button onClick={() => go('settings')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}>
-          <Avatar name={account.name} color={account.color} size={48} />
+          <Avatar name={account.name} color={account.color} size={48} src={account.avatar} />
         </button>
       </div>
       <Body style={{ paddingTop: 14 }}>
@@ -203,7 +204,7 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
               {family.length === 0 && <div style={{ fontSize: 13.5, color: 'var(--ink-3)' }}>Spieler:innen aus deinen Spielen erscheinen hier.</div>}
               {family.map(m => (
                 <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 13px 5px 5px' }}>
-                  <Avatar name={m.name} color={m.color} size={28} />
+                  <Avatar name={m.name} color={m.color} size={28} src={m.avatar} />
                   <span style={{ fontSize: 14, fontWeight: 600 }}>{m.name}</span>
                 </div>
               ))}
@@ -335,6 +336,7 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
   const recolor = (id) => setFamily(f => f.map(m => m.id === id ? { ...m, color: AV_COLORS[(AV_COLORS.indexOf(m.color) + 1) % AV_COLORS.length] } : m));
   const rename = (id, name) => setFamily(f => f.map(m => m.id === id ? { ...m, name } : m));
   const removeM = (id) => setFamily(f => f.filter(m => m.id !== id));
+  const setMemberPhoto = (id, src) => setFamily(f => f.map(m => m.id === id ? { ...m, avatar: src } : m));
 
   return (
     <Screen>
@@ -342,13 +344,20 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
       <Body>
         {/* profile */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 15, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 20, padding: 16 }}>
-          <button onClick={() => setAccount(a => ({ ...a, color: AV_COLORS[(AV_COLORS.indexOf(a.color) + 1) % AV_COLORS.length] }))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}>
-            <Avatar name={account.name} color={account.color} size={56} />
-          </button>
-          <div style={{ flex: 1 }}>
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <button onClick={() => setAccount(a => ({ ...a, color: AV_COLORS[(AV_COLORS.indexOf(a.color) + 1) % AV_COLORS.length] }))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'block' }}>
+              <Avatar name={account.name} color={account.color} size={56} src={account.avatar} />
+            </button>
+            <button onClick={() => UI.pickPhoto(src => setAccount(a => ({ ...a, avatar: src })))} title="Foto wählen" style={{ position: 'absolute', right: -3, bottom: -3, width: 26, height: 26, borderRadius: '50%', background: 'var(--accent)', color: '#fff', border: '2px solid var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><Ic.camera size={13} /></button>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <input value={account.name} onChange={e => setAccount(a => ({ ...a, name: e.target.value }))}
               style={{ width: '100%', border: 'none', background: 'transparent', fontFamily: 'var(--font)', fontSize: 19, fontWeight: 700, outline: 'none', padding: 0, color: 'var(--ink)' }} />
-            <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>Tipp auf den Avatar für eine andere Farbe</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
+              {account.avatar
+                ? <>Foto gesetzt · <button onClick={() => setAccount(a => ({ ...a, avatar: '' }))} style={{ border: 'none', background: 'transparent', color: 'var(--accent)', fontWeight: 600, fontSize: 12.5, cursor: 'pointer', fontFamily: 'var(--font)', padding: 0 }}>entfernen</button></>
+                : 'Kamera-Symbol für ein Foto · Avatar antippen für eine Farbe'}
+            </div>
           </div>
         </div>
 
@@ -368,11 +377,12 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
           {family.map(m => (
             <div key={m.id} style={{ background: 'var(--card)', border: editId === m.id ? '2px solid var(--accent)' : '1px solid var(--line)', borderRadius: 14, padding: editId === m.id ? '9px 11px' : '10px 12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-                <button onClick={() => recolor(m.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><Avatar name={m.name} color={m.color} size={34} /></button>
+                <button onClick={() => recolor(m.id)} title="Farbe" style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><Avatar name={m.name} color={m.color} size={34} src={m.avatar} /></button>
                 {editId === m.id
                   ? <input autoFocus value={m.name} onChange={e => rename(m.id, e.target.value)} onKeyDown={e => e.key === 'Enter' && setEditId(null)}
                       style={{ flex: 1, border: 'none', background: 'transparent', fontFamily: 'var(--font)', fontSize: 15.5, fontWeight: 600, outline: 'none', color: 'var(--ink)' }} />
                   : <div style={{ flex: 1, fontSize: 15.5, fontWeight: 600 }}>{m.name}</div>}
+                <button onClick={() => UI.pickPhoto(src => setMemberPhoto(m.id, src))} title="Foto" style={iconBtn}><Ic.camera size={17} color={m.avatar ? 'var(--accent)' : 'var(--ink-3)'} /></button>
                 <button onClick={() => setEditId(editId === m.id ? null : m.id)} style={iconBtn}>{editId === m.id ? <Ic.check size={18} color="var(--accent)" /> : <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-3)' }}>Bearb.</span>}</button>
                 <button onClick={() => removeM(m.id)} style={iconBtn}><Ic.x size={17} color="var(--ink-3)" /></button>
               </div>

@@ -49,7 +49,7 @@ function ScoreRow({ p, hole, focused, onFocus, onSet, showTotals, editable = tru
       opacity: editable ? 1 : 0.92,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <UI.Avatar name={p.name} color={p.color} size={40} />
+        <UI.Avatar name={p.name} color={p.color} size={40} src={p.avatar} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 7 }}>
             {p.name}
@@ -475,7 +475,7 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
                 border: hl ? '2px solid var(--accent)' : '1px solid var(--line)',
               }}>
                 <div style={{ width: 22, textAlign: 'center', fontSize: ended && i < 3 ? 20 : 14, fontWeight: 700, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{t.played > 0 ? (ended ? (medal[i] || i + 1) : i + 1) : '·'}</div>
-                <UI.Avatar name={p.name} color={p.color} size={34} />
+                <UI.Avatar name={p.name} color={p.color} size={34} src={p.avatar} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {p.name}

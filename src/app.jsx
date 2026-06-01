@@ -83,8 +83,8 @@ function App() {
       ACC.API.getAccount(token)
         .then(acc => {
           setAccount(acc && acc.id
-            ? { id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', created: acc.created || Date.now() }
-            : { id: token, name: 'Spieler', color: AV[0], kind: 'master', created: Date.now() });
+            ? { id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', avatar: acc.avatar || '', created: acc.created || Date.now() }
+            : { id: token, name: 'Spieler', color: AV[0], kind: 'master', avatar: '', created: Date.now() });
           if (acc && Array.isArray(acc.crew)) setFamily(acc.crew); // server crew wins on a fresh device
           setScreen('home');
           return ACC.API.listGames(token);
@@ -150,8 +150,8 @@ function App() {
   const openGame = (id) => { setHistId(id); setHistFrom(screen); go('historyDetail'); };
   const buildInitialPlayers = () => {
     const list = []; const seen = new Set();
-    if (account) { list.push({ id: 'me', name: account.name, color: account.color, scores: {} }); seen.add(account.name.toLowerCase()); }
-    if (account && autoCrew) family.forEach(m => { if (!seen.has(m.name.toLowerCase())) { list.push({ id: 'c' + m.id, name: m.name, color: m.color, scores: {} }); seen.add(m.name.toLowerCase()); } });
+    if (account) { list.push({ id: 'me', name: account.name, color: account.color, avatar: account.avatar || '', scores: {} }); seen.add(account.name.toLowerCase()); }
+    if (account && autoCrew) family.forEach(m => { if (!seen.has(m.name.toLowerCase())) { list.push({ id: 'c' + m.id, name: m.name, color: m.color, avatar: m.avatar || '', scores: {} }); seen.add(m.name.toLowerCase()); } });
     return list;
   };
   const firstStep = () => (t.onboardingFlow === 'express' ? 'express' : 'welcome');
