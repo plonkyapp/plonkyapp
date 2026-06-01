@@ -118,6 +118,7 @@ def session_to_dict(s):
         "mode": s.mode,
         "venue": s.venue,
         "rev": s.rev,
+        "finished": bool(payload.get("finished", False)),  # host pressed "Spiel beenden"
         "players": payload.get("players", []),
     }
 
@@ -335,6 +336,17 @@ def session_claim(code):
             p["claimed"] = True
             break
     payload["players"] = players
+    s.data = json.dumps(payload)
+    s.rev = (s.rev or 0) + 1
+    db.session.commit()
+    return jsonify(session_to_dict(s))
+
+
+@app.route("/api/session/<code>/finish", methods=["POST"])
+def session_finish(code):
+    """Host ends the round. Every device sees finished=true and only then shows the winner."""
+    s, payload, players = _mutate_session(code)
+    payload["finished"] = True
     s.data = json.dumps(payload)
     s.rev = (s.rev or 0) + 1
     db.session.commit()

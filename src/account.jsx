@@ -78,6 +78,15 @@ const API = {
     if (!r.ok) throw new Error('sessionClaim ' + r.status);
     return r.json();
   },
+  // host ends the round → all devices show the final winner
+  async sessionFinish(code) {
+    const r = await fetch('/api/session/' + encodeURIComponent(code) + '/finish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!r.ok) throw new Error('sessionFinish ' + r.status);
+    return r.json();
+  },
   // replace the session roster (keeps claimed/scores for ids that already exist)
   async sessionPlayers(code, players) {
     const r = await fetch('/api/session/' + encodeURIComponent(code) + '/players', {

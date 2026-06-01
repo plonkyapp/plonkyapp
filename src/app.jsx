@@ -164,9 +164,14 @@ function App() {
     // Mitspieler-Konto keeps a read-only copy in her history; a joined guest
     // without an account saves nothing here (she can still create one on this screen).
     const finalize = (finalPlayers) => {
-      if (!account) return;
-      if (me != null) saveCompanionGame(finalPlayers, account);
-      else saveGame(finalPlayers);
+      if (me != null) {
+        // joined guest: host owns the game; keep my own read-only copy if I have an account
+        if (account) saveCompanionGame(finalPlayers, account);
+        return;
+      }
+      // host pressed "Spiel beenden": tell every device the round is over
+      if (sessionCode) ACC.API.sessionFinish(sessionCode).catch(() => {});
+      if (account) saveGame(finalPlayers);
     };
     if (sessionCode) {
       // pull the authoritative final scores from the server so every device agrees

@@ -389,12 +389,15 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
 function ResultsScreen({ players, go, restart, account, onSave, final = true, onFinish, joined = false, sessionCode, me = null }) {
   // joined players watch the live session so the standings converge to the real endstand
   const [rows, setRows] = useS(players);
+  const [srvDone, setSrvDone] = useS(false); // host pressed "Spiel beenden" (from the live session)
   useE(() => { setRows(players); }, [players]);
   useE(() => {
     if (!joined || !sessionCode) return;
     let alive = true;
     const tick = () => ACC.API.getSession(sessionCode).then(sess => {
-      if (!alive || !sess || !sess.players) return;
+      if (!alive || !sess) return;
+      setSrvDone(!!sess.finished);
+      if (!sess.players) return;
       setRows(prev => prev.map(p => {
         const sp = sess.players.find(x => String(x.id) === String(p.id));
         if (!sp) return p;
@@ -411,19 +414,21 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
 
   const ranked = [...rows].map(p => ({ p, t: totals(p) })).sort((a, b) => a.t.strokes - b.t.strokes);
   const medal = ['🥇', '🥈', '🥉'];
-  // only crown a winner once everyone has finished all 18 — otherwise a player
-  // who has played few holes has a low total and would look like the leader
-  const allComplete = rows.length > 0 && rows.every(p => totals(p).played === HOLES);
+  // The round is only "over" when the HOST ends it. For a joined guest that signal
+  // comes from the live session (srvDone); for the host/solo it's `final` (the
+  // "Spiel beenden" press). Never crown a winner just because all holes happen to
+  // be filled — the host decides when it's done.
+  const ended = joined ? srvDone : final;
   const doneCount = rows.filter(p => totals(p).played === HOLES).length;
   const leader = ranked.find(r => r.t.played > 0) ? ranked[0] : null;
   return (
     <UI.Screen>
       <div style={{ paddingTop: 64, padding: '64px 24px 8px', textAlign: 'center', flexShrink: 0 }}>
-        <div style={{ width: 70, height: 70, borderRadius: '50%', background: allComplete ? 'var(--accent)' : 'var(--line-2)', color: allComplete ? '#fff' : 'var(--ink-2)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', animation: 'plonkPop .5s both' }}>{allComplete ? <Ic.trophy size={36} /> : <Ic.list size={32} />}</div>
-        <div style={{ fontSize: 14, color: 'var(--ink-3)', fontWeight: 600, marginTop: 14, letterSpacing: 0.3 }}>{allComplete ? 'ENDSTAND' : 'ZWISCHENSTAND'} · {OB.VENUE}</div>
-        {allComplete && leader
+        <div style={{ width: 70, height: 70, borderRadius: '50%', background: ended ? 'var(--accent)' : 'var(--line-2)', color: ended ? '#fff' : 'var(--ink-2)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', animation: 'plonkPop .5s both' }}>{ended ? <Ic.trophy size={36} /> : <Ic.list size={32} />}</div>
+        <div style={{ fontSize: 14, color: 'var(--ink-3)', fontWeight: 600, marginTop: 14, letterSpacing: 0.3 }}>{ended ? 'ENDSTAND' : 'ZWISCHENSTAND'} · {OB.VENUE}</div>
+        {ended && leader
           ? <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.4, marginTop: 4 }}>{leader.p.name} gewinnt! 🎉</div>
-          : <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink-2)', marginTop: 6 }}>Spiel läuft noch · {doneCount}/{rows.length} fertig</div>}
+          : <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink-2)', marginTop: 6 }}>{joined ? 'Spiel läuft noch · warten auf Gastgeber' : `Spiel läuft noch · ${doneCount}/${rows.length} fertig`}</div>}
       </div>
       <UI.Body>
         {final && (joined ? (
@@ -450,14 +455,14 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {ranked.map(({ p, t }, i) => {
             const isMine = me != null && String(p.id) === String(me);
-            const hl = isMine || (i === 0 && allComplete);
+            const hl = isMine || (i === 0 && ended);
             return (
               <div key={p.id} style={{
                 display: 'flex', alignItems: 'center', gap: 13, padding: '14px 16px', borderRadius: 18,
                 background: hl ? 'color-mix(in srgb, var(--accent) 9%, var(--card))' : 'var(--card)',
                 border: hl ? '2px solid var(--accent)' : '1px solid var(--line)',
               }}>
-                <div style={{ width: 26, textAlign: 'center', fontSize: allComplete && i < 3 ? 22 : 15, fontWeight: 700, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{t.played > 0 ? (allComplete ? (medal[i] || i + 1) : i + 1) : '·'}</div>
+                <div style={{ width: 26, textAlign: 'center', fontSize: ended && i < 3 ? 22 : 15, fontWeight: 700, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{t.played > 0 ? (ended ? (medal[i] || i + 1) : i + 1) : '·'}</div>
                 <UI.Avatar name={p.name} color={p.color} size={40} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 16.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 7 }}>
