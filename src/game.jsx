@@ -423,12 +423,24 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
   const leader = ranked.find(r => r.t.played > 0) ? ranked[0] : null;
   return (
     <UI.Screen>
-      <div style={{ paddingTop: 64, padding: '64px 24px 8px', textAlign: 'center', flexShrink: 0 }}>
-        <div style={{ width: 70, height: 70, borderRadius: '50%', background: ended ? 'var(--accent)' : 'var(--line-2)', color: ended ? '#fff' : 'var(--ink-2)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', animation: 'plonkPop .5s both' }}>{ended ? <Ic.trophy size={36} /> : <Ic.list size={32} />}</div>
-        <div style={{ fontSize: 14, color: 'var(--ink-3)', fontWeight: 600, marginTop: 14, letterSpacing: 0.3 }}>{ended ? 'ENDSTAND' : 'ZWISCHENSTAND'} · {OB.VENUE}</div>
-        {ended && leader
-          ? <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.4, marginTop: 4 }}>{leader.p.name} gewinnt! 🎉</div>
-          : <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink-2)', marginTop: 6 }}>{joined ? 'Spiel läuft noch · warten auf Gastgeber' : `Spiel läuft noch · ${doneCount}/${rows.length} fertig`}</div>}
+      <div style={{ paddingTop: 56, padding: '56px 18px 8px', flexShrink: 0 }}>
+        {ended && leader ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'color-mix(in srgb, var(--accent) 10%, var(--card))', border: '1px solid var(--accent)', borderRadius: 16, padding: '11px 15px', animation: 'plonkPop .5s both' }}>
+            <span style={{ fontSize: 26, lineHeight: 1 }}>🏆</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{leader.p.name} gewinnt! 🎉</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Endstand · {OB.VENUE}</div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '11px 15px' }}>
+            <Ic.list size={22} color="var(--ink-2)" />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15.5, fontWeight: 700 }}>Zwischenstand</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{joined ? 'Spiel läuft noch · warten auf Gastgeber' : `Spiel läuft noch · ${doneCount}/${rows.length} fertig`}</div>
+            </div>
+          </div>
+        )}
       </div>
       <UI.Body>
         {final && (joined ? (
@@ -452,26 +464,26 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
             <Ic.chevR size={18} color="var(--ink-3)" />
           </button>
         ))}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
           {ranked.map(({ p, t }, i) => {
             const isMine = me != null && String(p.id) === String(me);
             const hl = isMine || (i === 0 && ended);
             return (
               <div key={p.id} style={{
-                display: 'flex', alignItems: 'center', gap: 13, padding: '14px 16px', borderRadius: 18,
+                display: 'flex', alignItems: 'center', gap: 11, padding: '9px 14px', borderRadius: 15,
                 background: hl ? 'color-mix(in srgb, var(--accent) 9%, var(--card))' : 'var(--card)',
                 border: hl ? '2px solid var(--accent)' : '1px solid var(--line)',
               }}>
-                <div style={{ width: 26, textAlign: 'center', fontSize: ended && i < 3 ? 22 : 15, fontWeight: 700, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{t.played > 0 ? (ended ? (medal[i] || i + 1) : i + 1) : '·'}</div>
-                <UI.Avatar name={p.name} color={p.color} size={40} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 16.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 7 }}>
+                <div style={{ width: 22, textAlign: 'center', fontSize: ended && i < 3 ? 20 : 14, fontWeight: 700, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{t.played > 0 ? (ended ? (medal[i] || i + 1) : i + 1) : '·'}</div>
+                <UI.Avatar name={p.name} color={p.color} size={34} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {p.name}
-                    {isMine && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 14%, transparent)', borderRadius: 999, padding: '2px 7px', letterSpacing: 0.3 }}>DU</span>}
+                    {isMine && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 14%, transparent)', borderRadius: 999, padding: '2px 6px', letterSpacing: 0.3, flexShrink: 0 }}>DU</span>}
                   </div>
-                  <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>{t.played}/{HOLES} Bahnen</div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{t.played}/{HOLES} Bahnen</div>
                 </div>
-                <div style={{ fontFamily: 'var(--num)', fontSize: 28, fontWeight: 700, lineHeight: 1 }}>{t.strokes || '–'}</div>
+                <div style={{ fontFamily: 'var(--num)', fontSize: 24, fontWeight: 700, lineHeight: 1 }}>{t.strokes || '–'}</div>
               </div>
             );
           })}
