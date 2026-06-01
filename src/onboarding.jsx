@@ -22,6 +22,32 @@ function Wordmark({ size = 34, color = 'var(--ink)' }) {
   );
 }
 
+// ── 0. Landing / Begrüßung ────────────────────────────────
+function LandingScreen({ go }) {
+  const { Screen, Btn } = UI;
+  return (
+    <Screen bg="var(--paper)">
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '0 28px', textAlign: 'center' }}>
+        <div style={{ animation: 'fadeUp .5s both' }}><Wordmark size={30} /></div>
+        <div style={{ marginTop: 24, display: 'inline-flex', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '7px 14px', animation: 'fadeUp .5s .04s both' }}>
+          <Ic.pin size={15} color="var(--accent)" /><span style={{ fontSize: 13.5, fontWeight: 700 }}>{VENUE}</span>
+        </div>
+        <div style={{ marginTop: 22, fontSize: 31, fontWeight: 800, lineHeight: 1.12, letterSpacing: -0.8, animation: 'fadeUp .5s .08s both' }}>Willkommen! 👋</div>
+        <div style={{ marginTop: 14, fontSize: 16, lineHeight: 1.5, color: 'var(--ink-2)', maxWidth: 300, animation: 'fadeUp .5s .12s both' }}>
+          Schön, dass du da bist. Wir testen gerade unsere neue App, mit der du deine Mini-Golf-Runde digital einträgst — ganz ohne Zettel und Bleistift.
+        </div>
+        <div style={{ marginTop: 30, display: 'flex', alignItems: 'flex-end', gap: 22, animation: 'fadeIn .7s .2s both' }}>
+          <div style={{ color: 'var(--accent)' }}><Ic.flag size={76} sw={2.4} /></div>
+          <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#fff', boxShadow: '0 6px 14px -6px rgba(0,0,0,0.4), inset -4px -4px 0 rgba(0,0,0,0.04)', marginBottom: 4, animation: 'ballRoll 1.6s ease-in-out infinite alternate' }} />
+        </div>
+      </div>
+      <div style={{ padding: '0 22px 34px', animation: 'fadeUp .5s .25s both' }}>
+        <Btn kind="primary" iconR={<Ic.arrowR size={20} />} onClick={() => go('cover')}>Los geht's</Btn>
+      </div>
+    </Screen>
+  );
+}
+
 // ── 1. Cover ──────────────────────────────────────────────
 function CoverScreen({ go, account, scanEnabled = true, onStart, companion = false }) {
   const { Screen, Btn, Avatar } = UI;
@@ -501,4 +527,4 @@ function JoinCodeScreen({ go, onJoined, back = 'home' }) {
   );
 }
 
-window.OB = { Wordmark, CoverScreen, AccountScreen, ScanScreen, RoleScreen, PlayersScreen, InviteScreen, JoinScreen, JoinCodeScreen, VENUE };
+window.OB = { Wordmark, LandingScreen, CoverScreen, AccountScreen, ScanScreen, RoleScreen, PlayersScreen, InviteScreen, JoinScreen, JoinCodeScreen, VENUE };

@@ -82,16 +82,18 @@ function Btn({ children, onClick, kind = 'primary', icon, iconR, disabled, style
 
 // ── Avatar ────────────────────────────────────────────────
 const AV_COLORS = ['#15A35A', '#2F6FE0', '#E0792F', '#9B4FD8', '#D8533B', '#0FA0A8', '#C7A412', '#E04F8C'];
-function Avatar({ name, color, size = 38, ring = false, dim = false }) {
+function Avatar({ name, color, size = 38, ring = false, dim = false, src = null }) {
   const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';
   return (
     <div style={{
-      width: size, height: size, borderRadius: '50%', flexShrink: 0,
+      width: size, height: size, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
       background: dim ? 'var(--line)' : color, color: dim ? 'var(--ink-3)' : '#fff',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontWeight: 700, fontSize: size * 0.42,
       boxShadow: ring ? '0 0 0 3px var(--card), 0 0 0 5px ' + color : 'none',
-    }}>{initial}</div>
+    }}>{src
+      ? <img src={src} alt={name || ''} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: dim ? 0.5 : 1 }} />
+      : initial}</div>
   );
 }
 

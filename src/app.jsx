@@ -25,7 +25,7 @@ function demoPlayers(full) {
 function App() {
   const scanEnabled = window.PLONKY_SCAN !== false;
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const [screen, setScreen] = useAS('cover');
+  const [screen, setScreen] = useAS('landing');
   const [role, setRole] = useAS(null);
   const [mode, setMode] = useAS(null);
   const [players, setPlayers] = useAS([]);
@@ -260,6 +260,7 @@ function App() {
   const isCompanion = !!(account && account.kind === 'companion');
   let view;
   switch (screen) {
+    case 'landing': view = <OB.LandingScreen go={go} />; break;
     case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} />; break;
     case 'account': view = <OB.AccountScreen go={go} onCreate={me != null ? createCompanion : createAccount} companion={me != null} presetName={me != null ? ((players.find(p => String(p.id) === String(me)) || {}).name || '') : ''} back={me != null ? 'results' : 'cover'} />; break;
     case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={newGame} scanEnabled={scanEnabled} companion={isCompanion} />; break;
