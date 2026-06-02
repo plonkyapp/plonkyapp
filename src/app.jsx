@@ -59,12 +59,12 @@ function App() {
       if (d.family) setFamily(d.family);
       if (d.defaultMode) setDefaultMode(d.defaultMode);
       if (d.autoCrew != null) setAutoCrew(d.autoCrew);
-      ACC.API.getSession(code)
+      ACC.API.getSession(code, true)
         .then(sess => {
           if (!sess) { setScreen(acc ? 'home' : 'cover'); return; } // code expired/unknown
           setSessionCode(sess.code);
           setMode(sess.mode || 'sequential');
-          setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host })));
+          setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '' })));
           setRole('others');
           setScreen('join');
         })
@@ -211,6 +211,7 @@ function App() {
       id: ACC.newAccountId(),
       name: (name || '').trim() || (meP && meP.name) || 'Spieler',
       color: (meP && meP.color) || AV[0],
+      avatar: (meP && meP.avatar) || '', // adopt the photo the host set for this player
       kind: 'companion',
       created: Date.now(),
     };
@@ -241,7 +242,7 @@ function App() {
     gameSavedRef.current = false;
     setSessionCode(sess.code);
     setMode(sess.mode || 'sequential');
-    setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host })));
+    setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '' })));
     setRole('others');
     setMe(null);
     go('join');

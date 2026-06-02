@@ -109,18 +109,23 @@ def account_to_dict(acc):
     return {"id": acc.id, "name": acc.name, "color": acc.color, "crew": crew, "kind": acc.kind or "master", "avatar": acc.avatar or "", "created": acc.created_at}
 
 
-def session_to_dict(s):
+def session_to_dict(s, full=False):
     try:
         payload = json.loads(s.data or "{}")
     except (ValueError, TypeError):
         payload = {}
+    players = payload.get("players", [])
+    if not full:
+        # Avatars are static base64 photos; only send them on the initial (full)
+        # fetch so the 3s score-poll stays lean.
+        players = [{k: v for k, v in p.items() if k != "avatar"} for p in players]
     return {
         "code": s.code,
         "mode": s.mode,
         "venue": s.venue,
         "rev": s.rev,
         "finished": bool(payload.get("finished", False)),  # host pressed "Spiel beenden"
-        "players": payload.get("players", []),
+        "players": players,
     }
 
 
@@ -249,6 +254,7 @@ def create_session():
             "scores": p.get("scores") or {},
             "claimed": bool(p.get("claimed")),
             "host": (i == 0),  # the lead device that created the round
+            "avatar": p.get("avatar") or "",
         }
         for i, p in enumerate(data.get("players") or [])
     ]
@@ -269,7 +275,7 @@ def get_session(code):
     s = db.session.get(Session, (code or "").upper())
     if s is None:
         abort(404)
-    return jsonify(session_to_dict(s))
+    return jsonify(session_to_dict(s, full=(request.args.get("full") == "1")))
 
 
 def _mutate_session(code):
@@ -321,6 +327,7 @@ def session_players(code):
             "scores": old.get("scores") or p.get("scores") or {},
             "claimed": bool(old.get("claimed")),
             "host": (i == 0),
+            "avatar": p.get("avatar") or old.get("avatar") or "",
         })
     payload["players"] = merged
     s.data = json.dumps(payload)

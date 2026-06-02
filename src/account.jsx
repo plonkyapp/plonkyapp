@@ -55,8 +55,10 @@ const API = {
     if (!r.ok) throw new Error('createSession ' + r.status);
     return r.json();
   },
-  async getSession(code) {
-    const r = await fetch('/api/session/' + encodeURIComponent(code));
+  async getSession(code, full = false) {
+    // full=true also returns player photos (used once on join); the score-poll
+    // omits them to stay lean.
+    const r = await fetch('/api/session/' + encodeURIComponent(code) + (full ? '?full=1' : ''));
     if (r.status === 404) return null;
     if (!r.ok) throw new Error('getSession ' + r.status);
     return r.json();
@@ -93,7 +95,7 @@ const API = {
     const r = await fetch('/api/session/' + encodeURIComponent(code) + '/players', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ players: (players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {} })) }),
+      body: JSON.stringify({ players: (players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '' })) }),
     });
     if (!r.ok) throw new Error('sessionPlayers ' + r.status);
     return r.json();
@@ -280,7 +282,7 @@ function HistoryDetailScreen({ game, go, from }) {
         {ranked[0] && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'color-mix(in srgb, var(--accent) 9%, var(--card))', border: '1px solid var(--accent)', borderRadius: 16, padding: '12px 16px', marginBottom: 16 }}>
             <span style={{ fontSize: 24 }}>🏆</span>
-            <Avatar name={ranked[0].p.name} color={ranked[0].p.color} size={36} />
+            <Avatar name={ranked[0].p.name} color={ranked[0].p.color} size={36} src={ranked[0].p.avatar} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 16, fontWeight: 700 }}>{ranked[0].p.name} gewinnt</div>
               <div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{ranked[0].t.strokes} Schläge · {ranked[0].t.played} Bahnen</div>
@@ -294,7 +296,7 @@ function HistoryDetailScreen({ game, go, from }) {
             <div key={p.id} style={{ background: 'var(--card)', border: i === 0 ? '1.5px solid var(--accent)' : '1px solid var(--line)', borderRadius: 16, padding: '12px 13px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                 <div style={{ width: 16, textAlign: 'center', fontSize: 13, fontWeight: 800, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{i + 1}</div>
-                <Avatar name={p.name} color={p.color} size={26} />
+                <Avatar name={p.name} color={p.color} size={26} src={p.avatar} />
                 <span style={{ flex: 1, fontSize: 14.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
                 <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <span style={{ fontFamily: 'var(--num)', fontSize: 21, fontWeight: 800 }}>{t.strokes}</span>

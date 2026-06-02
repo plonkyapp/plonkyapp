@@ -300,7 +300,7 @@ function PlayersScreen({ go, players, setPlayers, role, family = [] }) {
           )}
           {players.map((p, i) => (
             <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 13, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '10px 12px 10px 12px', animation: 'fadeUp .3s both' }}>
-              <Avatar name={p.name} color={p.color} size={38} />
+              <Avatar name={p.name} color={p.color} size={38} src={p.avatar} />
               <div style={{ flex: 1, fontSize: 16, fontWeight: 600 }}>{p.name}</div>
               {i === 0 && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)', padding: '3px 8px', borderRadius: 7 }}>LEAD</span>}
               <button onClick={() => remove(p.id)} style={{ width: 32, height: 32, borderRadius: 10, border: 'none', background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic.x size={18} /></button>
@@ -345,7 +345,7 @@ function InviteScreen({ go, players, mode, sessionCode, setSessionCode }) {
     creatingRef.current = true;
     ACC.API.createSession({
       mode: mode || 'sequential', venue: VENUE,
-      players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {} })),
+      players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '' })),
     }).then(sess => { setCode(sess.code); setSessionCode && setSessionCode(sess.code); })
       .catch(() => setErr(true));
   }, []);
@@ -414,7 +414,7 @@ function InviteScreen({ go, players, mode, sessionCode, setSessionCode }) {
             const on = isIn(p, i);
             return (
               <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '10px 14px', opacity: on ? 1 : 0.5, transition: 'opacity .4s' }}>
-                <Avatar name={p.name} color={p.color} size={32} dim={!on} />
+                <Avatar name={p.name} color={p.color} size={32} dim={!on} src={p.avatar} />
                 <div style={{ flex: 1, fontSize: 15, fontWeight: 600 }}>{p.name}{i === 0 ? ' (du)' : ''}</div>
                 {on ? <span style={{ fontSize: 12.5, color: 'var(--accent)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><Ic.check size={15} /> {i === 0 ? 'Host' : 'verbunden'}</span>
                   : <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>wartet…</span>}
@@ -469,7 +469,7 @@ function JoinScreen({ go, players, setMe, sessionCode, account = null }) {
                 background: 'var(--card)', borderRadius: 18, padding: '12px 16px', opacity: taken ? 0.5 : 1,
                 border: sel === p.id ? '2px solid var(--accent)' : '1px solid var(--line)', fontFamily: 'var(--font)',
               }}>
-                <Avatar name={p.name} color={p.color} size={42} dim={taken} />
+                <Avatar name={p.name} color={p.color} size={42} dim={taken} src={p.avatar} />
                 <div style={{ flex: 1, fontSize: 17, fontWeight: 600 }}>{p.name}</div>
                 {note && <div style={{ fontSize: 12.5, fontWeight: 700, color: isMine ? 'var(--accent)' : 'var(--ink-3)' }}>{note}</div>}
                 {sel === p.id && <div style={{ color: 'var(--accent)' }}><Ic.check size={22} /></div>}
@@ -496,7 +496,7 @@ function JoinCodeScreen({ go, onJoined, back = 'home' }) {
   const join = () => {
     if (clean.length < 4 || busy) return;
     setBusy(true); setErr('');
-    ACC.API.getSession(clean)
+    ACC.API.getSession(clean, true)
       .then(sess => {
         if (!sess) { setErr('Diesen Code gibt es nicht (mehr). Prüfe die 4 Zeichen.'); setBusy(false); return; }
         onJoined && onJoined(sess);

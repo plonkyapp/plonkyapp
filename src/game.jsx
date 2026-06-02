@@ -165,8 +165,8 @@ function VoiceSheet({ players, hole, onApply, onClose }) {
     const found = parseVoice(text, players);
     const heardIds = Object.keys(found);
     const list = heardIds.length
-      ? players.filter(p => found[p.id] != null).map(p => ({ id: p.id, name: p.name, color: p.color, v: found[p.id], heard: true }))
-      : players.map(p => ({ id: p.id, name: p.name, color: p.color, v: p.scores[hole] || 2, heard: false }));
+      ? players.filter(p => found[p.id] != null).map(p => ({ id: p.id, name: p.name, color: p.color, avatar: p.avatar, v: found[p.id], heard: true }))
+      : players.map(p => ({ id: p.id, name: p.name, color: p.color, avatar: p.avatar, v: p.scores[hole] || 2, heard: false }));
     setParsed(list);
     setPartial(heardIds.length > 0 && heardIds.length < players.length);
     setPhase('result');
@@ -258,7 +258,7 @@ function VoiceSheet({ players, hole, onApply, onClose }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {parsed.map((e, idx) => (
                 <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', border: '1px solid ' + (e.heard ? 'color-mix(in srgb, var(--accent) 45%, var(--line))' : 'var(--line)'), borderRadius: 14, padding: '9px 12px' }}>
-                  <UI.Avatar name={e.name} color={e.color} size={32} />
+                  <UI.Avatar name={e.name} color={e.color} size={32} src={e.avatar} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 15, fontWeight: 600 }}>{e.name}</div>
                     {!e.heard && <div style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>nicht genannt · anpassen</div>}
@@ -550,7 +550,7 @@ function ExpressSetup({ go, role, setRole, mode, setMode, players, setPlayers, f
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {players.map(p => (
             <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 8px 5px 5px' }}>
-              <Avatar name={p.name} color={p.color} size={26} />
+              <Avatar name={p.name} color={p.color} size={26} src={p.avatar} />
               <span style={{ fontSize: 14, fontWeight: 600 }}>{p.name}</span>
               <button onClick={() => setPlayers(ps => ps.filter(x => x.id !== p.id))} style={{ border: 'none', background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer', display: 'flex', padding: 2 }}><Ic.x size={15} /></button>
             </div>
