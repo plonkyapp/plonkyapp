@@ -443,20 +443,34 @@ const iconBtn = { width: 34, height: 34, borderRadius: 10, border: 'none', backg
 const FB_FACES = [[1, '😞'], [2, '😐'], [3, '😍']];
 
 // ── Feedback form ─────────────────────────────────────────
+const FB_REC = [['ja', 'Ja 👍'], ['vielleicht', 'Vielleicht'], ['nein', 'Nein']];
+const fieldLabel = { fontSize: 13, fontWeight: 600, color: 'var(--ink-2)', display: 'block', marginTop: 18, marginBottom: 8 };
+const fieldInput = { width: '100%', height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'var(--card)', padding: '0 15px', fontSize: 15, fontFamily: 'var(--font)', outline: 'none' };
+
 function FeedbackScreen({ go, account, back = 'home' }) {
   const { Screen, AppHeader, Body, Footer, Btn } = UI;
   const [rating, setRating] = useAcS(0);
+  const [recommend, setRecommend] = useAcS('');
+  const [liked, setLiked] = useAcS('');
+  const [missing, setMissing] = useAcS('');
   const [msg, setMsg] = useAcS('');
   const [contact, setContact] = useAcS('');
   const [busy, setBusy] = useAcS(false);
   const [sent, setSent] = useAcS(false);
-  const canSend = (msg.trim() || rating) && !busy;
+  const hasContent = !!(rating || recommend || liked.trim() || missing.trim() || msg.trim());
   const send = () => {
-    if (!canSend) return;
+    if (!hasContent || busy) return;
     setBusy(true);
+    // fold the guided answers + free text into one readable message (no schema change)
+    const REC = { ja: 'Ja', vielleicht: 'Vielleicht', nein: 'Nein' };
+    const lines = [];
+    if (recommend) lines.push('Weiterempfehlen: ' + REC[recommend]);
+    if (liked.trim()) lines.push('👍 Gut: ' + liked.trim());
+    if (missing.trim()) lines.push('🔧 Fehlt/nervt: ' + missing.trim());
+    if (msg.trim()) lines.push((lines.length ? '\n' : '') + msg.trim());
     ACC.API.submitFeedback({
       rating: rating || null,
-      message: msg.trim(),
+      message: lines.join('\n'),
       contact: contact.trim(),
       name: (account && account.name) || '',
       account_id: (account && account.id) || null,
@@ -479,27 +493,47 @@ function FeedbackScreen({ go, account, back = 'home' }) {
     <Screen>
       <AppHeader title="Feedback" sub="Beta" onBack={() => go(back)} />
       <Body>
-        <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45, marginBottom: 18 }}>
-          Wie war's? Deine Rückmeldung hilft uns, PLONKY besser zu machen.
+        <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45 }}>
+          Wie war's? Beantworte, was du magst — oder schreib uns einfach unten frei.
         </div>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 22 }}>
+
+        <label style={{ ...fieldLabel, marginTop: 20 }}>Gesamteindruck</label>
+        <div style={{ display: 'flex', gap: 10 }}>
           {FB_FACES.map(([v, e]) => (
             <button key={v} onClick={() => setRating(rating === v ? 0 : v)} style={{
-              flex: 1, height: 64, borderRadius: 16, cursor: 'pointer', fontSize: 30, fontFamily: 'var(--font)',
+              flex: 1, height: 60, borderRadius: 16, cursor: 'pointer', fontSize: 28, fontFamily: 'var(--font)',
               background: rating === v ? 'color-mix(in srgb, var(--accent) 12%, var(--card))' : 'var(--card)',
               border: rating === v ? '2px solid var(--accent)' : '1px solid var(--line)', transition: 'all .12s',
             }}>{e}</button>
           ))}
         </div>
-        <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-2)' }}>Deine Nachricht</label>
-        <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Was gefällt dir, was fehlt, was nervt?"
-          style={{ width: '100%', marginTop: 8, minHeight: 120, borderRadius: 16, border: '1px solid var(--line)', background: 'var(--card)', padding: '13px 15px', fontSize: 15.5, fontFamily: 'var(--font)', outline: 'none', resize: 'vertical', lineHeight: 1.45 }} />
-        <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-2)', display: 'block', marginTop: 16 }}>Kontakt (optional)</label>
-        <input value={contact} onChange={e => setContact(e.target.value)} placeholder="E-Mail, falls wir antworten dürfen"
-          style={{ width: '100%', marginTop: 8, height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'var(--card)', padding: '0 15px', fontSize: 15, fontFamily: 'var(--font)', outline: 'none' }} />
+
+        <label style={fieldLabel}>Würdest du PLONKY weiterempfehlen?</label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {FB_REC.map(([v, l]) => (
+            <button key={v} onClick={() => setRecommend(recommend === v ? '' : v)} style={{
+              flex: 1, height: 46, borderRadius: 13, cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 14, fontWeight: 600,
+              background: recommend === v ? 'var(--accent)' : 'var(--card)', color: recommend === v ? '#fff' : 'var(--ink-2)',
+              border: recommend === v ? '2px solid var(--accent)' : '1px solid var(--line)', transition: 'all .12s',
+            }}>{l}</button>
+          ))}
+        </div>
+
+        <label style={fieldLabel}>Was gefällt dir?</label>
+        <input value={liked} onChange={e => setLiked(e.target.value)} placeholder="z.B. einfach, schnell, schön …" style={fieldInput} />
+
+        <label style={fieldLabel}>Was fehlt oder nervt?</label>
+        <input value={missing} onChange={e => setMissing(e.target.value)} placeholder="z.B. eine Funktion, ein Fehler …" style={fieldInput} />
+
+        <label style={fieldLabel}>Deine Nachricht (frei)</label>
+        <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Schreib uns einfach, was du magst …"
+          style={{ ...fieldInput, height: 'auto', minHeight: 110, padding: '13px 15px', fontSize: 15.5, resize: 'vertical', lineHeight: 1.45 }} />
+
+        <label style={fieldLabel}>Kontakt (optional)</label>
+        <input value={contact} onChange={e => setContact(e.target.value)} placeholder="E-Mail, falls wir antworten dürfen" style={fieldInput} />
         <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.4 }}>Ohne Kontakt ist dein Feedback anonym. Siehe <b>Hinweise &amp; Datenschutz</b>.</div>
       </Body>
-      <Footer><Btn kind="primary" disabled={!canSend} onClick={send} iconR={<Ic.arrowR size={20} />}>{busy ? 'Senden …' : 'Absenden'}</Btn></Footer>
+      <Footer><Btn kind="primary" disabled={!hasContent || busy} onClick={send} iconR={<Ic.arrowR size={20} />}>{busy ? 'Senden …' : 'Absenden'}</Btn></Footer>
     </Screen>
   );
 }
