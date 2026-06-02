@@ -325,7 +325,7 @@ function HistoryDetailScreen({ game, go, from }) {
 }
 
 // ── Settings ──────────────────────────────────────────────
-function SettingsScreen({ account, setAccount, family, setFamily, go, logout, defaultMode, setDefaultMode, autoCrew, setAutoCrew, companion = false }) {
+function SettingsScreen({ account, setAccount, family, setFamily, go, logout, defaultMode, setDefaultMode, autoCrew, setAutoCrew, companion = false, openLegal }) {
   const { Screen, AppHeader, Body, Avatar, AV_COLORS } = UI;
   const [editId, setEditId] = useAcS(null);
   const [newName, setNewName] = useAcS('');
@@ -412,7 +412,8 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
 
         {companion && <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 22, lineHeight: 1.45 }}>Als Mitspieler siehst du nur die Spiele, bei denen du dabei warst. Spiele eröffnet der Gastgeber.</div>}
 
-        <button onClick={logout} style={{ width: '100%', marginTop: 26, marginBottom: 10, height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'transparent', color: 'var(--bad)', fontFamily: 'var(--font)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Konto abmelden</button>
+        <button onClick={logout} style={{ width: '100%', marginTop: 26, height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'transparent', color: 'var(--bad)', fontFamily: 'var(--font)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Konto abmelden</button>
+        <button onClick={() => (openLegal ? openLegal() : go('legal'))} style={{ width: '100%', marginTop: 10, marginBottom: 10, height: 44, borderRadius: 14, border: 'none', background: 'transparent', color: 'var(--ink-3)', fontFamily: 'var(--font)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Hinweise &amp; Datenschutz</button>
       </Body>
     </Screen>
   );

@@ -23,7 +23,7 @@ function Wordmark({ size = 34, color = 'var(--ink)' }) {
 }
 
 // ── 0. Landing / Begrüßung ────────────────────────────────
-function LandingScreen({ go }) {
+function LandingScreen({ go, openLegal }) {
   const { Screen, Btn } = UI;
   return (
     <Screen bg="var(--paper)">
@@ -47,7 +47,36 @@ function LandingScreen({ go }) {
           <span style={{ flexShrink: 0 }}>ℹ️</span>
           <span><b>Beta-Version.</b> Diese App wird gerade getestet — keine Gewähr auf Verfügbarkeit oder Richtigkeit der Resultate. Alles dient nur dem Ausprobieren. Viel Spaß!</span>
         </div>
+        <div style={{ textAlign: 'center', marginTop: 10 }}>
+          <button onClick={() => (openLegal ? openLegal() : go('legal'))} style={{ border: 'none', background: 'transparent', color: 'var(--ink-3)', textDecoration: 'underline', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font)', padding: 4 }}>Hinweise &amp; Datenschutz</button>
+        </div>
       </div>
+    </Screen>
+  );
+}
+
+// ── Hinweise & Datenschutz (schlanke Beta-Seite) ──────────
+function LegalScreen({ go, back = 'cover' }) {
+  const { Screen, AppHeader, Body } = UI;
+  const H = ({ children }) => <div style={{ fontSize: 14.5, fontWeight: 700, marginTop: 20, marginBottom: 6 }}>{children}</div>;
+  const P = ({ children }) => <div style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink-2)' }}>{children}</div>;
+  return (
+    <Screen>
+      <AppHeader title="Hinweise & Datenschutz" sub="Beta" onBack={() => go(back)} />
+      <Body>
+        <P>PLONKY hilft dir, Mini-Golf-Runden digital zu zählen — aktuell in einer offenen Testphase (Beta).</P>
+        <H>Beta — keine Gewähr</H>
+        <P>Diese App wird gerade getestet. Wir übernehmen keine Garantie für Verfügbarkeit, Fehlerfreiheit oder die Richtigkeit der Resultate. Nutzung zum Vergnügen, auf eigene Verantwortung.</P>
+        <H>Welche Daten gespeichert werden</H>
+        <P>Dein Name und — wenn du magst — dein Profilfoto, deine Spielergebnisse (Schläge pro Bahn), die Crew-Mitglieder, die du selbst anlegst, sowie optionales Feedback, das du uns schickst. Es gibt kein Passwort: der Zugang läuft allein über deinen persönlichen Link.</P>
+        <H>Wo & wie</H>
+        <P>Die Daten liegen in einer Datenbank auf den Servern unseres Hosters (render). Wir machen kein Werbe-Tracking. Profilfotos werden klein gespeichert — bitte lade nur Bilder hoch, zu denen du berechtigt bist.</P>
+        <H>Löschen & Auskunft</H>
+        <P>Du möchtest dein Konto oder deine Daten löschen lassen, oder wissen, was gespeichert ist? Eine kurze Mail genügt.</P>
+        <H>Kontakt</H>
+        <P>plonky.app@gmail.com</P>
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 22, lineHeight: 1.45 }}>Stand: Juni 2026 · Dies ist ein Hinweistext für die Testphase, keine Rechtsberatung.</div>
+      </Body>
     </Screen>
   );
 }
@@ -615,4 +644,4 @@ function JoinCodeScreen({ go, onJoined, back = 'home' }) {
   );
 }
 
-window.OB = { Wordmark, LandingScreen, CoverScreen, AccountScreen, ScanScreen, RoleScreen, PlayersScreen, InviteScreen, JoinScreen, JoinCodeScreen, VENUE };
+window.OB = { Wordmark, LandingScreen, LegalScreen, CoverScreen, AccountScreen, ScanScreen, RoleScreen, PlayersScreen, InviteScreen, JoinScreen, JoinCodeScreen, VENUE };

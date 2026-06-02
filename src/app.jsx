@@ -39,6 +39,7 @@ function App() {
   const [hydrated, setHydrated] = useAS(false);
   const [histId, setHistId] = useAS(null);
   const [histFrom, setHistFrom] = useAS('home');
+  const [legalFrom, setLegalFrom] = useAS('cover');
   const [resultsFinal, setResultsFinal] = useAS(true);
   const [autoCrew, setAutoCrew] = useAS(true);
   const gameSavedRef = useAR(false);
@@ -248,6 +249,7 @@ function App() {
     go('join');
   };
   const logout = () => { setAccount(null); go('cover'); };
+  const openLegal = () => { setLegalFrom(screen); go('legal'); };
 
   const jump = (s) => {
     if ((s === 'game' || s === 'results') && players.length === 0) {
@@ -261,11 +263,12 @@ function App() {
   const isCompanion = !!(account && account.kind === 'companion');
   let view;
   switch (screen) {
-    case 'landing': view = <OB.LandingScreen go={go} />; break;
+    case 'landing': view = <OB.LandingScreen go={go} openLegal={openLegal} />; break;
+    case 'legal': view = <OB.LegalScreen go={go} back={legalFrom} />; break;
     case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} />; break;
     case 'account': view = <OB.AccountScreen go={go} onCreate={me != null ? createCompanion : createAccount} companion={me != null} presetName={me != null ? ((players.find(p => String(p.id) === String(me)) || {}).name || '') : ''} back={me != null ? 'results' : 'cover'} />; break;
     case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={newGame} scanEnabled={scanEnabled} companion={isCompanion} />; break;
-    case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} />; break;
+    case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} openLegal={openLegal} />; break;
     case 'joinCode': view = <OB.JoinCodeScreen go={go} onJoined={enterSession} back={account ? 'home' : 'cover'} />; break;
     case 'history': view = <ACC.HistoryScreen history={history} go={go} openGame={openGame} />; break;
     case 'historyDetail': view = <ACC.HistoryDetailScreen game={history.find(g => g.id === histId)} go={go} from={histFrom} />; break;
