@@ -40,6 +40,8 @@ function App() {
   const [histId, setHistId] = useAS(null);
   const [histFrom, setHistFrom] = useAS('home');
   const [legalFrom, setLegalFrom] = useAS('cover');
+  const [feedbackFrom, setFeedbackFrom] = useAS('home');
+  const [feedbackItems, setFeedbackItems] = useAS(null);
   const [resultsFinal, setResultsFinal] = useAS(true);
   const [autoCrew, setAutoCrew] = useAS(true);
   const gameSavedRef = useAR(false);
@@ -49,6 +51,19 @@ function App() {
     const d = ACC.STORE.load();
     const linkMatch = typeof location !== 'undefined' && location.pathname.match(/^\/m\/([^\/?#]+)/);
     const joinMatch = typeof location !== 'undefined' && location.pathname.match(/^\/j\/([^\/?#]+)/);
+    const fbMatch = typeof location !== 'undefined' && location.pathname.match(/^\/fb\/([^\/?#]+)/);
+
+    // opened via the private feedback inbox link (/fb/<key>)
+    if (fbMatch) {
+      const key = decodeURIComponent(fbMatch[1]);
+      if (window.history && window.history.replaceState) window.history.replaceState({}, '', '/');
+      if (d.account) setAccount(d.account.id ? d.account : { ...d.account, id: ACC.newAccountId() });
+      ACC.API.listFeedback(key)
+        .then(items => { setFeedbackItems(items || []); setScreen('feedbackInbox'); })
+        .catch(() => { setFeedbackItems(null); setScreen('feedbackInbox'); })
+        .finally(() => setHydrated(true));
+      return;
+    }
 
     // opened via a live-session link (/j/<code>): join that shared round
     if (joinMatch) {
@@ -250,6 +265,7 @@ function App() {
   };
   const logout = () => { setAccount(null); go('cover'); };
   const openLegal = () => { setLegalFrom(screen); go('legal'); };
+  const openFeedback = () => { setFeedbackFrom(screen); go('feedback'); };
 
   const jump = (s) => {
     if ((s === 'game' || s === 'results') && players.length === 0) {
@@ -265,10 +281,12 @@ function App() {
   switch (screen) {
     case 'landing': view = <OB.LandingScreen go={go} openLegal={openLegal} />; break;
     case 'legal': view = <OB.LegalScreen go={go} back={legalFrom} />; break;
+    case 'feedback': view = <ACC.FeedbackScreen go={go} account={account} back={feedbackFrom} />; break;
+    case 'feedbackInbox': view = <ACC.FeedbackInbox items={feedbackItems} go={go} />; break;
     case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} />; break;
     case 'account': view = <OB.AccountScreen go={go} onCreate={me != null ? createCompanion : createAccount} companion={me != null} presetName={me != null ? ((players.find(p => String(p.id) === String(me)) || {}).name || '') : ''} back={me != null ? 'results' : 'cover'} />; break;
     case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={newGame} scanEnabled={scanEnabled} companion={isCompanion} />; break;
-    case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} openLegal={openLegal} />; break;
+    case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} openLegal={openLegal} openFeedback={openFeedback} />; break;
     case 'joinCode': view = <OB.JoinCodeScreen go={go} onJoined={enterSession} back={account ? 'home' : 'cover'} />; break;
     case 'history': view = <ACC.HistoryScreen history={history} go={go} openGame={openGame} />; break;
     case 'historyDetail': view = <ACC.HistoryDetailScreen game={history.find(g => g.id === histId)} go={go} from={histFrom} />; break;

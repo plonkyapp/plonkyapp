@@ -90,6 +90,18 @@ class Session(db.Model):
     created_at = db.Column(db.BigInteger, nullable=False, default=lambda: int(time.time() * 1000))
 
 
+class Feedback(db.Model):
+    """Player feedback. Read via the private inbox (GET /api/feedback?key=FEEDBACK_KEY)."""
+    __tablename__ = "feedback"
+    id = db.Column(db.Integer, primary_key=True)
+    rating = db.Column(db.Integer, nullable=True)  # 1=😞 2=😐 3=😍, or null
+    message = db.Column(db.Text, nullable=False, default="")
+    contact = db.Column(db.String, nullable=False, default="")  # optional email/handle
+    name = db.Column(db.String, nullable=False, default="")
+    account_id = db.Column(db.String, nullable=True)
+    created_at = db.Column(db.BigInteger, nullable=False, default=lambda: int(time.time() * 1000))
+
+
 # unambiguous alphabet (no 0/O/1/I) for human-readable join codes
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -363,9 +375,42 @@ def session_finish(code):
     return jsonify(session_to_dict(s))
 
 
+@app.route("/api/feedback", methods=["POST"])
+def submit_feedback():
+    data = request.get_json(silent=True) or {}
+    msg = (data.get("message") or "").strip()
+    rating = data.get("rating")
+    if not msg and not rating:
+        abort(400, "empty feedback")
+    fb = Feedback(
+        rating=rating if isinstance(rating, int) else None,
+        message=msg[:4000],
+        contact=(data.get("contact") or "")[:200],
+        name=(data.get("name") or "")[:120],
+        account_id=data.get("account_id"),
+    )
+    db.session.add(fb)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/feedback", methods=["GET"])
+def list_feedback():
+    """Private inbox. Requires ?key=<FEEDBACK_KEY env>. 403 if unset/mismatch."""
+    admin = os.environ.get("FEEDBACK_KEY")
+    if not admin or request.args.get("key") != admin:
+        abort(403)
+    items = Feedback.query.order_by(Feedback.created_at.desc()).limit(500).all()
+    return jsonify([
+        {"id": f.id, "rating": f.rating, "message": f.message, "contact": f.contact, "name": f.name, "created": f.created_at}
+        for f in items
+    ])
+
+
 @app.route("/")
 @app.route("/m/<token>")
 @app.route("/j/<token>")
+@app.route("/fb/<token>")
 def index(token=None):
     return send_from_directory(APP_DIR, "index.html")
 

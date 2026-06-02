@@ -100,6 +100,20 @@ const API = {
     if (!r.ok) throw new Error('sessionPlayers ' + r.status);
     return r.json();
   },
+  async submitFeedback(payload) {
+    const r = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error('submitFeedback ' + r.status);
+    return r.json();
+  },
+  async listFeedback(key) {
+    const r = await fetch('/api/feedback?key=' + encodeURIComponent(key));
+    if (!r.ok) throw new Error('listFeedback ' + r.status);
+    return r.json();
+  },
 };
 
 const appOrigin = () => (typeof location !== 'undefined' ? location.origin : 'https://app.plonky.ch');
@@ -325,7 +339,7 @@ function HistoryDetailScreen({ game, go, from }) {
 }
 
 // ── Settings ──────────────────────────────────────────────
-function SettingsScreen({ account, setAccount, family, setFamily, go, logout, defaultMode, setDefaultMode, autoCrew, setAutoCrew, companion = false, openLegal }) {
+function SettingsScreen({ account, setAccount, family, setFamily, go, logout, defaultMode, setDefaultMode, autoCrew, setAutoCrew, companion = false, openLegal, openFeedback }) {
   const { Screen, AppHeader, Body, Avatar, AV_COLORS } = UI;
   const [editId, setEditId] = useAcS(null);
   const [newName, setNewName] = useAcS('');
@@ -412,7 +426,13 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
 
         {companion && <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 22, lineHeight: 1.45 }}>Als Mitspieler siehst du nur die Spiele, bei denen du dabei warst. Spiele eröffnet der Gastgeber.</div>}
 
-        <button onClick={logout} style={{ width: '100%', marginTop: 26, height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'transparent', color: 'var(--bad)', fontFamily: 'var(--font)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Konto abmelden</button>
+        <button onClick={() => (openFeedback ? openFeedback() : go('feedback'))} style={{ width: '100%', marginTop: 24, display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '14px 16px', cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font)' }}>
+          <div style={{ color: 'var(--accent)' }}><Ic.sparkle size={20} /></div>
+          <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 700 }}>Feedback geben</div><div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>Sag uns, wie's läuft — Beta-Test</div></div>
+          <Ic.chevR size={18} color="var(--ink-3)" />
+        </button>
+
+        <button onClick={logout} style={{ width: '100%', marginTop: 16, height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'transparent', color: 'var(--bad)', fontFamily: 'var(--font)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Konto abmelden</button>
         <button onClick={() => (openLegal ? openLegal() : go('legal'))} style={{ width: '100%', marginTop: 10, marginBottom: 10, height: 44, borderRadius: 14, border: 'none', background: 'transparent', color: 'var(--ink-3)', fontFamily: 'var(--font)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Hinweise &amp; Datenschutz</button>
       </Body>
     </Screen>
@@ -420,4 +440,101 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
 }
 const iconBtn = { width: 34, height: 34, borderRadius: 10, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 };
 
-window.ACC = { STORE, API, newAccountId, accountLink, sessionLink, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, aTotals, fmtDate, fmtShort };
+const FB_FACES = [[1, '😞'], [2, '😐'], [3, '😍']];
+
+// ── Feedback form ─────────────────────────────────────────
+function FeedbackScreen({ go, account, back = 'home' }) {
+  const { Screen, AppHeader, Body, Footer, Btn } = UI;
+  const [rating, setRating] = useAcS(0);
+  const [msg, setMsg] = useAcS('');
+  const [contact, setContact] = useAcS('');
+  const [busy, setBusy] = useAcS(false);
+  const [sent, setSent] = useAcS(false);
+  const canSend = (msg.trim() || rating) && !busy;
+  const send = () => {
+    if (!canSend) return;
+    setBusy(true);
+    ACC.API.submitFeedback({
+      rating: rating || null,
+      message: msg.trim(),
+      contact: contact.trim(),
+      name: (account && account.name) || '',
+      account_id: (account && account.id) || null,
+    }).then(() => setSent(true)).catch(() => setSent(true)); // best-effort; thank either way
+  };
+  if (sent) return (
+    <Screen>
+      <AppHeader title="Feedback" onBack={() => go(back)} />
+      <Body>
+        <div style={{ textAlign: 'center', paddingTop: 40, animation: 'fadeUp .4s both' }}>
+          <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--accent)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', animation: 'plonkPop .5s both' }}><Ic.check size={42} sw={2.6} /></div>
+          <div style={{ fontSize: 21, fontWeight: 700, marginTop: 18 }}>Danke dir! 🙌</div>
+          <div style={{ fontSize: 14.5, color: 'var(--ink-2)', marginTop: 8, lineHeight: 1.45, padding: '0 12px' }}>Deine Rückmeldung ist angekommen und hilft uns, PLONKY besser zu machen.</div>
+        </div>
+      </Body>
+      <Footer><Btn kind="primary" onClick={() => go(back)} iconR={<Ic.arrowR size={20} />}>Zurück</Btn></Footer>
+    </Screen>
+  );
+  return (
+    <Screen>
+      <AppHeader title="Feedback" sub="Beta" onBack={() => go(back)} />
+      <Body>
+        <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45, marginBottom: 18 }}>
+          Wie war's? Deine Rückmeldung hilft uns, PLONKY besser zu machen.
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 22 }}>
+          {FB_FACES.map(([v, e]) => (
+            <button key={v} onClick={() => setRating(rating === v ? 0 : v)} style={{
+              flex: 1, height: 64, borderRadius: 16, cursor: 'pointer', fontSize: 30, fontFamily: 'var(--font)',
+              background: rating === v ? 'color-mix(in srgb, var(--accent) 12%, var(--card))' : 'var(--card)',
+              border: rating === v ? '2px solid var(--accent)' : '1px solid var(--line)', transition: 'all .12s',
+            }}>{e}</button>
+          ))}
+        </div>
+        <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-2)' }}>Deine Nachricht</label>
+        <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Was gefällt dir, was fehlt, was nervt?"
+          style={{ width: '100%', marginTop: 8, minHeight: 120, borderRadius: 16, border: '1px solid var(--line)', background: 'var(--card)', padding: '13px 15px', fontSize: 15.5, fontFamily: 'var(--font)', outline: 'none', resize: 'vertical', lineHeight: 1.45 }} />
+        <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-2)', display: 'block', marginTop: 16 }}>Kontakt (optional)</label>
+        <input value={contact} onChange={e => setContact(e.target.value)} placeholder="E-Mail, falls wir antworten dürfen"
+          style={{ width: '100%', marginTop: 8, height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'var(--card)', padding: '0 15px', fontSize: 15, fontFamily: 'var(--font)', outline: 'none' }} />
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.4 }}>Ohne Kontakt ist dein Feedback anonym. Siehe <b>Hinweise &amp; Datenschutz</b>.</div>
+      </Body>
+      <Footer><Btn kind="primary" disabled={!canSend} onClick={send} iconR={<Ic.arrowR size={20} />}>{busy ? 'Senden …' : 'Absenden'}</Btn></Footer>
+    </Screen>
+  );
+}
+
+// ── Feedback inbox (private, opened via /fb/<key>) ────────
+function FeedbackInbox({ items, go }) {
+  const { Screen, AppHeader, Body } = UI;
+  return (
+    <Screen>
+      <AppHeader title="Feedback-Posteingang" sub={items ? items.length + ' Einträge' : 'Kein Zugriff'} onBack={() => go('cover')} />
+      <Body>
+        {!items ? (
+          <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 18, padding: '24px 18px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 14, lineHeight: 1.5 }}>
+            Kein Zugriff. Der Link/Schlüssel stimmt nicht — oder der <b>FEEDBACK_KEY</b> ist auf dem Server noch nicht gesetzt.
+          </div>
+        ) : items.length === 0 ? (
+          <div style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 14, padding: '34px 0' }}>Noch kein Feedback.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {items.map(f => (
+              <div key={f.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '13px 15px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 20 }}>{(FB_FACES.find(x => x[0] === f.rating) || [0, '·'])[1]}</span>
+                  <span style={{ flex: 1, fontSize: 13.5, fontWeight: 700 }}>{f.name || 'Anonym'}</span>
+                  <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{fmtShort(f.created)}</span>
+                </div>
+                {f.message && <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{f.message}</div>}
+                {f.contact && <div style={{ fontSize: 12.5, color: 'var(--accent)', marginTop: 7, fontWeight: 600 }}>{f.contact}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </Body>
+    </Screen>
+  );
+}
+
+window.ACC = { STORE, API, newAccountId, accountLink, sessionLink, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, FeedbackScreen, FeedbackInbox, aTotals, fmtDate, fmtShort };
