@@ -486,38 +486,122 @@ function JoinScreen({ go, players, setMe, sessionCode, account = null }) {
   );
 }
 
-// ── Join by code (companion: enter the host's session code) ──
+// Pull a 4-char join code out of a scanned QR payload (usually a /j/<code> URL).
+function extractJoinCode(data) {
+  if (!data) return null;
+  const m = String(data).match(/\/j\/([A-Za-z0-9]{4})(?:[\/?#]|$)/);
+  if (m) return m[1].toUpperCase();
+  const raw = String(data).trim().toUpperCase();
+  return /^[A-Z0-9]{4}$/.test(raw) ? raw : null;
+}
+
+// ── Live camera QR scanner (getUserMedia + jsQR) ──────────
+function QrScanner({ onCode, onClose }) {
+  const videoRef = useRefOB(null);
+  const [err, setErr] = useStateOB('');
+  useEffectOB(() => {
+    let stream = null, raf = null, alive = true;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const stop = () => { if (raf) cancelAnimationFrame(raf); raf = null; if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } };
+    const scan = () => {
+      if (!alive) return;
+      const v = videoRef.current;
+      if (v && v.readyState >= 2 && v.videoWidth && window.jsQR) {
+        canvas.width = v.videoWidth; canvas.height = v.videoHeight;
+        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+        try {
+          const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const res = window.jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+          const c = res && extractJoinCode(res.data);
+          if (c) { alive = false; stop(); onCode(c); return; }
+        } catch (e) {}
+      }
+      raf = requestAnimationFrame(scan);
+    };
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setErr('Kamera wird hier nicht unterstützt. Gib den Code unten ein.');
+    } else {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+        .then(s => {
+          if (!alive) { s.getTracks().forEach(t => t.stop()); return; }
+          stream = s;
+          const v = videoRef.current;
+          if (v) { v.srcObject = s; v.play().catch(() => {}); }
+          raf = requestAnimationFrame(scan);
+        })
+        .catch(() => setErr('Kein Kamerazugriff. Erlaube die Kamera — oder gib den Code unten ein.'));
+    }
+    return () => { alive = false; stop(); };
+  }, []);
+  const bracket = (pos) => {
+    const base = { position: 'absolute', width: 34, height: 34, borderColor: '#fff', borderStyle: 'solid', borderWidth: 0 };
+    const m = { tl: { top: 0, left: 0, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 14 }, tr: { top: 0, right: 0, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: 14 }, bl: { bottom: 0, left: 0, borderBottomWidth: 4, borderLeftWidth: 4, borderBottomLeftRadius: 14 }, br: { bottom: 0, right: 0, borderBottomWidth: 4, borderRightWidth: 4, borderBottomRightRadius: 14 } };
+    return <div style={{ ...base, ...m[pos] }} />;
+  };
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: '#0E0F0C' }}>
+      <video ref={videoRef} muted autoPlay playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)' }} />
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '54px 20px 0' }}>
+        <button onClick={onClose} style={{ width: 40, height: 40, borderRadius: 13, border: 'none', background: 'rgba(255,255,255,0.18)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><Ic.x size={20} /></button>
+        <div style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14, fontWeight: 600 }}>QR-Code scannen</div>
+        <div style={{ width: 40 }} />
+      </div>
+      <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-54%)', width: 230, height: 230 }}>
+        {bracket('tl')}{bracket('tr')}{bracket('bl')}{bracket('br')}
+        <div style={{ position: 'absolute', left: '6%', right: '6%', height: 2, background: 'linear-gradient(90deg,transparent,var(--accent),transparent)', boxShadow: '0 0 12px var(--accent)', animation: 'scanline 1.5s ease-in-out infinite alternate' }} />
+      </div>
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '0 22px 40px', textAlign: 'center' }}>
+        {err
+          ? <div style={{ fontSize: 14, color: '#fff', background: 'rgba(216,83,59,0.92)', borderRadius: 14, padding: '12px 16px', lineHeight: 1.4 }}>{err}</div>
+          : <div style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.85)' }}>Richte die Kamera auf den QR-Code des Gastgebers</div>}
+        <button onClick={onClose} style={{ marginTop: 16, width: '100%', height: 50, borderRadius: 14, border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.12)', color: '#fff', fontFamily: 'var(--font)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Code stattdessen eingeben</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Join by code / scan (companion: join the host's session) ──
 function JoinCodeScreen({ go, onJoined, back = 'home' }) {
   const { Screen, AppHeader, Body, Footer, Btn } = UI;
   const [code, setCode] = useStateOB('');
   const [busy, setBusy] = useStateOB(false);
   const [err, setErr] = useStateOB('');
+  const [scanning, setScanning] = useStateOB(false);
   const clean = code.trim().toUpperCase();
-  const join = () => {
-    if (clean.length < 4 || busy) return;
+  const join = (codeArg) => {
+    const cc = ((codeArg || clean) + '').trim().toUpperCase();
+    if (cc.length < 4 || busy) return;
     setBusy(true); setErr('');
-    ACC.API.getSession(clean, true)
+    ACC.API.getSession(cc, true)
       .then(sess => {
         if (!sess) { setErr('Diesen Code gibt es nicht (mehr). Prüfe die 4 Zeichen.'); setBusy(false); return; }
         onJoined && onJoined(sess);
       })
       .catch(() => { setErr('Verbindung fehlgeschlagen. Nochmal versuchen.'); setBusy(false); });
   };
+  if (scanning) return <QrScanner onClose={() => setScanning(false)} onCode={(c) => { setScanning(false); setCode(c); join(c); }} />;
   return (
     <Screen>
       <AppHeader title="Spiel beitreten" onBack={() => go(back)} />
       <Body>
-        <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45, marginBottom: 18 }}>
-          Richte deine <b>Handy-Kamera</b> auf den QR-Code des Gastgebers — oder gib hier den 4-stelligen Code ein, den er dir zeigt.
+        <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45, marginBottom: 16 }}>
+          Scanne den QR-Code des Gastgebers — oder gib den 4-stelligen Code ein, den er dir zeigt.
         </div>
-        <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-2)' }}>Session-Code</label>
+        <Btn kind="primary" icon={<Ic.camera size={20} />} onClick={() => { setErr(''); setScanning(true); }}>QR-Code scannen</Btn>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0' }}>
+          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+          <span style={{ fontSize: 12.5, color: 'var(--ink-3)', fontWeight: 600 }}>oder Code eingeben</span>
+          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+        </div>
         <input
           value={code}
           onChange={e => { setCode(e.target.value.slice(0, 4)); setErr(''); }}
           onKeyDown={e => e.key === 'Enter' && join()}
           placeholder="z.B. H432"
           autoCapitalize="characters" autoCorrect="off" spellCheck={false}
-          style={{ width: '100%', marginTop: 8, height: 60, borderRadius: 16, border: err ? '1px solid var(--bad)' : '1px solid var(--line)', background: 'var(--card)', padding: '0 18px', fontSize: 26, fontWeight: 700, letterSpacing: 8, textTransform: 'uppercase', fontFamily: 'var(--num)', outline: 'none' }} />
+          style={{ width: '100%', height: 60, borderRadius: 16, border: err ? '1px solid var(--bad)' : '1px solid var(--line)', background: 'var(--card)', padding: '0 18px', fontSize: 26, fontWeight: 700, letterSpacing: 8, textTransform: 'uppercase', fontFamily: 'var(--num)', outline: 'none' }} />
         {err && <div style={{ fontSize: 13, color: 'var(--bad)', marginTop: 9, fontWeight: 600 }}>{err}</div>}
         <div style={{ display: 'flex', alignItems: 'center', gap: 13, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '14px 16px', marginTop: 22 }}>
           <div style={{ color: 'var(--accent)' }}><Ic.users size={21} /></div>
@@ -525,7 +609,7 @@ function JoinCodeScreen({ go, onJoined, back = 'home' }) {
         </div>
       </Body>
       <Footer>
-        <Btn kind="primary" disabled={clean.length < 4 || busy} onClick={join} iconR={<Ic.arrowR size={20} />}>{busy ? 'Suche Runde …' : 'Beitreten'}</Btn>
+        <Btn kind={clean.length >= 4 ? 'primary' : 'secondary'} disabled={clean.length < 4 || busy} onClick={() => join()} iconR={<Ic.arrowR size={20} />}>{busy ? 'Suche Runde …' : 'Mit Code beitreten'}</Btn>
       </Footer>
     </Screen>
   );
