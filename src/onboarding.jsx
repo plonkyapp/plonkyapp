@@ -323,6 +323,12 @@ function PlayersScreen({ go, players, setPlayers, role, family = [] }) {
             style={{ flex: 1, height: 52, borderRadius: 15, border: '1px solid var(--line)', background: 'var(--card)', padding: '0 16px', fontSize: 16.5, fontFamily: 'var(--font)', outline: 'none' }} />
           <button onClick={add} style={{ width: 52, height: 52, borderRadius: 15, border: 'none', background: 'var(--accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><Ic.plus size={24} /></button>
         </div>
+        {!(players[0] && players[0].id === 'me') && (
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'color-mix(in srgb, var(--accent) 7%, var(--card))', border: '1px solid color-mix(in srgb, var(--accent) 25%, var(--line))', borderRadius: 14, padding: '11px 13px', marginBottom: 14 }}>
+            <span style={{ flexShrink: 0, fontSize: 15 }}>👑</span>
+            <span style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.45 }}>Der <b>erste Name</b> ist der Haupt-Spieler (Gastgeber) — trag am besten <b>dich selbst zuerst</b> ein.</span>
+          </div>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {players.length === 0 && (
             <div style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 14, padding: '26px 0' }}>Noch niemand dabei.<br />Tipp oben den ersten Namen ein.</div>
@@ -331,7 +337,7 @@ function PlayersScreen({ go, players, setPlayers, role, family = [] }) {
             <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 13, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '10px 12px 10px 12px', animation: 'fadeUp .3s both' }}>
               <Avatar name={p.name} color={p.color} size={38} src={p.avatar} />
               <div style={{ flex: 1, fontSize: 16, fontWeight: 600 }}>{p.name}</div>
-              {i === 0 && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)', padding: '3px 8px', borderRadius: 7 }}>LEAD</span>}
+              {i === 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)', padding: '3px 8px', borderRadius: 7, whiteSpace: 'nowrap' }}>GASTGEBER</span>}
               <button onClick={() => remove(p.id)} style={{ width: 32, height: 32, borderRadius: 10, border: 'none', background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic.x size={18} /></button>
             </div>
           ))}
