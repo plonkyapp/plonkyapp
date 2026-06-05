@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 460" width="800" height="460" role="img" aria-label="Mini-Golf Seebach — Illustration im plonky-Stil">
+  <defs>
+    <clipPath id="frame"><rect x="0" y="0" width="800" height="460"></rect></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    
+    <rect x="0" y="0" width="800" height="460" fill="#EAF0EC"></rect>
+    <rect x="0" y="0" width="800" height="220" fill="#E4ECEA"></rect>
+
+    
+    <g fill="#CFE0D2">
+      <circle cx="60" cy="150" r="95"></circle><circle cx="170" cy="118" r="108"></circle><circle cx="300" cy="135" r="92"></circle>
+      <circle cx="470" cy="115" r="115"></circle><circle cx="600" cy="140" r="96"></circle><circle cx="730" cy="118" r="112"></circle>
+    </g>
+    <g fill="#B7D3BD">
+      <circle cx="120" cy="178" r="82"></circle><circle cx="250" cy="168" r="76"></circle>
+      <circle cx="540" cy="162" r="86"></circle><circle cx="685" cy="178" r="82"></circle>
+    </g>
+
+    
+    <rect x="754" y="150" width="58" height="150" fill="#CBD9E6"></rect>
+    <rect x="754" y="150" width="58" height="15" fill="#9DBBD6"></rect>
+
+    
+    <rect x="0" y="248" width="800" height="212" fill="#8FC79B"></rect>
+    <path d="M0 248 Q 400 230 800 248 L800 300 Q 400 286 0 300 Z" fill="#80BE8E"></path>
+
+    
+    <g>
+      <path d="M352 268 L448 268 L556 460 L244 460 Z" fill="#B86A52"></path>
+      <path d="M352 268 L448 268 L556 460 L244 460 Z" fill="#AE6049"></path>
+      
+      <g stroke="#9A5440" stroke-width="3" stroke-linecap="round">
+        <line x1="356" y1="286" x2="444" y2="286"></line>
+        <line x1="346" y1="320" x2="454" y2="320"></line>
+        <line x1="333" y1="366" x2="467" y2="366"></line>
+        <line x1="316" y1="418" x2="484" y2="418"></line>
+      </g>
+      
+      <path d="M352 268 L448 268 L450 280 L350 280 Z" fill="#C57A60"></path>
+    </g>
+
+    
+    <g>
+      
+      <ellipse cx="400" cy="290" rx="170" ry="26" fill="#6FAE7E" opacity="0.55"></ellipse>
+      
+      <rect x="392" y="232" width="16" height="62" rx="6" fill="#8C6A4E"></rect>
+      
+      <g fill="#2E8F55">
+        <circle cx="300" cy="180" r="74"></circle><circle cx="500" cy="180" r="74"></circle>
+        <circle cx="400" cy="150" r="92"></circle><circle cx="360" cy="200" r="80"></circle>
+        <circle cx="440" cy="200" r="80"></circle><circle cx="250" cy="210" r="56"></circle>
+        <circle cx="550" cy="210" r="56"></circle>
+      </g>
+      <g fill="#3CA968">
+        <circle cx="345" cy="160" r="58"></circle><circle cx="455" cy="160" r="58"></circle>
+        <circle cx="400" cy="135" r="60"></circle><circle cx="290" cy="195" r="46"></circle>
+        <circle cx="510" cy="195" r="46"></circle><circle cx="400" cy="205" r="62"></circle>
+      </g>
+      
+      <g fill="#7BC293">
+        <circle cx="372" cy="150" r="34"></circle><circle cx="432" cy="156" r="30"></circle>
+        <circle cx="330" cy="186" r="26"></circle><circle cx="470" cy="184" r="24"></circle>
+        <circle cx="400" cy="180" r="30"></circle>
+      </g>
+      <g fill="#C8A24A" opacity="0.5">
+        <circle cx="350" cy="142" r="16"></circle><circle cx="446" cy="148" r="13"></circle><circle cx="408" cy="166" r="12"></circle>
+      </g>
+    </g>
+
+    
+    <g>
+      <rect x="268" y="252" width="22" height="30" rx="4" fill="#1F7A45"></rect>
+      <rect x="265" y="248" width="28" height="7" rx="3" fill="#176236"></rect>
+    </g>
+
+    
+    <g transform="rotate(-8 95 150)">
+      <rect x="92" y="150" width="6" height="150" rx="3" fill="#7A8A86"></rect>
+      <path d="M30 152 Q 95 96 160 152 Q 95 138 30 152 Z" fill="#2F6FE0"></path>
+      <path d="M30 152 Q 62 130 95 134 L95 152 Z" fill="#3F7CE8"></path>
+      <circle cx="95" cy="120" r="5" fill="#2F6FE0"></circle>
+    </g>
+
+    
+    
+    <g fill="#5FA873">
+      <circle cx="40" cy="360" r="80"></circle><circle cx="120" cy="370" r="78"></circle>
+      <circle cx="190" cy="392" r="70"></circle><circle cx="80" cy="420" r="80"></circle>
+    </g>
+    <g fill="#6FB983">
+      <circle cx="70" cy="350" r="44"></circle><circle cx="150" cy="360" r="40"></circle><circle cx="120" cy="395" r="46"></circle>
+    </g>
+    
+    <g fill="#4E9D66">
+      <circle cx="620" cy="362" r="86"></circle><circle cx="710" cy="356" r="92"></circle>
+      <circle cx="780" cy="380" r="80"></circle><circle cx="560" cy="396" r="72"></circle>
+    </g>
+    <g fill="#5FB178">
+      <circle cx="640" cy="348" r="48"></circle><circle cx="720" cy="342" r="46"></circle><circle cx="690" cy="382" r="50"></circle>
+    </g>
+    
+    <g fill="#7FA98C">
+      <circle cx="520" cy="430" r="34"></circle><circle cx="566" cy="442" r="30"></circle>
+    </g>
+  </g>
+</svg>

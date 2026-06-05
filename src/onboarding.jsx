@@ -27,18 +27,19 @@ function LandingScreen({ go, openLegal }) {
   const { Screen, Btn } = UI;
   return (
     <Screen bg="var(--paper)">
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '0 28px', textAlign: 'center' }}>
-        <div style={{ animation: 'fadeUp .5s both' }}><Wordmark size={30} /></div>
-        <div style={{ marginTop: 24, display: 'inline-flex', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '7px 14px', animation: 'fadeUp .5s .04s both' }}>
-          <Ic.pin size={15} color="var(--accent)" /><span style={{ fontSize: 13.5, fontWeight: 700 }}>{VENUE}</span>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '0 26px', textAlign: 'center', overflowY: 'auto' }} className="noscroll">
+        <div style={{ animation: 'fadeUp .5s both' }}><Wordmark size={28} /></div>
+        {/* venue hero — flat plonky-style illustration of the course */}
+        <div style={{ width: '100%', maxWidth: 320, marginTop: 20, borderRadius: 22, overflow: 'hidden', border: '1px solid var(--line)', boxShadow: '0 16px 40px -22px rgba(0,0,0,0.45)', background: 'var(--card)', animation: 'fadeUp .6s .1s both' }}>
+          <img src="/assets/seebach.svg" alt="Mini-Golf Seebach" style={{ display: 'block', width: '100%' }} />
+          <div style={{ padding: '11px 15px', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>
+            <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0 }} />
+            {VENUE} · 18 Bahnen
+          </div>
         </div>
-        <div style={{ marginTop: 22, fontSize: 31, fontWeight: 800, lineHeight: 1.12, letterSpacing: -0.8, animation: 'fadeUp .5s .08s both' }}>Willkommen! 👋</div>
-        <div style={{ marginTop: 14, fontSize: 16, lineHeight: 1.5, color: 'var(--ink-2)', maxWidth: 300, animation: 'fadeUp .5s .12s both' }}>
-          Schön, dass du da bist. Wir testen gerade unsere neue App, mit der du deine Mini-Golf-Runde digital einträgst — ganz ohne Zettel und Bleistift.
-        </div>
-        <div style={{ marginTop: 30, display: 'flex', alignItems: 'flex-end', gap: 22, animation: 'fadeIn .7s .2s both' }}>
-          <div style={{ color: 'var(--accent)' }}><Ic.flag size={76} sw={2.4} /></div>
-          <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#fff', boxShadow: '0 6px 14px -6px rgba(0,0,0,0.4), inset -4px -4px 0 rgba(0,0,0,0.04)', marginBottom: 4, animation: 'ballRoll 1.6s ease-in-out infinite alternate' }} />
+        <div style={{ marginTop: 22, fontSize: 27, fontWeight: 800, lineHeight: 1.12, letterSpacing: -0.7, animation: 'fadeUp .5s .16s both' }}>Willkommen! 👋</div>
+        <div style={{ marginTop: 10, fontSize: 15, lineHeight: 1.5, color: 'var(--ink-2)', maxWidth: 300, animation: 'fadeUp .5s .2s both' }}>
+          Trag deine Runde digital ein — ganz ohne Zettel. Wir sind im Beta-Test, schön dass du dabei bist!
         </div>
       </div>
       <div style={{ padding: '0 22px 30px', animation: 'fadeUp .5s .25s both' }}>
