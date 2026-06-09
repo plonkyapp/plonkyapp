@@ -323,7 +323,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
           if (String(merged[h]) === String(pending[k])) delete pending[k]; // server caught up
           else merged[h] = pending[k];                                     // keep local for now
         });
-        return { ...p, scores: merged, avatar: sp.avatar || p.avatar };
+        return { ...p, scores: merged, avatar: sp.avatar || p.avatar, account_id: sp.account_id || p.account_id };
       }));
     }).catch(() => {});
     tick();
@@ -404,7 +404,7 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
         // For MY own row keep my locally-entered scores (the server may not have
         // echoed my latest taps yet) and overlay anything extra from the server.
         const mine = me != null && String(p.id) === String(me);
-        return { ...p, scores: mine ? { ...(sp.scores || {}), ...(p.scores || {}) } : (sp.scores || {}), avatar: sp.avatar || p.avatar };
+        return { ...p, scores: mine ? { ...(sp.scores || {}), ...(p.scores || {}) } : (sp.scores || {}), avatar: sp.avatar || p.avatar, account_id: sp.account_id || p.account_id };
       }));
     }).catch(() => {});
     tick();

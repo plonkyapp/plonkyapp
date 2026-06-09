@@ -72,9 +72,10 @@ const API = {
     if (!r.ok) throw new Error('sessionScore ' + r.status);
     return r.json();
   },
-  async sessionClaim(code, playerId, avatar) {
+  async sessionClaim(code, playerId, avatar, accountId) {
     const body = { player_id: playerId };
     if (avatar) body.avatar = avatar; // bring my own photo into the round
+    if (accountId) body.account_id = accountId; // link this slot to my account
     const r = await fetch('/api/session/' + encodeURIComponent(code) + '/claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

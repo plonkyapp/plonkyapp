@@ -342,6 +342,8 @@ def session_players(code):
             "host": (i == 0),
             "avatar": avatar or "",
         })
+        if old.get("account_id"):  # keep the slot↔account link across roster syncs
+            merged[-1]["account_id"] = old.get("account_id")
     payload["players"] = merged
     s.data = json.dumps(payload)
     s.rev = (s.rev or 0) + 1
@@ -354,12 +356,15 @@ def session_claim(code):
     body = request.get_json(silent=True) or {}
     pid = body.get("player_id")
     avatar = body.get("avatar")
+    account_id = body.get("account_id")
     s, payload, players = _mutate_session(code)
     for p in players:
         if str(p.get("id")) == str(pid):
             p["claimed"] = True
             if avatar:  # the joining device brings its own photo into the round
                 p["avatar"] = avatar
+            if account_id:  # link this slot to the joiner's account (crew photo sync)
+                p["account_id"] = account_id
             break
     payload["players"] = players
     s.data = json.dumps(payload)
