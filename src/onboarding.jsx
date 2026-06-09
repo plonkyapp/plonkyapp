@@ -481,7 +481,7 @@ function JoinScreen({ go, players, setMe, sessionCode, account = null }) {
   }, [myName, players]);
   const enter = () => {
     if (sel == null) return;
-    if (sessionCode) ACC.API.sessionClaim(sessionCode, sel).catch(() => {});
+    if (sessionCode) ACC.API.sessionClaim(sessionCode, sel, account && account.avatar).catch(() => {});
     setMe && setMe(sel);
     go('game');
   };

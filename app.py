@@ -121,16 +121,14 @@ def account_to_dict(acc):
     return {"id": acc.id, "name": acc.name, "color": acc.color, "crew": crew, "kind": acc.kind or "master", "avatar": acc.avatar or "", "created": acc.created_at}
 
 
-def session_to_dict(s, full=False):
+def session_to_dict(s):
     try:
         payload = json.loads(s.data or "{}")
     except (ValueError, TypeError):
         payload = {}
     players = payload.get("players", [])
-    if not full:
-        # Avatars are static base64 photos; only send them on the initial (full)
-        # fetch so the 3s score-poll stays lean.
-        players = [{k: v for k, v in p.items() if k != "avatar"} for p in players]
+    # Avatars travel with the round so every device shows each player's current
+    # photo (a joiner pushes their own on claim). Photos are small (~10 KB).
     return {
         "code": s.code,
         "mode": s.mode,
@@ -287,7 +285,7 @@ def get_session(code):
     s = db.session.get(Session, (code or "").upper())
     if s is None:
         abort(404)
-    return jsonify(session_to_dict(s, full=(request.args.get("full") == "1")))
+    return jsonify(session_to_dict(s))
 
 
 def _mutate_session(code):
@@ -332,6 +330,9 @@ def session_players(code):
     merged = []
     for i, p in enumerate(incoming):
         old = by_id.get(str(p.get("id"))) or {}
+        # A claimed slot keeps the photo the joiner brought; otherwise take the
+        # host's roster photo (falling back to whatever was there).
+        avatar = old.get("avatar") if old.get("claimed") else (p.get("avatar") or old.get("avatar") or "")
         merged.append({
             "id": p.get("id"),
             "name": p.get("name"),
@@ -339,7 +340,7 @@ def session_players(code):
             "scores": old.get("scores") or p.get("scores") or {},
             "claimed": bool(old.get("claimed")),
             "host": (i == 0),
-            "avatar": p.get("avatar") or old.get("avatar") or "",
+            "avatar": avatar or "",
         })
     payload["players"] = merged
     s.data = json.dumps(payload)
@@ -352,10 +353,13 @@ def session_players(code):
 def session_claim(code):
     body = request.get_json(silent=True) or {}
     pid = body.get("player_id")
+    avatar = body.get("avatar")
     s, payload, players = _mutate_session(code)
     for p in players:
         if str(p.get("id")) == str(pid):
             p["claimed"] = True
+            if avatar:  # the joining device brings its own photo into the round
+                p["avatar"] = avatar
             break
     payload["players"] = players
     s.data = json.dumps(payload)
