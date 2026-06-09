@@ -541,7 +541,7 @@ function ExpressSetup({ go, role, setRole, mode, setMode, players, setPlayers, f
       <Body style={{ paddingTop: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.4 }}>Wer tippt?</div>
         <Seg opts={[['me', 'Ich für alle', Ic.user], ['others', 'Alle selbst', Ic.users]]} value={role} onPick={setRole} />
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', margin: '18px 0 8px', textTransform: 'uppercase', letterSpacing: 0.4 }}>Spieler:innen</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', margin: '18px 0 8px', textTransform: 'uppercase', letterSpacing: 0.4 }}>Spieler</div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => e.key === 'Enter' && add(val)} placeholder="Name + Enter"
             style={{ flex: 1, height: 48, borderRadius: 14, border: '1px solid var(--line)', background: 'var(--card)', padding: '0 15px', fontSize: 16, fontFamily: 'var(--font)', outline: 'none' }} />
@@ -555,7 +555,7 @@ function ExpressSetup({ go, role, setRole, mode, setMode, players, setPlayers, f
               <button onClick={() => setPlayers(ps => ps.filter(x => x.id !== p.id))} style={{ border: 'none', background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer', display: 'flex', padding: 2 }}><Ic.x size={15} /></button>
             </div>
           ))}
-          {(family.length ? family.map(m => m.name) : ['Anna', 'Marco', 'Lena']).filter(n => !players.find(p => p.name === n)).slice(0, 5).map(n => (
+          {family.map(m => m.name).filter(n => !players.find(p => p.name === n)).slice(0, 6).map(n => (
             <button key={n} onClick={() => add(n)} style={{ border: '1px dashed var(--line)', background: 'transparent', color: 'var(--ink-2)', borderRadius: 999, padding: '6px 12px', fontSize: 13.5, cursor: 'pointer', fontFamily: 'var(--font)', display: 'flex', alignItems: 'center', gap: 4 }}><Ic.plus size={13} /> {n}</button>
           ))}
         </div>

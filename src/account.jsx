@@ -217,7 +217,7 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
               <button onClick={() => go('settings')} style={ghostLink}>Verwalten</button>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {family.length === 0 && <div style={{ fontSize: 13.5, color: 'var(--ink-3)' }}>Spieler:innen aus deinen Spielen erscheinen hier.</div>}
+              {family.length === 0 && <div style={{ fontSize: 13.5, color: 'var(--ink-3)' }}>Spieler aus deinen Spielen erscheinen hier.</div>}
               {family.map(m => (
                 <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 13px 5px 5px' }}>
                   <Avatar name={m.name} color={m.color} size={28} src={m.avatar} />

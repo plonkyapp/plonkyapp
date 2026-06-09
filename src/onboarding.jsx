@@ -281,14 +281,14 @@ function RoleScreen({ go, role, setRole, back = 'scan' }) {
       <AppHeader title="Wer trägt ein?" sub="Session einrichten" onBack={() => go(back)} />
       <Body>
         <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45, marginBottom: 18 }}>
-          Spielt ihr zusammen, reicht ein Handy. Oder jede:r tippt selbst — wie ihr wollt.
+          Spielt ihr zusammen, reicht ein Handy. Oder jeder tippt selbst — wie ihr wollt.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <UI.ChoiceCard icon={<Ic.user size={26} />} title="Ich tippe für alle" badge="A"
             desc="Ein Handy führt das Spiel. Am einfachsten."
             selected={role === 'me'} onClick={() => setRole('me')} />
           <UI.ChoiceCard icon={<Ic.users size={26} />} title="Andere tippen mit" badge="B"
-            desc="Jede:r scannt den Code und trägt selbst ein."
+            desc="Jeder scannt den Code und trägt selbst ein."
             selected={role === 'others'} onClick={() => setRole('others')} />
         </div>
       </Body>
@@ -316,7 +316,7 @@ function PlayersScreen({ go, players, setPlayers, role, family = [] }) {
   const next = role === 'others' ? 'invite' : 'game';
   return (
     <Screen>
-      <AppHeader title="Wer spielt mit?" sub={role === 'others' ? 'Spieler:innen anlegen' : 'Familie & Freunde'} onBack={() => go('welcome')} />
+      <AppHeader title="Wer spielt mit?" sub={role === 'others' ? 'Spieler anlegen' : 'Familie & Freunde'} onBack={() => go('welcome')} />
       <Body>
         <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
           <input ref={inputRef} value={val} onChange={e => setVal(e.target.value)}
@@ -346,7 +346,7 @@ function PlayersScreen({ go, players, setPlayers, role, family = [] }) {
         {(players.length > 0 || family.length > 0) && (
           <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 14 }}>
             {family.length > 0 && <div style={{ width: '100%', fontSize: 12, fontWeight: 600, color: 'var(--ink-3)', marginBottom: 2 }}>Aus deiner Crew</div>}
-            {(family.length ? family.map(m => m.name) : ['Anna', 'Marco', 'Lena', 'Tim', 'Oma']).filter(n => !players.find(p => p.name === n)).slice(0, 5).map(n => (
+            {family.map(m => m.name).filter(n => !players.find(p => p.name === n)).slice(0, 6).map(n => (
               <button key={n} onClick={() => { const fm = family.find(m => m.name === n); setPlayers(p => [...p, { id: Date.now() + Math.random(), name: n, color: (fm && fm.color) || AV_COLORS[p.length % AV_COLORS.length], scores: {} }]); }}
                 style={{ border: '1px dashed var(--line)', background: 'transparent', color: 'var(--ink-2)', borderRadius: 999, padding: '7px 13px', fontSize: 13.5, cursor: 'pointer', fontFamily: 'var(--font)', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <Ic.plus size={14} /> {n}
