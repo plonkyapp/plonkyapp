@@ -46,6 +46,16 @@ function App() {
   const [autoCrew, setAutoCrew] = useAS(true);
   const gameSavedRef = useAR(false);
 
+  // For crew members linked to a Mitspieler-Konto, pull that account's current
+  // photo so the master always shows the person's up-to-date picture.
+  const refreshLinkedCrew = (fam) => {
+    (fam || []).forEach(m => {
+      if (m && m.accountId) ACC.API.getAccount(m.accountId)
+        .then(a => { if (a) setFamily(cur => cur.map(x => x.id === m.id ? { ...x, avatar: a.avatar || x.avatar } : x)); })
+        .catch(() => {});
+    });
+  };
+
   // load once
   useAE(() => {
     const d = ACC.STORE.load();
@@ -101,7 +111,7 @@ function App() {
           setAccount(acc && acc.id
             ? { id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', avatar: acc.avatar || '', created: acc.created || Date.now() }
             : { id: token, name: 'Spieler', color: AV[0], kind: 'master', avatar: '', created: Date.now() });
-          if (acc && Array.isArray(acc.crew)) setFamily(acc.crew); // server crew wins on a fresh device
+          if (acc && Array.isArray(acc.crew)) { setFamily(acc.crew); refreshLinkedCrew(acc.crew); } // server crew wins on a fresh device
           setScreen('home');
           return ACC.API.listGames(token);
         })
@@ -114,7 +124,7 @@ function App() {
     let acc = d.account || null;
     if (acc && !acc.id) acc = { ...acc, id: ACC.newAccountId() }; // backfill id for pre-DB accounts
     if (acc) { setAccount(acc); setScreen('home'); }
-    if (d.family) setFamily(d.family);
+    if (d.family) { setFamily(d.family); refreshLinkedCrew(d.family); }
     if (d.history) setHistory(d.history);
     if (d.defaultMode) setDefaultMode(d.defaultMode);
     if (d.autoCrew != null) setAutoCrew(d.autoCrew);
@@ -127,6 +137,20 @@ function App() {
   useAE(() => { if (hydrated) ACC.STORE.save({ account, family, history, defaultMode, autoCrew }); }, [hydrated, account, family, history, defaultMode, autoCrew]);
   // keep the server copy of the account (name/color) in sync
   useAE(() => { if (hydrated && account && account.id) ACC.API.saveAccount(account, family).catch(() => {}); }, [hydrated, account, family]);
+  // when a crew slot is claimed by someone with their own account, remember the
+  // link (crew member ↔ account) so the master shows their current photo later
+  useAE(() => {
+    if (!account || !players.length) return;
+    players.forEach(p => {
+      const id = String(p.id);
+      if (p.account_id && id.startsWith('c')) {
+        const cid = id.slice(1);
+        setFamily(fam => fam.some(m => String(m.id) === cid && m.accountId === p.account_id)
+          ? fam
+          : fam.map(m => String(m.id) === cid ? { ...m, accountId: p.account_id } : m));
+      }
+    });
+  }, [players, account]);
 
   useAE(() => { document.documentElement.style.setProperty('--accent', t.accent); }, [t.accent]);
   useAE(() => { window.__fitPhone && window.__fitPhone(); }, []);
@@ -233,6 +257,9 @@ function App() {
     };
     setAccount(acc);
     ACC.API.saveAccount(acc, family).catch(() => {});
+    // tell the session this slot now belongs to a real account (host can link it
+    // to their crew entry, so my photo stays current for them)
+    if (sessionCode && me != null) ACC.API.sessionClaim(sessionCode, me, acc.avatar, acc.id).catch(() => {});
     // keep a copy of the round she just finished (pull final scores from the server)
     if (resultsFinal) {
       if (sessionCode) {
