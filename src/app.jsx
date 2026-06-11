@@ -90,7 +90,7 @@ function App() {
           if (!sess) { setScreen(acc ? 'home' : 'cover'); return; } // code expired/unknown
           setSessionCode(sess.code);
           setMode(sess.mode || 'sequential');
-          setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '' })));
+          setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })));
           setRole('others');
           setScreen('join');
         })
@@ -156,7 +156,7 @@ function App() {
   useAE(() => { window.__fitPhone && window.__fitPhone(); }, []);
 
   const go = (s) => { setScreen(s); const el = document.querySelector('.noscroll'); if (el) el.scrollTop = 0; };
-  const restart = () => { gameSavedRef.current = false; setPlayers([]); setRole(null); setMode(null); setMe(null); setSessionCode(null); go(account ? 'home' : 'cover'); };
+  const restart = () => { if (sessionCode && me != null) ACC.API.sessionLeave(sessionCode, me).catch(() => {}); gameSavedRef.current = false; setPlayers([]); setRole(null); setMode(null); setMe(null); setSessionCode(null); go(account ? 'home' : 'cover'); };
 
   const saveGame = (pls, acc) => {
     if (gameSavedRef.current) return;
@@ -285,7 +285,7 @@ function App() {
     gameSavedRef.current = false;
     setSessionCode(sess.code);
     setMode(sess.mode || 'sequential');
-    setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '' })));
+    setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })));
     setRole('others');
     setMe(null);
     go('join');

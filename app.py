@@ -373,6 +373,25 @@ def session_claim(code):
     return jsonify(session_to_dict(s))
 
 
+@app.route("/api/session/<code>/leave", methods=["POST"])
+def session_leave(code):
+    """A joiner leaves before/without saving: free their slot so they (or anyone)
+    can pick it again. Without this a left slot stays 'claimed' and locks them out."""
+    body = request.get_json(silent=True) or {}
+    pid = body.get("player_id")
+    s, payload, players = _mutate_session(code)
+    for p in players:
+        if str(p.get("id")) == str(pid):
+            p["claimed"] = False
+            p.pop("account_id", None)  # slot is free again; next claimer relinks
+            break
+    payload["players"] = players
+    s.data = json.dumps(payload)
+    s.rev = (s.rev or 0) + 1
+    db.session.commit()
+    return jsonify(session_to_dict(s))
+
+
 @app.route("/api/session/<code>/finish", methods=["POST"])
 def session_finish(code):
     """Host ends the round. Every device sees finished=true and only then shows the winner."""

@@ -472,13 +472,20 @@ function JoinScreen({ go, players, setMe, sessionCode, account = null }) {
   const { Screen, Body, Footer, Btn, Avatar } = UI;
   const [sel, setSel] = useStateOB(null);
   const myName = account && account.name ? account.name.toLowerCase() : null;
-  // Wiedereinstieg: hat dieses Gerät ein Konto, wird der passende (freie) Slot
-  // automatisch vorausgewählt — Lena scannt Tommys QR und ist sofort als Lena dabei.
+  const myAccId = account && account.id ? String(account.id) : null;
+  // Ein Slot, den ich selbst (mit meinem Konto) belegt habe, darf ich wieder
+  // betreten — auch wenn er noch als „belegt" gilt (z. B. App war kurz zu).
+  const isReclaimable = (p) => !p.host && p.claimed && myAccId && p.account_id && String(p.account_id) === myAccId;
+  // Wiedereinstieg: hat dieses Gerät ein Konto, wird der passende Slot automatisch
+  // vorausgewählt — der eigene (auch schon belegte) Slot, sonst der freie Namens-Slot.
   useEffectOB(() => {
-    if (!myName || sel != null) return;
+    if (sel != null) return;
+    const reclaim = players.find(isReclaimable);
+    if (reclaim) { setSel(reclaim.id); return; }
+    if (!myName) return;
     const mine = players.find(p => !p.host && !p.claimed && p.name && p.name.toLowerCase() === myName);
     if (mine) setSel(mine.id);
-  }, [myName, players]);
+  }, [myName, myAccId, players]);
   const enter = () => {
     if (sel == null) return;
     if (sessionCode) ACC.API.sessionClaim(sessionCode, sel, account && account.avatar, account && account.id).catch(() => {});
@@ -496,9 +503,10 @@ function JoinScreen({ go, players, setMe, sessionCode, account = null }) {
       <Body style={{ paddingTop: 16 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {players.map(p => {
-            const taken = !!p.host || !!p.claimed;       // host slot & already-joined slots aren't pickable
-            const isMine = !taken && myName && p.name && p.name.toLowerCase() === myName;
-            const note = p.host ? 'Gastgeber' : p.claimed ? 'schon dabei' : isMine ? 'du' : null;
+            const reclaimable = isReclaimable(p);         // my own claimed slot — re-enterable
+            const taken = (!!p.host || !!p.claimed) && !reclaimable; // host & others' claimed slots aren't pickable
+            const isMine = !taken && ((myName && p.name && p.name.toLowerCase() === myName) || reclaimable);
+            const note = p.host ? 'Gastgeber' : reclaimable ? 'wieder eintreten' : p.claimed ? 'schon dabei' : isMine ? 'du' : null;
             return (
               <button key={p.id} disabled={taken} onClick={() => !taken && setSel(p.id)} style={{
                 display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left', cursor: taken ? 'default' : 'pointer',

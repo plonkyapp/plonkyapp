@@ -84,6 +84,16 @@ const API = {
     if (!r.ok) throw new Error('sessionClaim ' + r.status);
     return r.json();
   },
+  // joiner leaves before/without saving → free their slot so they can re-enter
+  async sessionLeave(code, playerId) {
+    const r = await fetch('/api/session/' + encodeURIComponent(code) + '/leave', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ player_id: playerId }),
+    });
+    if (!r.ok) throw new Error('sessionLeave ' + r.status);
+    return r.json();
+  },
   // host ends the round → all devices show the final winner
   async sessionFinish(code) {
     const r = await fetch('/api/session/' + encodeURIComponent(code) + '/finish', {
