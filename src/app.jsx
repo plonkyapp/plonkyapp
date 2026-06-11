@@ -349,7 +349,7 @@ function App() {
     case 'invite': view = <OB.InviteScreen go={go} players={players} mode={mode} sessionCode={sessionCode} setSessionCode={setSessionCode} />; break;
     case 'join': view = <OB.JoinScreen go={go} players={players} setMe={setMe} sessionCode={sessionCode} account={account} />; break;
     case 'express': view = <GAME.ExpressSetup go={go} role={role} setRole={setRole} mode={mode} setMode={setMode} players={players} setPlayers={setPlayers} family={family} />; break;
-    case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} />; break;
+    case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} onHome={account && sessionCode ? restart : null} />; break;
     case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} onSave={saveGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} me={me} />; break;
     default: view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} />;
   }

@@ -283,7 +283,7 @@ function VoiceSheet({ players, hole, onApply, onClose }) {
 }
 
 // ── Game screen ───────────────────────────────────────────
-function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults, sessionCode, me }) {
+function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults, sessionCode, me, onHome }) {
   const [hole, setHole] = useS(1);
   const [focus, setFocus] = useS(null);
   const [voice, setVoice] = useS(false);
@@ -342,8 +342,11 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
     <UI.Screen>
       {/* top chrome */}
       <div style={{ paddingTop: 56, padding: '56px 18px 0', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--ink-2)', fontWeight: 600, marginBottom: 4 }}>
-          <Ic.pin size={14} color="var(--accent)" /> {OB.VENUE}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--ink-2)', fontWeight: 600 }}>
+            <Ic.pin size={14} color="var(--accent)" /> {OB.VENUE}
+          </div>
+          {onHome && <button onClick={onHome} title="Pause – zu meinem plonky; die Runde läuft weiter" style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', background: 'var(--card)', borderRadius: 999, padding: '5px 12px 5px 10px', cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)' }}><Ic.home size={15} /> Pause</button>}
         </div>
         <BahnHeader hole={hole} onPrev={() => { setFocus(null); setHole(h => Math.max(1, h - 1)); }} onNext={() => { setFocus(null); setHole(h => Math.min(HOLES, h + 1)); }} />
       </div>
