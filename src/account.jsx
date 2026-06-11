@@ -161,7 +161,7 @@ const aFmtPar = n => n === 0 ? 'Par' : n > 0 ? '+' + n : '' + n;
 const aRelCol = n => n < 0 ? 'var(--accent)' : n > 0 ? 'var(--bad)' : 'var(--ink-2)';
 
 // ── Home hub ──────────────────────────────────────────────
-function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabled = true, companion = false }) {
+function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabled = true, companion = false, activeSession = null, onResume }) {
   const { Screen, Body, Btn, Avatar } = UI;
   const recent = [...history].slice(-3).reverse();
   return (
@@ -203,6 +203,22 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
               <div style={{ fontSize: 13.5, opacity: 0.85 }}>{scanEnabled ? 'QR scannen & loslegen' : 'Crew ist dabei · direkt loslegen'}</div>
             </div>
             <Ic.arrowR size={22} color="#fff" />
+          </button>
+        )}
+
+        {activeSession && (
+          <button onClick={() => onResume && onResume(activeSession.code)} style={{
+            width: '100%', textAlign: 'left', cursor: 'pointer', marginTop: 12,
+            background: 'color-mix(in srgb, var(--accent) 8%, var(--card))',
+            border: '1px solid color-mix(in srgb, var(--accent) 35%, var(--line))',
+            borderRadius: 18, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 13, fontFamily: 'var(--font)',
+          }}>
+            <div style={{ width: 42, height: 42, borderRadius: 13, background: 'color-mix(in srgb, var(--accent) 16%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--accent)' }}><Ic.flag size={22} /></div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>Laufende Runde<span style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 14%, transparent)', borderRadius: 999, padding: '2px 7px', letterSpacing: 0.3 }}>LIVE</span></div>
+              <div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{activeSession.venue} · weiter spielen</div>
+            </div>
+            <Ic.arrowR size={20} color="var(--accent)" />
           </button>
         )}
 

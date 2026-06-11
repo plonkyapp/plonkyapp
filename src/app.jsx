@@ -44,6 +44,7 @@ function App() {
   const [feedbackItems, setFeedbackItems] = useAS(null);
   const [resultsFinal, setResultsFinal] = useAS(true);
   const [autoCrew, setAutoCrew] = useAS(true);
+  const [activeSession, setActiveSession] = useAS(null); // bookmark to a live round you can dive back into
   const gameSavedRef = useAR(false);
 
   // For crew members linked to a Mitspieler-Konto, pull that account's current
@@ -106,6 +107,7 @@ function App() {
       if (d.family) setFamily(d.family);
       if (d.defaultMode) setDefaultMode(d.defaultMode);
       if (d.autoCrew != null) setAutoCrew(d.autoCrew);
+      if (d.activeSession) setActiveSession(d.activeSession);
       ACC.API.getAccount(token)
         .then(acc => {
           setAccount(acc && acc.id
@@ -126,6 +128,7 @@ function App() {
     if (acc) { setAccount(acc); setScreen('home'); }
     if (d.family) { setFamily(d.family); refreshLinkedCrew(d.family); }
     if (d.history) setHistory(d.history);
+    if (d.activeSession) setActiveSession(d.activeSession);
     if (d.defaultMode) setDefaultMode(d.defaultMode);
     if (d.autoCrew != null) setAutoCrew(d.autoCrew);
     setHydrated(true);
@@ -134,7 +137,7 @@ function App() {
       .catch(() => {}); // offline / old static host: keep localStorage only
   }, []);
   // persist
-  useAE(() => { if (hydrated) ACC.STORE.save({ account, family, history, defaultMode, autoCrew }); }, [hydrated, account, family, history, defaultMode, autoCrew]);
+  useAE(() => { if (hydrated) ACC.STORE.save({ account, family, history, defaultMode, autoCrew, activeSession }); }, [hydrated, account, family, history, defaultMode, autoCrew, activeSession]);
   // keep the server copy of the account (name/color) in sync
   useAE(() => { if (hydrated && account && account.id) ACC.API.saveAccount(account, family).catch(() => {}); }, [hydrated, account, family]);
   // when a crew slot is claimed by someone with their own account, remember the
@@ -152,16 +155,24 @@ function App() {
     });
   }, [players, account]);
 
+  // remember the live round you're in, so "Mein plonky" can dive back into it
+  // (the bookmark survives going home; it's cleared on finish/save or delete)
+  useAE(() => {
+    if (hydrated && sessionCode) setActiveSession({ code: sessionCode, role, me, mode: mode || 'sequential', venue: OB.VENUE });
+  }, [hydrated, sessionCode, role, me, mode]);
+
   useAE(() => { document.documentElement.style.setProperty('--accent', t.accent); }, [t.accent]);
   useAE(() => { window.__fitPhone && window.__fitPhone(); }, []);
 
   const go = (s) => { setScreen(s); const el = document.querySelector('.noscroll'); if (el) el.scrollTop = 0; };
-  const restart = () => { if (sessionCode && me != null) ACC.API.sessionLeave(sessionCode, me).catch(() => {}); gameSavedRef.current = false; setPlayers([]); setRole(null); setMode(null); setMe(null); setSessionCode(null); go(account ? 'home' : 'cover'); };
+  // leave the round view and go home — the round stays live & bookmarked; you can dive back in
+  const restart = () => { gameSavedRef.current = false; setPlayers([]); setRole(null); setMode(null); setMe(null); setSessionCode(null); go(account ? 'home' : 'cover'); };
 
   const saveGame = (pls, acc) => {
     if (gameSavedRef.current) return;
     if (!pls.some(p => GAME.totals(p).played > 0)) return;
     gameSavedRef.current = true;
+    setActiveSession(null); // finished & archived → drop the live bookmark
     const game = { id: 'g' + Date.now(), date: Date.now(), venue: OB.VENUE, mode: mode || 'sequential',
       players: pls.map(p => ({ id: p.id, name: p.name, color: p.color, scores: { ...p.scores } })) };
     setHistory(h => [...h, game]);
@@ -180,6 +191,7 @@ function App() {
     if (gameSavedRef.current) return;
     if (!pls.some(p => GAME.totals(p).played > 0)) return;
     gameSavedRef.current = true;
+    setActiveSession(null); // her copy is saved → drop the live bookmark
     const game = { id: 'g' + Date.now(), date: Date.now(), venue: OB.VENUE, mode: mode || 'sequential',
       players: pls.map(p => ({ id: p.id, name: p.name, color: p.color, scores: { ...p.scores } })) };
     setHistory(h => [...h, game]);
@@ -188,6 +200,20 @@ function App() {
   };
 
   const openGame = (id) => { setHistId(id); setHistFrom(screen); go('historyDetail'); };
+  // dive back into a live round from the "Laufende Runde" card on home
+  const resumeSession = (code) => {
+    ACC.API.getSession(code, true).then(sess => {
+      if (!sess) { setActiveSession(null); return; } // round no longer exists on the server
+      gameSavedRef.current = false;
+      setSessionCode(sess.code);
+      setMode(sess.mode || 'sequential');
+      setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })));
+      const b = activeSession || {};
+      setRole(b.role || (b.me != null ? 'others' : 'me'));
+      setMe(b.me != null ? b.me : null);
+      go('game');
+    }).catch(() => {});
+  };
   const buildInitialPlayers = () => {
     const list = []; const seen = new Set();
     if (account) { list.push({ id: 'me', name: account.name, color: account.color, avatar: account.avatar || '', scores: {} }); seen.add(account.name.toLowerCase()); }
@@ -312,7 +338,7 @@ function App() {
     case 'feedbackInbox': view = <ACC.FeedbackInbox items={feedbackItems} go={go} />; break;
     case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} />; break;
     case 'account': view = <OB.AccountScreen go={go} onCreate={me != null ? createCompanion : createAccount} companion={me != null} presetName={me != null ? ((players.find(p => String(p.id) === String(me)) || {}).name || '') : ''} back={me != null ? 'results' : 'cover'} />; break;
-    case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={newGame} scanEnabled={scanEnabled} companion={isCompanion} />; break;
+    case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={newGame} scanEnabled={scanEnabled} companion={isCompanion} activeSession={activeSession} onResume={resumeSession} />; break;
     case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} openLegal={openLegal} openFeedback={openFeedback} />; break;
     case 'joinCode': view = <OB.JoinCodeScreen go={go} onJoined={enterSession} back={account ? 'home' : 'cover'} />; break;
     case 'history': view = <ACC.HistoryScreen history={history} go={go} openGame={openGame} />; break;
