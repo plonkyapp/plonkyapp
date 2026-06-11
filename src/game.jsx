@@ -500,7 +500,6 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
             <>
               <UI.Btn kind="primary" onClick={() => go('account')} icon={<Ic.link size={19} />}>Als Mitspieler sichern</UI.Btn>
               <UI.Btn kind="ghost" onClick={() => go('game')}>Zurück zum Spiel</UI.Btn>
-              <button onClick={restart} style={{ border: 'none', background: 'transparent', color: 'var(--ink-3)', fontFamily: 'var(--font)', fontSize: 13, fontWeight: 600, cursor: 'pointer', padding: '6px 4px 0' }}>Ohne Speichern verlassen</button>
             </>
           )
         ) : final ? (
