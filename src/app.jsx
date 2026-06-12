@@ -212,6 +212,12 @@ function App() {
   };
 
   const openGame = (id) => { setHistId(id); setHistFrom(screen); go('historyDetail'); };
+  // discard a running round: drop the bookmark and delete the live session
+  const discardActiveSession = () => {
+    const c = activeSession && activeSession.code;
+    setActiveSession(null);
+    if (c) ACC.API.deleteSession(c).catch(() => {});
+  };
   // dive back into a live round from the "Laufende Runde" card on home
   const resumeSession = (code) => {
     ACC.API.getSession(code, true).then(sess => {
@@ -350,7 +356,7 @@ function App() {
     case 'feedbackInbox': view = <ACC.FeedbackInbox items={feedbackItems} go={go} />; break;
     case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} />; break;
     case 'account': view = <OB.AccountScreen go={go} onCreate={me != null ? createCompanion : createAccount} companion={me != null} presetName={me != null ? ((players.find(p => String(p.id) === String(me)) || {}).name || '') : ''} back={me != null ? 'results' : 'cover'} />; break;
-    case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={newGame} scanEnabled={scanEnabled} companion={isCompanion} activeSession={activeSession} onResume={resumeSession} />; break;
+    case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={newGame} scanEnabled={scanEnabled} companion={isCompanion} activeSession={activeSession} onResume={resumeSession} onDiscard={discardActiveSession} />; break;
     case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} openLegal={openLegal} openFeedback={openFeedback} />; break;
     case 'joinCode': view = <OB.JoinCodeScreen go={go} onJoined={enterSession} back={account ? 'home' : 'cover'} />; break;
     case 'history': view = <ACC.HistoryScreen history={history} go={go} openGame={openGame} />; break;

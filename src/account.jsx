@@ -94,6 +94,12 @@ const API = {
     if (!r.ok) throw new Error('sessionLeave ' + r.status);
     return r.json();
   },
+  // host discards a round entirely (used by "Laufende Runde verwerfen")
+  async deleteSession(code) {
+    const r = await fetch('/api/session/' + encodeURIComponent(code), { method: 'DELETE' });
+    if (!r.ok) throw new Error('deleteSession ' + r.status);
+    return r.json();
+  },
   // host ends the round → all devices show the final winner
   async sessionFinish(code) {
     const r = await fetch('/api/session/' + encodeURIComponent(code) + '/finish', {
@@ -161,8 +167,9 @@ const aFmtPar = n => n === 0 ? 'Par' : n > 0 ? '+' + n : '' + n;
 const aRelCol = n => n < 0 ? 'var(--accent)' : n > 0 ? 'var(--bad)' : 'var(--ink-2)';
 
 // ── Home hub ──────────────────────────────────────────────
-function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabled = true, companion = false, activeSession = null, onResume }) {
+function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabled = true, companion = false, activeSession = null, onResume, onDiscard }) {
   const { Screen, Body, Btn, Avatar } = UI;
+  const [confirmDiscard, setConfirmDiscard] = useAcS(false);
   const recent = [...history].slice(-3).reverse();
   return (
     <Screen>
@@ -206,21 +213,33 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
           </button>
         )}
 
-        {activeSession && (
-          <button onClick={() => onResume && onResume(activeSession.code)} style={{
-            width: '100%', textAlign: 'left', cursor: 'pointer', marginTop: 12,
-            background: 'color-mix(in srgb, var(--accent) 8%, var(--card))',
-            border: '1px solid color-mix(in srgb, var(--accent) 35%, var(--line))',
-            borderRadius: 18, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 13, fontFamily: 'var(--font)',
-          }}>
-            <div style={{ width: 42, height: 42, borderRadius: 13, background: 'color-mix(in srgb, var(--accent) 16%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--accent)' }}><Ic.flag size={22} /></div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>Laufende Runde<span style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 14%, transparent)', borderRadius: 999, padding: '2px 7px', letterSpacing: 0.3 }}>LIVE</span></div>
-              <div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{activeSession.venue} · weiter spielen</div>
+        {activeSession && (confirmDiscard ? (
+          <div style={{ marginTop: 12, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 18, padding: '14px 16px' }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Laufende Runde verwerfen?</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-2)', margin: '4px 0 12px' }}>Die eingetragenen Schläge gehen verloren.</div>
+            <div style={{ display: 'flex', gap: 9 }}>
+              <button onClick={() => { setConfirmDiscard(false); onDiscard && onDiscard(); }} style={{ flex: 1, height: 44, borderRadius: 13, border: 'none', background: 'var(--bad)', color: '#fff', fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 700, cursor: 'pointer' }}>Verwerfen</button>
+              <button onClick={() => setConfirmDiscard(false)} style={{ flex: 1, height: 44, borderRadius: 13, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)', fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 600, cursor: 'pointer' }}>Abbrechen</button>
             </div>
-            <Ic.arrowR size={20} color="var(--accent)" />
-          </button>
-        )}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button onClick={() => onResume && onResume(activeSession.code)} style={{
+              flex: 1, minWidth: 0, textAlign: 'left', cursor: 'pointer',
+              background: 'color-mix(in srgb, var(--accent) 8%, var(--card))',
+              border: '1px solid color-mix(in srgb, var(--accent) 35%, var(--line))',
+              borderRadius: 18, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 13, fontFamily: 'var(--font)',
+            }}>
+              <div style={{ width: 42, height: 42, borderRadius: 13, background: 'color-mix(in srgb, var(--accent) 16%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--accent)' }}><Ic.flag size={22} /></div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>Laufende Runde<span style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 14%, transparent)', borderRadius: 999, padding: '2px 7px', letterSpacing: 0.3 }}>LIVE</span></div>
+                <div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{activeSession.venue} · weiter spielen</div>
+              </div>
+              <Ic.arrowR size={20} color="var(--accent)" />
+            </button>
+            <button onClick={() => setConfirmDiscard(true)} title="Runde verwerfen" style={{ width: 52, flexShrink: 0, borderRadius: 18, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><Ic.trash size={20} /></button>
+          </div>
+        ))}
 
         {/* recent games */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 10px' }}>

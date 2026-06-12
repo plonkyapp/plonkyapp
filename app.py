@@ -403,6 +403,16 @@ def session_finish(code):
     return jsonify(session_to_dict(s))
 
 
+@app.route("/api/session/<code>", methods=["DELETE"])
+def session_delete(code):
+    """Host discards a round — remove the live session entirely."""
+    s = db.session.get(Session, (code or "").upper())
+    if s is not None:
+        db.session.delete(s)
+        db.session.commit()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/feedback", methods=["POST"])
 def submit_feedback():
     data = request.get_json(silent=True) or {}
