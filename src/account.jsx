@@ -139,7 +139,7 @@ const sessionLink = (code) => appOrigin() + '/j/' + code;
 function mergeGames(local, server) {
   const byId = {};
   (local || []).forEach(g => { byId[g.id] = g; });
-  (server || []).forEach(g => { byId[g.id] = g; });
+  (server || []).forEach(g => { byId[g.id] = { ...byId[g.id], ...g }; }); // keep local-only fields like the round code
   return Object.values(byId).sort((a, b) => (a.date || 0) - (b.date || 0));
 }
 
@@ -319,7 +319,7 @@ function HistoryDetailScreen({ game, go, from }) {
   const half = Math.ceil(holes.length / 2); // 18 → two rows of 9 so it fits a phone without scrolling
   return (
     <Screen>
-      <AppHeader title={game.venue} sub={fmtDate(game.date)} onBack={() => go(from)} />
+      <AppHeader title={game.venue} sub={fmtDate(game.date) + (game.code ? ' · ' + game.code : '')} onBack={() => go(from)} />
       <Body>
         {/* winner */}
         {ranked[0] && (

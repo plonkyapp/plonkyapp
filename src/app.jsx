@@ -185,7 +185,7 @@ function App() {
     if (!pls.some(p => GAME.totals(p).played > 0)) return;
     gameSavedRef.current = true;
     setActiveSession(null); // finished & archived → drop the live bookmark
-    const game = { id: 'g' + Date.now(), date: Date.now(), venue: OB.VENUE, mode: mode || 'sequential',
+    const game = { id: 'g' + Date.now(), date: Date.now(), venue: OB.VENUE, mode: mode || 'sequential', code: sessionCode || '',
       players: pls.map(p => ({ id: p.id, name: p.name, color: p.color, scores: { ...p.scores } })) };
     setHistory(h => [...h, game]);
     setFamily(fam => {
@@ -204,7 +204,7 @@ function App() {
     if (!pls.some(p => GAME.totals(p).played > 0)) return;
     gameSavedRef.current = true;
     setActiveSession(null); // her copy is saved → drop the live bookmark
-    const game = { id: 'g' + Date.now(), date: Date.now(), venue: OB.VENUE, mode: mode || 'sequential',
+    const game = { id: 'g' + Date.now(), date: Date.now(), venue: OB.VENUE, mode: mode || 'sequential', code: sessionCode || '',
       players: pls.map(p => ({ id: p.id, name: p.name, color: p.color, scores: { ...p.scores } })) };
     setHistory(h => [...h, game]);
     const aid = (acc || account) && (acc || account).id;
