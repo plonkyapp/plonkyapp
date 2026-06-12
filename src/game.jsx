@@ -314,9 +314,8 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
   const pendingRef = useR({}); // "pid:hole" -> value not yet confirmed by the server
 
   const pushScore = (id, h, val) => {
-    if (!sessionCode) return;
-    pendingRef.current[id + ':' + h] = val;
-    ACC.API.sessionScore(sessionCode, id, h, val).catch(() => {});
+    pendingRef.current[id + ':' + h] = val; // remember locally so the score-poll never wipes it
+    if (sessionCode) ACC.API.sessionScore(sessionCode, id, h, val).catch(() => {});
   };
   const set = (id, val) => {
     if (me != null && String(id) !== String(me)) return; // joined as one player: only your own score
@@ -328,6 +327,12 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
     parsed.forEach(e => pushScore(e.id, hole, e.v));
     setVoice(false);
   };
+
+  // a solo game's session can arrive a moment after the first scores — flush them once it does
+  useE(() => {
+    if (!sessionCode) return;
+    Object.keys(pendingRef.current).forEach(k => { const i = k.indexOf(':'); ACC.API.sessionScore(sessionCode, k.slice(0, i), +k.slice(i + 1), pendingRef.current[k]).catch(() => {}); });
+  }, [sessionCode]);
 
   // live session: pull others' scores; local pending writes win until the server echoes them back
   useE(() => {
@@ -545,7 +550,7 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
         ) : (
           <>
             <UI.Btn kind="primary" onClick={() => go('game')} icon={<Ic.flag size={19} />}>Weiter spielen</UI.Btn>
-            {account && <UI.Btn kind="ghost" onClick={restart} icon={<Ic.home size={18} />}>Pause · zu meinem plonky</UI.Btn>}
+            {account && sessionCode && <UI.Btn kind="ghost" onClick={restart} icon={<Ic.home size={18} />}>Pause · zu meinem plonky</UI.Btn>}
           </>
         )}
       </UI.Footer>

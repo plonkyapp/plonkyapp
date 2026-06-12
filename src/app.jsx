@@ -46,6 +46,7 @@ function App() {
   const [autoCrew, setAutoCrew] = useAS(true);
   const [activeSession, setActiveSession] = useAS(null); // bookmark to a live round you can dive back into
   const gameSavedRef = useAR(false);
+  const soloSessionRef = useAR(false); // guards one-time session creation for a solo "ich tippe für alle" game
 
   // For crew members linked to a Mitspieler-Konto, pull that account's current
   // photo so the master always shows the person's up-to-date picture.
@@ -160,6 +161,17 @@ function App() {
   useAE(() => {
     if (hydrated && sessionCode) setActiveSession({ code: sessionCode, role, me, mode: mode || 'sequential', venue: OB.VENUE });
   }, [hydrated, sessionCode, role, me, mode]);
+
+  // a host's solo game ("ich tippe für alle") skips the invite step, so it has no
+  // session — give it one on entry so it persists as a "Laufende Runde" & survives Pause
+  useAE(() => {
+    if (!hydrated || sessionCode || screen !== 'game' || me != null || !account || !players.length || soloSessionRef.current) return;
+    soloSessionRef.current = true;
+    ACC.API.createSession({ mode: mode || 'sequential', venue: OB.VENUE, players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '' })) })
+      .then(sess => setSessionCode(sess.code))
+      .catch(() => {})
+      .finally(() => { soloSessionRef.current = false; });
+  }, [hydrated, screen, sessionCode, me, account, players.length]);
 
   useAE(() => { document.documentElement.style.setProperty('--accent', t.accent); }, [t.accent]);
   useAE(() => { window.__fitPhone && window.__fitPhone(); }, []);
