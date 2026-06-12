@@ -329,19 +329,32 @@ function HistoryScreen({ history, go, openGame }) {
   );
 }
 
-// ── History detail (scorecard) ────────────────────────────
-function HistoryDetailScreen({ game, go, from }) {
+// ── History detail (scorecard, editable) ──────────────────
+function HistoryDetailScreen({ game, go, from, onSave }) {
   const { Screen, AppHeader, Body, Avatar } = UI;
+  const [editing, setEditing] = useAcS(false);
+  const [draft, setDraft] = useAcS({});   // { [pid]: { [hole]: strokes } } while editing
+  const [sel, setSel] = useAcS(null);     // { pid, hole } selected cell
   if (!game) return <Screen><AppHeader title="Spiel" onBack={() => go(from)} /></Screen>;
-  const ranked = [...game.players].map(p => ({ p, t: aTotals(p) })).sort((a, b) => a.t.strokes - b.t.strokes);
   const holes = Array.from({ length: 18 }, (_, i) => i + 1);
   const half = Math.ceil(holes.length / 2); // 18 → two rows of 9 so it fits a phone without scrolling
+  const scoreOf = (p, h) => editing ? ((draft[p.id] || {})[h] || 0) : (p.scores[h] || 0);
+  const totalOf = (p) => { let strokes = 0, played = 0; holes.forEach(h => { const v = scoreOf(p, h); if (v) { strokes += v; played++; } }); return { strokes, played }; };
+  const rows = game.players.map(p => ({ p, t: totalOf(p) }));
+  const ranked = editing ? rows : [...rows].sort((a, b) => a.t.strokes - b.t.strokes); // keep order steady while editing
+  const startEdit = () => { const d = {}; game.players.forEach(p => { d[p.id] = { ...p.scores }; }); setDraft(d); setSel(null); setEditing(true); };
+  const setCell = (val) => { if (!sel) return; setDraft(d => ({ ...d, [sel.pid]: { ...(d[sel.pid] || {}), [sel.hole]: val } })); };
+  const finishEdit = () => {
+    const players = game.players.map(p => ({ ...p, scores: Object.fromEntries(Object.entries(draft[p.id] || {}).filter(([h, v]) => v > 0)) }));
+    onSave && onSave({ ...game, players });
+    setEditing(false); setSel(null);
+  };
+  const selName = sel ? (game.players.find(p => p.id === sel.pid) || {}).name : '';
   return (
     <Screen>
-      <AppHeader title={game.venue} sub={fmtDate(game.date) + (game.code ? ' · ' + game.code : '')} onBack={() => go(from)} />
+      <AppHeader title={game.venue} sub={fmtDate(game.date) + (game.code ? ' · ' + game.code : '')} onBack={() => editing ? finishEdit() : go(from)} />
       <Body>
-        {/* winner */}
-        {ranked[0] && (
+        {!editing && ranked[0] && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'color-mix(in srgb, var(--accent) 9%, var(--card))', border: '1px solid var(--accent)', borderRadius: 16, padding: '12px 16px', marginBottom: 16 }}>
             <span style={{ fontSize: 24 }}>🏆</span>
             <Avatar name={ranked[0].p.name} color={ranked[0].p.color} size={36} src={ranked[0].p.avatar} />
@@ -351,13 +364,17 @@ function HistoryDetailScreen({ game, go, from }) {
             </div>
           </div>
         )}
-        {/* scorecard — one card per player, two rows of 9 holes so it fits a phone */}
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>Scorecard</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Scorecard</div>
+          {onSave && (editing
+            ? <button onClick={finishEdit} style={{ border: 'none', background: 'transparent', color: 'var(--accent)', fontFamily: 'var(--font)', fontSize: 14, fontWeight: 700, cursor: 'pointer', padding: 0 }}>Fertig</button>
+            : <button onClick={startEdit} style={{ border: 'none', background: 'transparent', color: 'var(--accent)', fontFamily: 'var(--font)', fontSize: 14, fontWeight: 600, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 5 }}><Ic.pencil size={15} /> Bearbeiten</button>)}
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {ranked.map(({ p, t }, i) => (
-            <div key={p.id} style={{ background: 'var(--card)', border: i === 0 ? '1.5px solid var(--accent)' : '1px solid var(--line)', borderRadius: 16, padding: '12px 13px' }}>
+            <div key={p.id} style={{ background: 'var(--card)', border: !editing && i === 0 ? '1.5px solid var(--accent)' : '1px solid var(--line)', borderRadius: 16, padding: '12px 13px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                <div style={{ width: 16, textAlign: 'center', fontSize: 13, fontWeight: 800, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{i + 1}</div>
+                <div style={{ width: 16, textAlign: 'center', fontSize: 13, fontWeight: 800, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{editing ? '' : i + 1}</div>
                 <Avatar name={p.name} color={p.color} size={26} src={p.avatar} />
                 <span style={{ flex: 1, fontSize: 14.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
                 <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -368,13 +385,12 @@ function HistoryDetailScreen({ game, go, from }) {
               {[[0, half], [half, holes.length]].map(([a, b], ri) => (
                 <div key={ri} style={{ display: 'flex', gap: 3, marginTop: 5 }}>
                   {holes.slice(a, b).map(h => {
-                    const v = p.scores[h] || 0;
-                    return (
-                      <div key={h} style={{ flex: 1, textAlign: 'center', background: 'var(--line-2)', borderRadius: 7, padding: '4px 0' }}>
-                        <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-3)', lineHeight: 1 }}>{h}</div>
-                        <div style={{ fontFamily: 'var(--num)', fontSize: 14.5, fontWeight: 600, color: v ? 'var(--ink)' : 'var(--ink-3)', lineHeight: 1.3 }}>{v || '·'}</div>
-                      </div>
-                    );
+                    const v = scoreOf(p, h);
+                    const on = editing && sel && sel.pid === p.id && sel.hole === h;
+                    const inner = (<><div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-3)', lineHeight: 1 }}>{h}</div><div style={{ fontFamily: 'var(--num)', fontSize: 14.5, fontWeight: 600, color: v ? 'var(--ink)' : 'var(--ink-3)', lineHeight: 1.3 }}>{v || '·'}</div></>);
+                    return editing
+                      ? <button key={h} onClick={() => setSel({ pid: p.id, hole: h })} style={{ flex: 1, textAlign: 'center', background: on ? 'color-mix(in srgb, var(--accent) 18%, var(--card))' : 'var(--line-2)', border: on ? '1.5px solid var(--accent)' : '1px solid transparent', borderRadius: 7, padding: '3px 0', cursor: 'pointer', fontFamily: 'var(--font)' }}>{inner}</button>
+                      : <div key={h} style={{ flex: 1, textAlign: 'center', background: 'var(--line-2)', borderRadius: 7, padding: '4px 0' }}>{inner}</div>;
                   })}
                 </div>
               ))}
@@ -382,6 +398,17 @@ function HistoryDetailScreen({ game, go, from }) {
           ))}
         </div>
       </Body>
+      {editing && (
+        <div style={{ flexShrink: 0, borderTop: '1px solid var(--line)', background: 'var(--card)', padding: '10px 16px 22px' }}>
+          <div style={{ fontSize: 12.5, color: 'var(--ink-2)', fontWeight: 600, marginBottom: 8, textAlign: 'center' }}>{sel ? `${selName} · Bahn ${sel.hole}` : 'Zelle antippen, dann Zahl wählen'}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
+              <button key={n} disabled={!sel} onClick={() => setCell(n)} style={{ height: 46, borderRadius: 12, border: '1px solid var(--line)', background: sel ? 'var(--paper)' : 'var(--line-2)', color: sel ? 'var(--ink)' : 'var(--ink-3)', fontFamily: 'var(--num)', fontSize: 18, fontWeight: 700, cursor: sel ? 'pointer' : 'default' }}>{n}</button>
+            ))}
+            <button disabled={!sel} onClick={() => setCell(0)} style={{ height: 46, borderRadius: 12, border: '1px solid var(--line)', background: sel ? 'var(--paper)' : 'var(--line-2)', color: 'var(--ink-3)', fontFamily: 'var(--font)', fontSize: 13.5, fontWeight: 600, cursor: sel ? 'pointer' : 'default' }}>leer</button>
+          </div>
+        </div>
+      )}
     </Screen>
   );
 }
