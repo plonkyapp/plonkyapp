@@ -191,16 +191,16 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
             <Ic.arrowR size={22} color="#fff" />
           </button>
         ) : (
-          <button onClick={newGame} style={{
-            width: '100%', textAlign: 'left', cursor: 'pointer', border: 'none',
+          <button onClick={newGame} disabled={!!activeSession} style={{
+            width: '100%', textAlign: 'left', cursor: activeSession ? 'default' : 'pointer', border: 'none',
             background: 'var(--accent)', color: '#fff', borderRadius: 'var(--r-card)',
-            padding: '20px 22px', display: 'flex', alignItems: 'center', gap: 16,
-            boxShadow: '0 14px 30px -14px color-mix(in srgb, var(--accent) 75%, transparent)',
+            padding: '20px 22px', display: 'flex', alignItems: 'center', gap: 16, opacity: activeSession ? 0.4 : 1,
+            boxShadow: activeSession ? 'none' : '0 14px 30px -14px color-mix(in srgb, var(--accent) 75%, transparent)',
           }}>
             <div style={{ width: 50, height: 50, borderRadius: 15, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic.scan size={26} color="#fff" /></div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 18, fontWeight: 700 }}>Neues Spiel</div>
-              <div style={{ fontSize: 13.5, opacity: 0.85 }}>{scanEnabled ? 'QR scannen & loslegen' : 'Crew ist dabei · direkt loslegen'}</div>
+              <div style={{ fontSize: 13.5, opacity: 0.85 }}>{activeSession ? 'Erst die laufende Runde beenden' : (scanEnabled ? 'QR scannen & loslegen' : 'Crew ist dabei · direkt loslegen')}</div>
             </div>
             <Ic.arrowR size={22} color="#fff" />
           </button>

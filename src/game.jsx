@@ -545,7 +545,7 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
         ) : final ? (
           <>
             <UI.Btn kind="primary" onClick={restart} icon={<Ic.home size={19} />}>{account ? 'Zur Startseite' : 'Neues Spiel'}</UI.Btn>
-            <UI.Btn kind="ghost" onClick={() => go('game')}>Zurück zum Spiel</UI.Btn>
+            {doneCount < rows.length && <UI.Btn kind="ghost" onClick={() => go('game')}>Zurück zum Spiel</UI.Btn>}
           </>
         ) : (
           <>
