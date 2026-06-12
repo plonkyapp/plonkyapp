@@ -283,10 +283,34 @@ function VoiceSheet({ players, hole, onApply, onClose }) {
 }
 
 // ── Game screen ───────────────────────────────────────────
+// ── "Spiel beenden" while scores are still missing → warn before finishing ──
+function EndConfirmSheet({ miss, onBack, onEnd }) {
+  const lines = miss.slice(0, 5).map(m => m.holes.length > 3 ? `${m.name} · ${m.holes.length} Bahnen offen` : `${m.name} · Bahn ${m.holes.join(', ')}`);
+  const more = miss.length > 5 ? `… und ${miss.length - 5} weitere` : '';
+  return (
+    <div style={{ position: 'absolute', inset: 0, zIndex: 45, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, animation: 'fadeIn .2s both' }}>
+      <div onClick={onBack} style={{ position: 'absolute', inset: 0, background: 'rgba(15,16,12,0.45)', backdropFilter: 'blur(2px)' }} />
+      <div style={{ position: 'relative', width: '100%', maxWidth: 360, background: 'var(--paper)', borderRadius: 22, padding: '22px 20px', boxShadow: '0 24px 60px -18px rgba(0,0,0,0.55)' }}>
+        <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.3, marginBottom: 6 }}>Noch nicht alle fertig</div>
+        <div style={{ fontSize: 14, color: 'var(--ink-2)', marginBottom: 12 }}>Es fehlen noch Einträge:</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '12px 14px' }}>
+          {lines.map((l, i) => <div key={i} style={{ fontSize: 14.5, fontWeight: 600 }}>{l}</div>)}
+          {more && <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>{more}</div>}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          <UI.Btn kind="primary" onClick={onBack} icon={<Ic.flag size={18} />}>Zurück zum Spiel</UI.Btn>
+          <button onClick={onEnd} style={{ border: 'none', background: 'transparent', color: 'var(--ink-3)', fontFamily: 'var(--font)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', padding: '4px' }}>Trotzdem beenden</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults, sessionCode, me, onHome }) {
   const [hole, setHole] = useS(1);
   const [focus, setFocus] = useS(null);
   const [voice, setVoice] = useS(false);
+  const [confirmEnd, setConfirmEnd] = useS(null); // missing-scores summary before "Spiel beenden"
   const pendingRef = useR({}); // "pid:hole" -> value not yet confirmed by the server
 
   const pushScore = (id, h, val) => {
@@ -337,6 +361,13 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
   });
   const allEntered = players.length > 0 && players.every(p => (p.scores[hole] || 0) > 0);
   const last = hole >= HOLES;
+  // which holes are still empty, per player — used to warn the host before ending
+  const missingScores = () => {
+    const m = [];
+    players.forEach(p => { const hs = []; for (let h = 1; h <= HOLES; h++) if (!((p.scores || {})[h] > 0)) hs.push(h); if (hs.length) m.push({ name: p.name, holes: hs }); });
+    return m;
+  };
+  const endGame = () => { const miss = missingScores(); if (miss.length === 0) openResults(true); else setConfirmEnd(miss); };
 
   return (
     <UI.Screen>
@@ -376,7 +407,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
             border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}><Ic.list size={23} /></button>
-          <UI.Btn kind={allEntered || last ? 'primary' : 'secondary'} onClick={() => { if (last) openResults(true); else { setFocus(null); setHole(h => h + 1); } }} style={{ flex: 1 }}
+          <UI.Btn kind={allEntered || last ? 'primary' : 'secondary'} onClick={() => { if (!last) { setFocus(null); setHole(h => h + 1); } else if (me != null) openResults(true); else endGame(); }} style={{ flex: 1 }}
             iconR={!last && <Ic.arrowR size={20} />} icon={last && <Ic.trophy size={20} />}>
             {last ? (me != null ? 'Endstand ansehen' : 'Spiel beenden') : allEntered ? 'Nächste Bahn' : 'Weiter'}
           </UI.Btn>
@@ -384,6 +415,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
       </div>
 
       {voice && <VoiceSheet players={players} hole={hole} onApply={applyVoice} onClose={() => setVoice(false)} />}
+      {confirmEnd && <EndConfirmSheet miss={confirmEnd} onBack={() => setConfirmEnd(null)} onEnd={() => { setConfirmEnd(null); openResults(true); }} />}
     </UI.Screen>
   );
 }
@@ -513,7 +545,7 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
         ) : (
           <>
             <UI.Btn kind="primary" onClick={() => go('game')} icon={<Ic.flag size={19} />}>Weiter spielen</UI.Btn>
-            <UI.Btn kind="ghost" onClick={onFinish}>Spiel beenden</UI.Btn>
+            {account && <UI.Btn kind="ghost" onClick={restart} icon={<Ic.home size={18} />}>Pause · zu meinem plonky</UI.Btn>}
           </>
         )}
       </UI.Footer>
