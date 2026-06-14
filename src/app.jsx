@@ -162,6 +162,17 @@ function App() {
     if (hydrated && sessionCode) setActiveSession({ code: sessionCode, role, me, mode: mode || 'sequential', venue: OB.VENUE });
   }, [hydrated, sessionCode, role, me, mode]);
 
+  // accounts from the start: a fresh host (or a joiner) gets a real account from
+  // their name/slot the moment they enter a round — no end-of-game "save your account"
+  useAE(() => {
+    if (!hydrated || account || screen !== 'game' || !players.length) return;
+    const src = me != null ? (players.find(p => String(p.id) === String(me)) || {}) : (players[0] || {});
+    const acc = { id: ACC.newAccountId(), name: src.name || 'Spieler', color: src.color || AV[0], avatar: src.avatar || '', kind: me != null ? 'companion' : 'master', created: Date.now() };
+    setAccount(acc);
+    ACC.API.saveAccount(acc, me != null ? undefined : family).catch(() => {});
+    if (me != null && sessionCode) ACC.API.sessionClaim(sessionCode, me, acc.avatar, acc.id).catch(() => {});
+  }, [hydrated, screen, account, me, players.length, sessionCode]);
+
   // a host's solo game ("ich tippe für alle") skips the invite step, so it has no
   // session — give it one on entry so it persists as a "Laufende Runde" & survives Pause
   useAE(() => {
@@ -223,6 +234,11 @@ function App() {
     setHistory(h => h.map(x => x.id === g.id ? g : x));
     const aid = account && account.id;
     if (aid) ACC.API.saveGame(aid, g).catch(() => {});
+  };
+  // a joined player leaves the finished round → quietly keep their copy, then home
+  const leaveJoined = () => {
+    if (me != null && account) saveCompanionGame(players, account);
+    restart();
   };
   // dive back into a live round from the "Laufende Runde" card on home
   const resumeSession = (code) => {
@@ -374,7 +390,7 @@ function App() {
     case 'join': view = <OB.JoinScreen go={go} players={players} setMe={setMe} sessionCode={sessionCode} account={account} />; break;
     case 'express': view = <GAME.ExpressSetup go={go} role={role} setRole={setRole} mode={mode} setMode={setMode} players={players} setPlayers={setPlayers} family={family} />; break;
     case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} onHome={account && sessionCode ? restart : null} />; break;
-    case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} onSave={saveGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} me={me} />; break;
+    case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} onSave={saveGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} me={me} onLeaveJoined={leaveJoined} />; break;
     default: view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} />;
   }
 

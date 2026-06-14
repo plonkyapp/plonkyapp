@@ -426,7 +426,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
 }
 
 // ── Results / standings ───────────────────────────────────
-function ResultsScreen({ players, go, restart, account, onSave, final = true, onFinish, joined = false, sessionCode, me = null }) {
+function ResultsScreen({ players, go, restart, account, onSave, final = true, onFinish, joined = false, sessionCode, me = null, onLeaveJoined }) {
   // joined players watch the live session so the standings converge to the real endstand
   const [rows, setRows] = useS(players);
   const [srvDone, setSrvDone] = useS(false); // host pressed "Spiel beenden" (from the live session)
@@ -537,7 +537,7 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
         {joined ? (
           account ? (
             <>
-              <UI.Btn kind="primary" onClick={restart} icon={<Ic.home size={19} />}>Zu meinem plonky</UI.Btn>
+              <UI.Btn kind="primary" onClick={onLeaveJoined || restart} icon={<Ic.home size={19} />}>Zu meinem plonky</UI.Btn>
               <UI.Btn kind="ghost" onClick={() => go('game')}>Zurück zum Spiel</UI.Btn>
             </>
           ) : (
