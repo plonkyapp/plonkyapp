@@ -336,7 +336,7 @@ function HistoryDetailScreen({ game, go, from, onSave }) {
   const [draft, setDraft] = useAcS({});   // { [pid]: { [hole]: strokes } } while editing
   const [sel, setSel] = useAcS(null);     // { pid, hole } selected cell
   if (!game) return <Screen><AppHeader title="Spiel" onBack={() => go(from)} /></Screen>;
-  const holes = Array.from({ length: 18 }, (_, i) => i + 1);
+  const holes = Array.from({ length: (window.GAME && window.GAME.HOLES) || 18 }, (_, i) => i + 1);
   const half = Math.ceil(holes.length / 2); // 18 → two rows of 9 so it fits a phone without scrolling
   const scoreOf = (p, h) => editing ? ((draft[p.id] || {})[h] || 0) : (p.scores[h] || 0);
   const totalOf = (p) => { let strokes = 0, played = 0; holes.forEach(h => { const v = scoreOf(p, h); if (v) { strokes += v; played++; } }); return { strokes, played }; };
@@ -350,6 +350,9 @@ function HistoryDetailScreen({ game, go, from, onSave }) {
     setEditing(false); setSel(null);
   };
   const selName = sel ? (game.players.find(p => p.id === sel.pid) || {}).name : '';
+  const top = ranked[0] && ranked[0].t.played > 0 ? ranked[0].t.strokes : null;
+  const winners = top != null ? ranked.filter(r => r.t.played > 0 && r.t.strokes === top) : [];
+  const winText = winners.length > 1 ? (winners.length === 2 ? `${winners[0].p.name} & ${winners[1].p.name} gewinnen` : 'Unentschieden') : (ranked[0] ? `${ranked[0].p.name} gewinnt` : '');
   return (
     <Screen>
       <AppHeader title={game.venue} sub={fmtDate(game.date) + (game.code ? ' · ' + game.code : '')} onBack={() => editing ? finishEdit() : go(from)} />
@@ -359,7 +362,7 @@ function HistoryDetailScreen({ game, go, from, onSave }) {
             <span style={{ fontSize: 24 }}>🏆</span>
             <Avatar name={ranked[0].p.name} color={ranked[0].p.color} size={36} src={ranked[0].p.avatar} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 16, fontWeight: 700 }}>{ranked[0].p.name} gewinnt</div>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>{winText}</div>
               <div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{ranked[0].t.strokes} Schläge · {ranked[0].t.played} Bahnen</div>
             </div>
           </div>
@@ -423,6 +426,8 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
   const link = fullLink.replace(/^https?:\/\//, '');
 
   const copy = () => { if (!fullLink) return; try { navigator.clipboard.writeText(fullLink); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1600); };
+  const canShare = typeof navigator !== 'undefined' && !!navigator.share;
+  const shareLink = () => { if (!fullLink) return; if (navigator.share) navigator.share({ title: 'Mein plonky', text: 'Mein plonky-Zugangslink', url: fullLink }).catch(() => {}); else copy(); };
   const addMember = () => { const n = newName.trim(); if (!n) return; setFamily(f => [...f, { id: Date.now(), name: n, color: AV_COLORS[f.length % AV_COLORS.length] }]); setNewName(''); };
   const recolor = (id) => setFamily(f => f.map(m => m.id === id ? { ...m, color: AV_COLORS[(AV_COLORS.indexOf(m.color) + 1) % AV_COLORS.length] } : m));
   const rename = (id, name) => setFamily(f => f.map(m => m.id === id ? { ...m, name } : m));
@@ -459,7 +464,8 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
           <span style={{ flex: 1, fontSize: 13.5, color: 'var(--ink-2)', fontFamily: 'var(--num)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{link}</span>
           <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent)' }}>{copied ? '✓ Kopiert' : 'Kopieren'}</span>
         </button>
-        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 7, lineHeight: 1.4 }}>Als Lesezeichen speichern — dieser Link öffnet immer dein Konto. Kein Passwort nötig.</div>
+        {canShare && <button onClick={shareLink} style={{ width: '100%', marginTop: 8, cursor: 'pointer', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 14, padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 700 }}><Ic.link size={18} color="#fff" /> Link senden</button>}
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 7, lineHeight: 1.4 }}>Per „Link senden" schickst du ihn dir selbst (WhatsApp, SMS, Mail) — oder „Kopieren" und als Lesezeichen speichern. Öffnet immer dein Konto, kein Passwort.</div>
 
         {!companion && (<>
         {/* family management */}

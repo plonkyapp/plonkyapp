@@ -2,7 +2,7 @@
 const { useState: useS, useEffect: useE, useRef: useR } = React;
 
 const PARS = [2, 3, 2, 3, 2, 4, 2, 3, 3, 2, 3, 2, 4, 2, 3, 2, 3, 3];
-const HOLES = 18;
+const HOLES = 4; // TEST: 4 Bahnen zum schnellen Durchspielen — vor dem Launch zurück auf 18
 const par = h => PARS[(h - 1) % PARS.length];
 const sumPar = (from, to) => { let s = 0; for (let h = from; h <= to; h++) s += par(h); return s; };
 
@@ -127,7 +127,7 @@ function Timeline({ hole, players, onJump }) {
         })}
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: 'var(--ink-3)' }}>
-        <span>Bahn 1 · antippen</span><span>{players.filter(p => totals(p).played === HOLES).length === players.length && players.length ? 'fertig' : `${players.length ? totals(players[0]).played : 0}/18`}</span><span>Bahn 18</span>
+        <span>Bahn 1 · antippen</span><span>{players.filter(p => totals(p).played === HOLES).length === players.length && players.length ? 'fertig' : `${players.length ? totals(players[0]).played : 0}/${HOLES}`}</span><span>Bahn {HOLES}</span>
       </div>
     </div>
   );
@@ -461,6 +461,10 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
   const ended = joined ? srvDone : final;
   const doneCount = rows.filter(p => totals(p).played === HOLES).length;
   const leader = ranked.find(r => r.t.played > 0) ? ranked[0] : null;
+  const topScore = leader ? leader.t.strokes : null;            // best (lowest) strokes
+  const winners = topScore != null ? ranked.filter(r => r.t.played > 0 && r.t.strokes === topScore) : [];
+  const tie = winners.length > 1;
+  const winnerText = tie ? (winners.length === 2 ? `${winners[0].p.name} & ${winners[1].p.name} gewinnen 🤝` : 'Unentschieden 🤝') : (leader ? `${leader.p.name} gewinnt! 🎉` : '');
   return (
     <UI.Screen>
       <div style={{ paddingTop: 56, padding: '56px 18px 8px', flexShrink: 0 }}>
@@ -468,7 +472,7 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'color-mix(in srgb, var(--accent) 10%, var(--card))', border: '1px solid var(--accent)', borderRadius: 16, padding: '11px 15px', animation: 'plonkPop .5s both' }}>
             <span style={{ fontSize: 26, lineHeight: 1 }}>🏆</span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{leader.p.name} gewinnt! 🎉</div>
+              <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{winnerText}</div>
               <div style={{ fontSize: 11, color: 'var(--ink-3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Endstand · {OB.VENUE}</div>
             </div>
           </div>
@@ -514,7 +518,7 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
                 background: hl ? 'color-mix(in srgb, var(--accent) 9%, var(--card))' : 'var(--card)',
                 border: hl ? '2px solid var(--accent)' : '1px solid var(--line)',
               }}>
-                <div style={{ width: 22, textAlign: 'center', fontSize: ended && i < 3 ? 20 : 14, fontWeight: 700, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{t.played > 0 ? (ended ? (medal[i] || i + 1) : i + 1) : '·'}</div>
+                <div style={{ width: 22, textAlign: 'center', fontSize: ended && i < 3 ? 20 : 14, fontWeight: 700, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{t.played > 0 ? (ended ? (t.strokes === topScore ? '🥇' : (medal[i] || i + 1)) : i + 1) : '·'}</div>
                 <UI.Avatar name={p.name} color={p.color} size={34} src={p.avatar} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -608,4 +612,4 @@ function ExpressSetup({ go, role, setRole, mode, setMode, players, setPlayers, f
   );
 }
 
-window.GAME = { GameScreen, ResultsScreen, ExpressSetup, totals, PARS };
+window.GAME = { GameScreen, ResultsScreen, ExpressSetup, totals, PARS, HOLES };
