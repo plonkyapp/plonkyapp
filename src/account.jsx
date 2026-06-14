@@ -171,8 +171,10 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
   const { Screen, Body, Btn, Avatar } = UI;
   const [confirmDiscard, setConfirmDiscard] = useAcS(false);
   const recent = [...history].slice(-3).reverse();
-  // a joined round (me set in the bookmark) belongs to the host — leaving ≠ discarding
-  const joinedRound = !!(activeSession && activeSession.me != null);
+  // A joined round belongs to the HOST — a joiner (and ALWAYS a Sub-Konto) has no
+  // business discarding it. A companion is a joiner even if the bookmark's slot id
+  // is missing, so it's the hard signal; me != null catches a master who joined.
+  const joinedRound = !!(companion || (activeSession && activeSession.me != null));
   return (
     <Screen>
       <div style={{ paddingTop: 64, padding: '64px 22px 6px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -217,10 +219,10 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
 
         {activeSession && (confirmDiscard ? (
           <div style={{ marginTop: 12, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 18, padding: '14px 16px' }}>
-            <div style={{ fontSize: 15, fontWeight: 700 }}>{joinedRound ? 'Runde verlassen?' : 'Laufende Runde verwerfen?'}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--ink-2)', margin: '4px 0 12px' }}>{joinedRound ? 'Der Gastgeber spielt weiter — du verlässt nur dein Mitspielen.' : 'Die eingetragenen Schläge gehen verloren.'}</div>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Laufende Runde verwerfen?</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-2)', margin: '4px 0 12px' }}>Die eingetragenen Schläge gehen verloren.</div>
             <div style={{ display: 'flex', gap: 9 }}>
-              <button onClick={() => { setConfirmDiscard(false); onDiscard && onDiscard(); }} style={{ flex: 1, height: 44, borderRadius: 13, border: 'none', background: 'var(--bad)', color: '#fff', fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 700, cursor: 'pointer' }}>{joinedRound ? 'Verlassen' : 'Verwerfen'}</button>
+              <button onClick={() => { setConfirmDiscard(false); onDiscard && onDiscard(); }} style={{ flex: 1, height: 44, borderRadius: 13, border: 'none', background: 'var(--bad)', color: '#fff', fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 700, cursor: 'pointer' }}>Verwerfen</button>
               <button onClick={() => setConfirmDiscard(false)} style={{ flex: 1, height: 44, borderRadius: 13, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)', fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 600, cursor: 'pointer' }}>Abbrechen</button>
             </div>
           </div>
@@ -239,7 +241,9 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
               </div>
               <Ic.arrowR size={20} color="var(--accent)" />
             </button>
-            <button onClick={() => setConfirmDiscard(true)} title={joinedRound ? 'Runde verlassen' : 'Runde verwerfen'} style={{ width: 52, flexShrink: 0, borderRadius: 18, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><Ic.trash size={20} /></button>
+            {/* Only the HOST may discard the round. A joiner / Sub-Konto just dives
+                back in; it's not her round to delete — so no trash button at all. */}
+            {!joinedRound && <button onClick={() => setConfirmDiscard(true)} title="Runde verwerfen" style={{ width: 52, flexShrink: 0, borderRadius: 18, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><Ic.trash size={20} /></button>}
           </div>
         ))}
 

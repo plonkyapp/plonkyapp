@@ -223,16 +223,18 @@ function App() {
   };
 
   const openGame = (id) => { setHistId(id); setHistFrom(screen); go('historyDetail'); };
-  // drop the "Laufende Runde" bookmark. The host OWNS the round → delete it for
-  // everyone. A joined guest (me != null, incl. a Sub-Konto) must NEVER delete the
-  // host's round — she only LEAVES (frees her slot); the host plays on.
+  // drop the "Laufende Runde" bookmark. ONLY the host may delete the round for
+  // everyone. A Sub-Konto (companion) must NEVER delete it — not her round; a
+  // master who merely joined (me != null) only frees her own slot. Hard-guarded
+  // so a missing bookmark slot id can't fall through to a destructive delete.
   const discardActiveSession = () => {
     const b = activeSession || {};
     const c = b.code;
     setActiveSession(null);
     if (!c) return;
-    if (b.me != null) ACC.API.sessionLeave(c, b.me).catch(() => {});
-    else ACC.API.deleteSession(c).catch(() => {});
+    const isHost = !(account && account.kind === 'companion') && b.me == null;
+    if (isHost) ACC.API.deleteSession(c).catch(() => {});
+    else if (b.me != null) ACC.API.sessionLeave(c, b.me).catch(() => {});
   };
   // save edits to a game from the history detail (server upserts by id)
   const saveEditedGame = (g) => {
