@@ -223,11 +223,16 @@ function App() {
   };
 
   const openGame = (id) => { setHistId(id); setHistFrom(screen); go('historyDetail'); };
-  // discard a running round: drop the bookmark and delete the live session
+  // drop the "Laufende Runde" bookmark. The host OWNS the round → delete it for
+  // everyone. A joined guest (me != null, incl. a Sub-Konto) must NEVER delete the
+  // host's round — she only LEAVES (frees her slot); the host plays on.
   const discardActiveSession = () => {
-    const c = activeSession && activeSession.code;
+    const b = activeSession || {};
+    const c = b.code;
     setActiveSession(null);
-    if (c) ACC.API.deleteSession(c).catch(() => {});
+    if (!c) return;
+    if (b.me != null) ACC.API.sessionLeave(c, b.me).catch(() => {});
+    else ACC.API.deleteSession(c).catch(() => {});
   };
   // save edits to a game from the history detail (server upserts by id)
   const saveEditedGame = (g) => {

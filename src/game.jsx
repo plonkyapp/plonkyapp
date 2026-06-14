@@ -311,6 +311,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
   const [focus, setFocus] = useS(null);
   const [voice, setVoice] = useS(false);
   const [confirmEnd, setConfirmEnd] = useS(null); // missing-scores summary before "Spiel beenden"
+  const [srvFinished, setSrvFinished] = useS(false); // host pressed "Spiel beenden" (joiner learns it from the poll)
   const pendingRef = useR({}); // "pid:hole" -> value not yet confirmed by the server
 
   const pushScore = (id, h, val) => {
@@ -340,6 +341,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
     let alive = true;
     const tick = () => ACC.API.getSession(sessionCode).then(sess => {
       if (!alive || !sess) return;
+      setSrvFinished(!!sess.finished);
       const srv = {}; (sess.players || []).forEach(sp => { srv[sp.id] = sp; });
       const pending = pendingRef.current;
       setPlayers(prev => prev.map(p => {
@@ -366,9 +368,11 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
   });
   const allEntered = players.length > 0 && players.every(p => (p.scores[hole] || 0) > 0);
   const last = hole >= HOLES;
-  // joined as one player: "Endstand ansehen" only after MY own last-hole score is in
+  // joined as one player: the last-hole action unlocks only after MY own score is in,
+  // and stays a "Zwischenstand" until the HOST ends the round (then the snapshot follows)
   const meScoredHere = me == null || (((players.find(p => String(p.id) === String(me)) || {}).scores || {})[hole] || 0) > 0;
   const waitingForMe = last && me != null && !meScoredHere;
+  const joinerEndLabel = srvFinished ? 'Endstand ansehen' : 'Zwischenstand ansehen';
   // which holes are still empty, per player — used to warn the host before ending
   const missingScores = () => {
     const m = [];
@@ -416,9 +420,10 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}><Ic.list size={23} /></button>
           <UI.Btn kind={waitingForMe ? 'secondary' : (allEntered || last ? 'primary' : 'secondary')} disabled={waitingForMe}
-            onClick={() => { if (!last) { setFocus(null); setHole(h => h + 1); } else if (me != null) openResults(true); else endGame(); }} style={{ flex: 1 }}
-            iconR={!last && <Ic.arrowR size={20} />} icon={last && !waitingForMe && <Ic.trophy size={20} />}>
-            {last ? (me != null ? (waitingForMe ? 'Erst deinen Schlag eintragen' : 'Endstand ansehen') : 'Spiel beenden') : allEntered ? 'Nächste Bahn' : 'Weiter'}
+            onClick={() => { if (!last) { setFocus(null); setHole(h => h + 1); } else if (me != null) openResults(srvFinished); else endGame(); }} style={{ flex: 1 }}
+            iconR={!last && <Ic.arrowR size={20} />}
+            icon={last && !waitingForMe && (me != null ? (srvFinished ? <Ic.trophy size={20} /> : <Ic.list size={20} />) : <Ic.trophy size={20} />)}>
+            {last ? (me != null ? (waitingForMe ? 'Erst deinen Schlag eintragen' : joinerEndLabel) : 'Spiel beenden') : allEntered ? 'Nächste Bahn' : 'Weiter'}
           </UI.Btn>
         </div>
       </div>
