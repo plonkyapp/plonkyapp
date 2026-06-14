@@ -255,7 +255,7 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-            {recent.map(g => <HistoryCard key={g.id} g={g} onClick={() => openGame(g.id)} />)}
+            {recent.map(g => <HistoryCard key={g.id} g={g} onClick={() => openGame(g.id)} account={account} family={family} />)}
           </div>
         )}
 
@@ -283,7 +283,7 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
 }
 const ghostLink = { border: 'none', background: 'transparent', color: 'var(--accent)', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', fontFamily: 'var(--font)', padding: 0 };
 
-function HistoryCard({ g, onClick }) {
+function HistoryCard({ g, onClick, account = null, family = [] }) {
   const { Avatar } = UI;
   const ranked = [...g.players].map(p => ({ p, t: aTotals(p) })).sort((a, b) => a.t.strokes - b.t.strokes);
   const win = ranked[0];
@@ -303,7 +303,7 @@ function HistoryCard({ g, onClick }) {
       {win && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 18 }}>🥇</span>
-          <Avatar name={win.p.name} color={win.p.color} size={30} />
+          <Avatar name={win.p.name} color={win.p.color} size={30} src={UI.liveAvatar(win.p, account, family)} />
         </div>
       )}
       <Ic.chevR size={18} color="var(--ink-3)" />
@@ -312,7 +312,7 @@ function HistoryCard({ g, onClick }) {
 }
 
 // ── History list ──────────────────────────────────────────
-function HistoryScreen({ history, go, openGame }) {
+function HistoryScreen({ history, go, openGame, account = null, family = [] }) {
   const { Screen, AppHeader, Body } = UI;
   const games = [...history].reverse();
   return (
@@ -323,7 +323,7 @@ function HistoryScreen({ history, go, openGame }) {
           <div style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 14, padding: '40px 0' }}>Noch keine Spiele gespeichert.</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-            {games.map(g => <HistoryCard key={g.id} g={g} onClick={() => openGame(g.id)} />)}
+            {games.map(g => <HistoryCard key={g.id} g={g} onClick={() => openGame(g.id)} account={account} family={family} />)}
           </div>
         )}
       </Body>
@@ -332,7 +332,7 @@ function HistoryScreen({ history, go, openGame }) {
 }
 
 // ── History detail (scorecard, editable) ──────────────────
-function HistoryDetailScreen({ game, go, from, onSave }) {
+function HistoryDetailScreen({ game, go, from, onSave, account = null, family = [] }) {
   const { Screen, AppHeader, Body, Avatar } = UI;
   const [editing, setEditing] = useAcS(false);
   const [draft, setDraft] = useAcS({});   // { [pid]: { [hole]: strokes } } while editing
@@ -362,7 +362,7 @@ function HistoryDetailScreen({ game, go, from, onSave }) {
         {!editing && ranked[0] && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'color-mix(in srgb, var(--accent) 9%, var(--card))', border: '1px solid var(--accent)', borderRadius: 16, padding: '12px 16px', marginBottom: 16 }}>
             <span style={{ fontSize: 24 }}>🏆</span>
-            <Avatar name={ranked[0].p.name} color={ranked[0].p.color} size={36} src={ranked[0].p.avatar} />
+            <Avatar name={ranked[0].p.name} color={ranked[0].p.color} size={36} src={UI.liveAvatar(ranked[0].p, account, family)} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 16, fontWeight: 700 }}>{winText}</div>
               <div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{ranked[0].t.strokes} Schläge · {ranked[0].t.played} Bahnen</div>
@@ -380,7 +380,7 @@ function HistoryDetailScreen({ game, go, from, onSave }) {
             <div key={p.id} style={{ background: 'var(--card)', border: !editing && i === 0 ? '1.5px solid var(--accent)' : '1px solid var(--line)', borderRadius: 16, padding: '12px 13px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                 <div style={{ width: 16, textAlign: 'center', fontSize: 13, fontWeight: 800, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{editing ? '' : i + 1}</div>
-                <Avatar name={p.name} color={p.color} size={26} src={p.avatar} />
+                <Avatar name={p.name} color={p.color} size={26} src={UI.liveAvatar(p, account, family)} />
                 <span style={{ flex: 1, fontSize: 14.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
                 <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <span style={{ fontFamily: 'var(--num)', fontSize: 21, fontWeight: 800 }}>{t.strokes}</span>

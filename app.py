@@ -66,6 +66,7 @@ class Player(db.Model):
     ext_id = db.Column(db.String, nullable=True)
     name = db.Column(db.String, nullable=False, default="")
     color = db.Column(db.String, nullable=False, default="")
+    avatar = db.Column(db.Text, nullable=False, default="")  # snapshot photo so saved games show faces too
     scores = db.relationship(
         "Score", backref="player", cascade="all, delete-orphan", passive_deletes=True
     )
@@ -150,6 +151,7 @@ def game_to_dict(game):
                 "id": p.ext_id or p.id,
                 "name": p.name,
                 "color": p.color,
+                "avatar": p.avatar or "",
                 "scores": {str(s.hole): s.strokes for s in p.scores},
             }
             for p in game.players
@@ -202,6 +204,7 @@ def upsert_game():
             ext_id=str(pdata.get("id")) if pdata.get("id") is not None else None,
             name=pdata.get("name") or "",
             color=pdata.get("color") or "",
+            avatar=pdata.get("avatar") or "",
         )
         for hole, strokes in (pdata.get("scores") or {}).items():
             player.scores.append(Score(hole=int(hole), strokes=strokes))
@@ -479,6 +482,11 @@ def ensure_schema():
         db.session.commit()
     if "avatar" not in cols:
         db.session.execute(text("ALTER TABLE account ADD COLUMN avatar TEXT NOT NULL DEFAULT ''"))
+        db.session.commit()
+
+    player_cols = {c["name"] for c in inspector.get_columns("player")}
+    if "avatar" not in player_cols:
+        db.session.execute(text("ALTER TABLE player ADD COLUMN avatar TEXT NOT NULL DEFAULT ''"))
         db.session.commit()
 
 

@@ -30,6 +30,23 @@ function pickPhoto(onResult) {
   input.click();
 }
 
+// Resolve a player's CURRENT photo from this device's own account + crew (the
+// single source of truth), so changing a photo updates everywhere it's shown.
+// Falls back to the photo stored on the player (a live-session or saved snapshot)
+// for people this device doesn't know — e.g. a companion seeing the host in her
+// saved history. Match is by name (case-insensitive), mirroring how a new game's
+// line-up is de-duplicated by name.
+function liveAvatar(player, account, family) {
+  if (!player) return '';
+  const nm = (player.name || '').trim().toLowerCase();
+  if (nm) {
+    if (account && account.avatar && (account.name || '').trim().toLowerCase() === nm) return account.avatar;
+    const m = (family || []).find(x => x && x.avatar && (x.name || '').trim().toLowerCase() === nm);
+    if (m) return m.avatar;
+  }
+  return player.avatar || '';
+}
+
 // ── Phone screen scaffold ─────────────────────────────────
 function Screen({ children, bg = 'var(--paper)', style = {} }) {
   return (
@@ -216,4 +233,4 @@ function Steps({ n, i }) {
   );
 }
 
-window.UI = { Screen, Body, AppHeader, Footer, Btn, Avatar, ChoiceCard, QRMock, QRCode, Steps, AV_COLORS, pickPhoto };
+window.UI = { Screen, Body, AppHeader, Footer, Btn, Avatar, ChoiceCard, QRMock, QRCode, Steps, AV_COLORS, pickPhoto, liveAvatar };
