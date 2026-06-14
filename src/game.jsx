@@ -366,6 +366,9 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
   });
   const allEntered = players.length > 0 && players.every(p => (p.scores[hole] || 0) > 0);
   const last = hole >= HOLES;
+  // joined as one player: "Endstand ansehen" only after MY own last-hole score is in
+  const meScoredHere = me == null || (((players.find(p => String(p.id) === String(me)) || {}).scores || {})[hole] || 0) > 0;
+  const waitingForMe = last && me != null && !meScoredHere;
   // which holes are still empty, per player — used to warn the host before ending
   const missingScores = () => {
     const m = [];
@@ -412,9 +415,10 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
             border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}><Ic.list size={23} /></button>
-          <UI.Btn kind={allEntered || last ? 'primary' : 'secondary'} onClick={() => { if (!last) { setFocus(null); setHole(h => h + 1); } else if (me != null) openResults(true); else endGame(); }} style={{ flex: 1 }}
-            iconR={!last && <Ic.arrowR size={20} />} icon={last && <Ic.trophy size={20} />}>
-            {last ? (me != null ? 'Endstand ansehen' : 'Spiel beenden') : allEntered ? 'Nächste Bahn' : 'Weiter'}
+          <UI.Btn kind={waitingForMe ? 'secondary' : (allEntered || last ? 'primary' : 'secondary')} disabled={waitingForMe}
+            onClick={() => { if (!last) { setFocus(null); setHole(h => h + 1); } else if (me != null) openResults(true); else endGame(); }} style={{ flex: 1 }}
+            iconR={!last && <Ic.arrowR size={20} />} icon={last && !waitingForMe && <Ic.trophy size={20} />}>
+            {last ? (me != null ? (waitingForMe ? 'Erst deinen Schlag eintragen' : 'Endstand ansehen') : 'Spiel beenden') : allEntered ? 'Nächste Bahn' : 'Weiter'}
           </UI.Btn>
         </div>
       </div>
@@ -426,10 +430,11 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
 }
 
 // ── Results / standings ───────────────────────────────────
-function ResultsScreen({ players, go, restart, account, onSave, final = true, onFinish, joined = false, sessionCode, me = null, onLeaveJoined }) {
+function ResultsScreen({ players, go, restart, account, onSave, onCompanionSave, final = true, onFinish, joined = false, sessionCode, me = null, onLeaveJoined }) {
   // joined players watch the live session so the standings converge to the real endstand
   const [rows, setRows] = useS(players);
   const [srvDone, setSrvDone] = useS(false); // host pressed "Spiel beenden" (from the live session)
+  const savedRef = useR(false); // joiner: snapshot is saved exactly once, when the host ends the round
   useE(() => { setRows(players); }, [players]);
   useE(() => {
     if (!joined || !sessionCode) return;
@@ -451,6 +456,30 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
     const iv = setInterval(tick, 3000);
     return () => { alive = false; clearInterval(iv); };
   }, [joined, sessionCode]);
+
+  // host ended the round → save my (joiner) snapshot once, with the authoritative
+  // server scores (so my history doesn't have a half-done copy missing the host's last taps)
+  useE(() => {
+    if (!joined || !srvDone || !account || !onCompanionSave || savedRef.current || !sessionCode) return;
+    ACC.API.getSession(sessionCode).then(sess => {
+      if (savedRef.current) return;
+      savedRef.current = true;
+      let finalPlayers = rows;
+      if (sess && sess.players) {
+        finalPlayers = rows.map(p => {
+          const sp = sess.players.find(x => String(x.id) === String(p.id));
+          if (!sp) return p;
+          const mine = me != null && String(p.id) === String(me);
+          return { ...p, scores: mine ? { ...(sp.scores || {}), ...(p.scores || {}) } : (sp.scores || {}) };
+        });
+      }
+      onCompanionSave(finalPlayers, account);
+    }).catch(() => {
+      if (savedRef.current) return;
+      savedRef.current = true;
+      onCompanionSave(rows, account);
+    });
+  }, [joined, srvDone, account, sessionCode]);
 
   const ranked = [...rows].map(p => ({ p, t: totals(p) })).sort((a, b) => a.t.strokes - b.t.strokes);
   const medal = ['🥇', '🥈', '🥉'];
@@ -487,7 +516,7 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
         )}
       </div>
       <UI.Body>
-        {final && (joined ? (
+        {ended && (joined ? (
           account ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 13, fontWeight: 600, color: 'var(--accent)', marginBottom: 14 }}>
               <Ic.check size={16} /> In deinem Verlauf gespeichert
@@ -535,15 +564,23 @@ function ResultsScreen({ players, go, restart, account, onSave, final = true, on
       </UI.Body>
       <UI.Footer>
         {joined ? (
-          account ? (
-            <>
-              <UI.Btn kind="primary" onClick={onLeaveJoined || restart} icon={<Ic.home size={19} />}>Zu meinem plonky</UI.Btn>
-              <UI.Btn kind="ghost" onClick={() => go('game')}>Zurück zum Spiel</UI.Btn>
-            </>
+          ended ? (
+            account ? (
+              <>
+                <UI.Btn kind="primary" onClick={onLeaveJoined || restart} icon={<Ic.home size={19} />}>Zu meinem plonky</UI.Btn>
+                <UI.Btn kind="ghost" onClick={() => go('game')}>Zurück zum Spiel</UI.Btn>
+              </>
+            ) : (
+              <>
+                <UI.Btn kind="primary" onClick={() => go('account')} icon={<Ic.link size={19} />}>Als Mitspieler sichern</UI.Btn>
+                <UI.Btn kind="ghost" onClick={() => go('game')}>Zurück zum Spiel</UI.Btn>
+              </>
+            )
           ) : (
+            /* host hasn't ended the round yet → don't leave the round; pause keeps the bookmark so I can dive back in */
             <>
-              <UI.Btn kind="primary" onClick={() => go('account')} icon={<Ic.link size={19} />}>Als Mitspieler sichern</UI.Btn>
-              <UI.Btn kind="ghost" onClick={() => go('game')}>Zurück zum Spiel</UI.Btn>
+              <UI.Btn kind="primary" onClick={() => go('game')} icon={<Ic.flag size={19} />}>Zurück zum Spiel</UI.Btn>
+              {account && <UI.Btn kind="ghost" onClick={restart} icon={<Ic.home size={18} />}>Pause · zu meinem plonky</UI.Btn>}
             </>
           )
         ) : final ? (

@@ -265,31 +265,23 @@ function App() {
   const openResults = (fin) => {
     setResultsFinal(fin);
     go('results');
-    if (!fin) return;
-    // Host owns & saves the authoritative game. A joined guest with her own
-    // Mitspieler-Konto keeps a read-only copy in her history; a joined guest
-    // without an account saves nothing here (she can still create one on this screen).
+    // joiner: ResultsScreen saves the snapshot once the host actually ends the
+    // round (srvDone). Saving here would persist a half-done copy AND wipe the
+    // "Laufende Runde" bookmark before the round is really over.
+    if (!fin || me != null) return;
+    // host pressed "Spiel beenden": pull the authoritative final scores, mark the
+    // round finished on every device, save the canonical game.
     const finalize = (finalPlayers) => {
-      if (me != null) {
-        // joined guest: host owns the game; keep my own read-only copy if I have an account
-        if (account) saveCompanionGame(finalPlayers, account);
-        return;
-      }
-      // host pressed "Spiel beenden": tell every device the round is over
       if (sessionCode) ACC.API.sessionFinish(sessionCode).catch(() => {});
       if (account) saveGame(finalPlayers);
     };
     if (sessionCode) {
-      // pull the authoritative final scores from the server so every device agrees
       ACC.API.getSession(sessionCode).then(sess => {
         let finalPlayers = players;
         if (sess && sess.players) {
           finalPlayers = players.map(p => {
             const sp = sess.players.find(x => String(x.id) === String(p.id));
-            if (!sp) return p;
-            // my own latest taps may not have reached the server yet → keep them
-            const mine = me != null && String(p.id) === String(me);
-            return { ...p, scores: mine ? { ...(sp.scores || {}), ...(p.scores || {}) } : (sp.scores || {}) };
+            return sp ? { ...p, scores: sp.scores || {} } : p;
           });
           setPlayers(finalPlayers);
         }
@@ -390,7 +382,7 @@ function App() {
     case 'join': view = <OB.JoinScreen go={go} players={players} setMe={setMe} sessionCode={sessionCode} account={account} />; break;
     case 'express': view = <GAME.ExpressSetup go={go} role={role} setRole={setRole} mode={mode} setMode={setMode} players={players} setPlayers={setPlayers} family={family} />; break;
     case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} onHome={account && sessionCode ? restart : null} />; break;
-    case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} onSave={saveGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} me={me} onLeaveJoined={leaveJoined} />; break;
+    case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} onSave={saveGame} onCompanionSave={saveCompanionGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} me={me} onLeaveJoined={leaveJoined} />; break;
     default: view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} />;
   }
 
