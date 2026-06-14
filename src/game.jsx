@@ -319,6 +319,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
     if (sessionCode) ACC.API.sessionScore(sessionCode, id, h, val).catch(() => {});
   };
   const set = (id, val) => {
+    if (srvFinished) return; // host ended the round → it's over, no more edits
     if (me != null && String(id) !== String(me)) return; // joined as one player: only your own score
     setPlayers(ps => ps.map(p => p.id === id ? { ...p, scores: { ...p.scores, [hole]: val } } : p));
     pushScore(id, hole, val);
@@ -361,7 +362,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
     const iv = setInterval(tick, 3000);
     return () => { alive = false; clearInterval(iv); };
   }, [sessionCode]);
-  const canEdit = (pid) => me == null || String(pid) === String(me);
+  const canEdit = (pid) => !srvFinished && (me == null || String(pid) === String(me));
   const ordered = me == null ? players : [...players].sort((a, b) => {
     const am = String(a.id) === String(me), bm = String(b.id) === String(me);
     return am === bm ? 0 : am ? -1 : 1;
@@ -389,8 +390,14 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--ink-2)', fontWeight: 600 }}>
             <Ic.pin size={14} color="var(--accent)" /> {OB.VENUE}
           </div>
-          {onHome && <button onClick={onHome} title="Pause – zu meinem plonky; die Runde läuft weiter" style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', background: 'var(--card)', borderRadius: 999, padding: '5px 12px 5px 10px', cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)' }}><Ic.home size={15} /> Pause</button>}
+          {onHome && !srvFinished && <button onClick={onHome} title="Pause – zu meinem plonky; die Runde läuft weiter" style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', background: 'var(--card)', borderRadius: 999, padding: '5px 12px 5px 10px', cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)' }}><Ic.home size={15} /> Pause</button>}
         </div>
+        {srvFinished && me != null && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'color-mix(in srgb, var(--accent) 10%, var(--card))', border: '1px solid var(--accent)', borderRadius: 12, padding: '8px 12px', margin: '6px 0 0' }}>
+            <Ic.trophy size={16} color="var(--accent)" />
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.35 }}>Der Gastgeber hat das Spiel beendet — deine Schläge sind festgehalten. Tipp auf <b>Endstand ansehen</b>.</span>
+          </div>
+        )}
         <BahnHeader hole={hole} onPrev={() => { setFocus(null); setHole(h => Math.max(1, h - 1)); }} onNext={() => { setFocus(null); setHole(h => Math.min(HOLES, h + 1)); }} />
       </div>
 
@@ -419,12 +426,17 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
             border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}><Ic.list size={23} /></button>
-          <UI.Btn kind={waitingForMe ? 'secondary' : (allEntered || last ? 'primary' : 'secondary')} disabled={waitingForMe}
-            onClick={() => { if (!last) { setFocus(null); setHole(h => h + 1); } else if (me != null) openResults(srvFinished); else endGame(); }} style={{ flex: 1 }}
-            iconR={!last && <Ic.arrowR size={20} />}
-            icon={last && !waitingForMe && (me != null ? (srvFinished ? <Ic.trophy size={20} /> : <Ic.list size={20} />) : <Ic.trophy size={20} />)}>
-            {last ? (me != null ? (waitingForMe ? 'Erst deinen Schlag eintragen' : joinerEndLabel) : 'Spiel beenden') : allEntered ? 'Nächste Bahn' : 'Weiter'}
-          </UI.Btn>
+          {srvFinished && me != null ? (
+            /* host ended the round → one clear action from any hole: see the endstand */
+            <UI.Btn kind="primary" onClick={() => openResults(true)} style={{ flex: 1 }} icon={<Ic.trophy size={20} />}>Endstand ansehen</UI.Btn>
+          ) : (
+            <UI.Btn kind={waitingForMe ? 'secondary' : (allEntered || last ? 'primary' : 'secondary')} disabled={waitingForMe}
+              onClick={() => { if (!last) { setFocus(null); setHole(h => h + 1); } else if (me != null) openResults(srvFinished); else endGame(); }} style={{ flex: 1 }}
+              iconR={!last && <Ic.arrowR size={20} />}
+              icon={last && !waitingForMe && (me != null ? (srvFinished ? <Ic.trophy size={20} /> : <Ic.list size={20} />) : <Ic.trophy size={20} />)}>
+              {last ? (me != null ? (waitingForMe ? 'Erst deinen Schlag eintragen' : joinerEndLabel) : 'Spiel beenden') : allEntered ? 'Nächste Bahn' : 'Weiter'}
+            </UI.Btn>
+          )}
         </div>
       </div>
 
@@ -570,16 +582,12 @@ function ResultsScreen({ players, go, restart, account, family = [], onSave, onC
       <UI.Footer>
         {joined ? (
           ended ? (
+            /* round is over → no way back into an editable game (that's what let
+               a late edit diverge from the saved snapshot) */
             account ? (
-              <>
-                <UI.Btn kind="primary" onClick={onLeaveJoined || restart} icon={<Ic.home size={19} />}>Zu meinem plonky</UI.Btn>
-                <UI.Btn kind="ghost" onClick={() => go('game')}>Zurück zum Spiel</UI.Btn>
-              </>
+              <UI.Btn kind="primary" onClick={onLeaveJoined || restart} icon={<Ic.home size={19} />}>Zu meinem plonky</UI.Btn>
             ) : (
-              <>
-                <UI.Btn kind="primary" onClick={() => go('account')} icon={<Ic.link size={19} />}>Als Mitspieler sichern</UI.Btn>
-                <UI.Btn kind="ghost" onClick={() => go('game')}>Zurück zum Spiel</UI.Btn>
-              </>
+              <UI.Btn kind="primary" onClick={() => go('account')} icon={<Ic.link size={19} />}>Als Mitspieler sichern</UI.Btn>
             )
           ) : (
             /* host hasn't ended the round yet → don't leave the round; pause keeps the bookmark so I can dive back in */
