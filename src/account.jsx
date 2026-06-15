@@ -33,6 +33,14 @@ const API = {
     if (!r.ok) throw new Error('account ' + r.status);
     return r.json();
   },
+  // batch photo lookup: ids -> [{id,name,color,avatar}] (the one place avatars come from)
+  async getAccounts(ids) {
+    const list = (ids || []).filter(Boolean);
+    if (!list.length) return [];
+    const r = await fetch('/api/accounts?ids=' + encodeURIComponent(list.join(',')));
+    if (!r.ok) throw new Error('getAccounts ' + r.status);
+    return r.json();
+  },
   async saveAccount(account, crew) {
     const body = { id: account.id, name: account.name, color: account.color };
     if (account.kind) body.kind = account.kind;
@@ -183,7 +191,7 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
           <div style={{ fontSize: 27, fontWeight: 800, letterSpacing: -0.6 }}>Hoi {account.name} 👋</div>
         </div>
         <button onClick={() => go('settings')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}>
-          <Avatar name={account.name} color={account.color} size={48} src={account.avatar} />
+          <Avatar name={account.name} color={account.color} size={48} accountId={account.id} src={account.avatar} />
         </button>
       </div>
       <Body style={{ paddingTop: 14 }}>
@@ -274,7 +282,7 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
               {family.length === 0 && <div style={{ fontSize: 13.5, color: 'var(--ink-3)' }}>Spieler aus deinen Spielen erscheinen hier.</div>}
               {family.map(m => (
                 <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 13px 5px 5px' }}>
-                  <Avatar name={m.name} color={m.color} size={28} src={m.avatar} />
+                  <Avatar name={m.name} color={m.color} size={28} accountId={m.accountId} src={m.avatar} />
                   <span style={{ fontSize: 14, fontWeight: 600 }}>{m.name}</span>
                 </div>
               ))}
@@ -307,7 +315,7 @@ function HistoryCard({ g, onClick, account = null, family = [] }) {
       {win && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 18 }}>🥇</span>
-          <Avatar name={win.p.name} color={win.p.color} size={30} src={UI.liveAvatar(win.p, account, family)} />
+          <Avatar name={win.p.name} color={win.p.color} size={30} accountId={win.p.account_id} src={win.p.avatar} />
         </div>
       )}
       <Ic.chevR size={18} color="var(--ink-3)" />
@@ -366,7 +374,7 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
         {!editing && ranked[0] && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'color-mix(in srgb, var(--accent) 9%, var(--card))', border: '1px solid var(--accent)', borderRadius: 16, padding: '12px 16px', marginBottom: 16 }}>
             <span style={{ fontSize: 24 }}>🏆</span>
-            <Avatar name={ranked[0].p.name} color={ranked[0].p.color} size={36} src={UI.liveAvatar(ranked[0].p, account, family)} />
+            <Avatar name={ranked[0].p.name} color={ranked[0].p.color} size={36} accountId={ranked[0].p.account_id} src={ranked[0].p.avatar} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 16, fontWeight: 700 }}>{winText}</div>
               <div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{ranked[0].t.strokes} Schläge · {ranked[0].t.played} Bahnen</div>
@@ -384,7 +392,7 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
             <div key={p.id} style={{ background: 'var(--card)', border: !editing && i === 0 ? '1.5px solid var(--accent)' : '1px solid var(--line)', borderRadius: 16, padding: '12px 13px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                 <div style={{ width: 16, textAlign: 'center', fontSize: 13, fontWeight: 800, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{editing ? '' : i + 1}</div>
-                <Avatar name={p.name} color={p.color} size={26} src={UI.liveAvatar(p, account, family)} />
+                <Avatar name={p.name} color={p.color} size={26} accountId={p.account_id} src={p.avatar} />
                 <span style={{ flex: 1, fontSize: 14.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
                 <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <span style={{ fontFamily: 'var(--num)', fontSize: 21, fontWeight: 800 }}>{t.strokes}</span>
@@ -448,7 +456,7 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
         <div style={{ display: 'flex', alignItems: 'center', gap: 15, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 20, padding: 16 }}>
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <button onClick={() => setAccount(a => ({ ...a, color: AV_COLORS[(AV_COLORS.indexOf(a.color) + 1) % AV_COLORS.length] }))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'block' }}>
-              <Avatar name={account.name} color={account.color} size={56} src={account.avatar} />
+              <Avatar name={account.name} color={account.color} size={56} accountId={account.id} src={account.avatar} />
             </button>
             <button onClick={() => UI.pickPhoto(src => setAccount(a => ({ ...a, avatar: src })))} title="Foto wählen" style={{ position: 'absolute', right: -3, bottom: -3, width: 26, height: 26, borderRadius: '50%', background: 'var(--accent)', color: '#fff', border: '2px solid var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><Ic.camera size={13} /></button>
           </div>
@@ -480,7 +488,7 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
           {family.map(m => (
             <div key={m.id} style={{ background: 'var(--card)', border: editId === m.id ? '2px solid var(--accent)' : '1px solid var(--line)', borderRadius: 14, padding: editId === m.id ? '9px 11px' : '10px 12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-                <button onClick={() => recolor(m.id)} title="Farbe" style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><Avatar name={m.name} color={m.color} size={34} src={m.avatar} /></button>
+                <button onClick={() => recolor(m.id)} title="Farbe" style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><Avatar name={m.name} color={m.color} size={34} accountId={m.accountId} src={m.avatar} /></button>
                 {editId === m.id
                   ? <input autoFocus value={m.name} onChange={e => rename(m.id, e.target.value)} onKeyDown={e => e.key === 'Enter' && setEditId(null)}
                       style={{ flex: 1, border: 'none', background: 'transparent', fontFamily: 'var(--font)', fontSize: 15.5, fontWeight: 600, outline: 'none', color: 'var(--ink)' }} />

@@ -49,7 +49,7 @@ function ScoreRow({ p, hole, focused, onFocus, onSet, showTotals, editable = tru
       opacity: editable ? 1 : 0.92,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <UI.Avatar name={p.name} color={p.color} size={40} src={UI.liveAvatar(p, account, family)} />
+        <UI.Avatar name={p.name} color={p.color} size={40} accountId={p.account_id} src={p.avatar} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 7 }}>
             {p.name}
@@ -565,7 +565,7 @@ function ResultsScreen({ players, go, restart, account, family = [], onSave, onC
                 border: hl ? '2px solid var(--accent)' : '1px solid var(--line)',
               }}>
                 <div style={{ width: 22, textAlign: 'center', fontSize: ended && i < 3 ? 20 : 14, fontWeight: 700, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{t.played > 0 ? (ended ? (t.strokes === topScore ? '🥇' : (medal[i] || i + 1)) : i + 1) : '·'}</div>
-                <UI.Avatar name={p.name} color={p.color} size={34} src={UI.liveAvatar(p, account, family)} />
+                <UI.Avatar name={p.name} color={p.color} size={34} accountId={p.account_id} src={p.avatar} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {p.name}
@@ -643,7 +643,7 @@ function ExpressSetup({ go, role, setRole, mode, setMode, players, setPlayers, f
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {players.map(p => (
             <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 8px 5px 5px' }}>
-              <Avatar name={p.name} color={p.color} size={26} src={p.avatar} />
+              <Avatar name={p.name} color={p.color} size={26} accountId={p.account_id} src={p.avatar} />
               <span style={{ fontSize: 14, fontWeight: 600 }}>{p.name}</span>
               <button onClick={() => setPlayers(ps => ps.filter(x => x.id !== p.id))} style={{ border: 'none', background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer', display: 'flex', padding: 2 }}><Ic.x size={15} /></button>
             </div>

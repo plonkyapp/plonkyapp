@@ -45,6 +45,7 @@ function App() {
   const [resultsFinal, setResultsFinal] = useAS(true);
   const [autoCrew, setAutoCrew] = useAS(true);
   const [activeSession, setActiveSession] = useAS(null); // bookmark to a live round you can dive back into
+  const [avatars, setAvatars] = useAS({}); // account id -> current photo (the one source, fetched in batch)
   const gameSavedRef = useAR(false);
   const soloSessionRef = useAR(false); // guards one-time session creation for a solo "ich tippe für alle" game
 
@@ -185,13 +186,28 @@ function App() {
   }, [hydrated, screen, sessionCode, me, account, players.length]);
 
   // opening home: re-pull my games from the server so the host's ONE shared
-  // record (where I'm a participant) and any later host edit show up. Also keep
-  // linked crew photos current (master), without needing a cold reload.
+  // record (where I'm a participant) and any later host edit show up.
   useAE(() => {
     if (!hydrated || !account || !account.id) return;
     if (screen === 'home') ACC.API.listGames(account.id).then(server => setHistory(local => ACC.mergeGames(local, server || []))).catch(() => {});
-    if (account.kind !== 'companion' && (screen === 'home' || screen === 'settings')) refreshLinkedCrew(family);
   }, [screen, hydrated]);
+
+  // The ONE photo lookup: collect every account id this device shows (crew links +
+  // players in saved games) and batch-fetch their CURRENT photo by id. Re-runs on
+  // navigation so a changed photo appears without a cold reload. Self is resolved
+  // straight from `account`, so it's not fetched here.
+  useAE(() => {
+    if (!hydrated) return;
+    const ids = new Set();
+    (family || []).forEach(m => { if (m && m.accountId) ids.add(m.accountId); });
+    (history || []).forEach(g => (g.players || []).forEach(p => { if (p && p.account_id) ids.add(p.account_id); }));
+    if (account && account.id) ids.delete(account.id);
+    const list = [...ids];
+    if (!list.length) return;
+    ACC.API.getAccounts(list)
+      .then(accs => setAvatars(prev => { const next = { ...prev }; (accs || []).forEach(a => { next[a.id] = a.avatar || ''; }); return next; }))
+      .catch(() => {});
+  }, [hydrated, screen, family.length, history.length]);
 
   useAE(() => { document.documentElement.style.setProperty('--accent', t.accent); }, [t.accent]);
   useAE(() => { window.__fitPhone && window.__fitPhone(); }, []);
@@ -210,11 +226,11 @@ function App() {
     // shared record (so they see it — and any later host edit — in their history)
     const participants = [...new Set(pls.map(p => p.account_id).filter(id => id && id !== owner))];
     const game = { id: 'g' + Date.now(), date: Date.now(), venue: OB.VENUE, mode: mode || 'sequential', code: sessionCode || '', participants,
-      players: pls.map(p => ({ id: p.id, name: p.name, color: p.color, avatar: p.avatar || '', scores: { ...p.scores } })) };
+      players: pls.map(p => ({ id: p.id, name: p.name, color: p.color, avatar: p.avatar || '', account_id: p.account_id || null, scores: { ...p.scores } })) };
     setHistory(h => [...h, game]);
     setFamily(fam => {
       const names = new Set(fam.map(m => m.name.toLowerCase()));
-      const add = pls.filter(p => !names.has(p.name.toLowerCase())).map(p => ({ id: 'f' + p.id, name: p.name, color: p.color }));
+      const add = pls.filter(p => !names.has(p.name.toLowerCase())).map(p => ({ id: 'f' + p.id, name: p.name, color: p.color, accountId: p.account_id || undefined }));
       return [...fam, ...add];
     });
     if (owner) ACC.API.saveGame(owner, game).catch(() => {}); // best-effort; local copy already saved
@@ -279,8 +295,8 @@ function App() {
   };
   const buildInitialPlayers = () => {
     const list = []; const seen = new Set();
-    if (account) { list.push({ id: 'me', name: account.name, color: account.color, avatar: account.avatar || '', scores: {} }); seen.add(account.name.toLowerCase()); }
-    if (account && autoCrew) family.forEach(m => { if (!seen.has(m.name.toLowerCase())) { list.push({ id: 'c' + m.id, name: m.name, color: m.color, avatar: m.avatar || '', scores: {} }); seen.add(m.name.toLowerCase()); } });
+    if (account) { list.push({ id: 'me', name: account.name, color: account.color, avatar: account.avatar || '', account_id: account.id, scores: {} }); seen.add(account.name.toLowerCase()); }
+    if (account && autoCrew) family.forEach(m => { if (!seen.has(m.name.toLowerCase())) { list.push({ id: 'c' + m.id, name: m.name, color: m.color, avatar: m.avatar || '', account_id: m.accountId || null, scores: {} }); seen.add(m.name.toLowerCase()); } });
     return list;
   };
   const firstStep = () => (t.onboardingFlow === 'express' ? 'express' : 'welcome');
@@ -436,11 +452,13 @@ function App() {
       </div>
     </TweaksPanel>, document.body);
 
+  // every <Avatar> resolves its photo through this — by account id, one source
+  const resolveAvatar = (person) => UI.resolvePhoto(person, account, family, avatars);
   return (
-    <>
+    <UI.AvatarCtx.Provider value={resolveAvatar}>
       <IOSDevice>{view}</IOSDevice>
       {panel}
-    </>
+    </UI.AvatarCtx.Provider>
   );
 }
 

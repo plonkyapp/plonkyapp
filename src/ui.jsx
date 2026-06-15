@@ -30,22 +30,34 @@ function pickPhoto(onResult) {
   input.click();
 }
 
-// Resolve a player's CURRENT photo from this device's own account + crew (the
-// single source of truth), so changing a photo updates everywhere it's shown.
-// Falls back to the photo stored on the player (a live-session or saved snapshot)
-// for people this device doesn't know — e.g. a companion seeing the host in her
-// saved history. Match is by name (case-insensitive), mirroring how a new game's
-// line-up is de-duplicated by name.
-function liveAvatar(player, account, family) {
-  if (!player) return '';
-  const nm = (player.name || '').trim().toLowerCase();
-  if (nm) {
-    if (account && account.avatar && (account.name || '').trim().toLowerCase() === nm) return account.avatar;
-    const m = (family || []).find(x => x && x.avatar && (x.name || '').trim().toLowerCase() === nm);
-    if (m) return m.avatar;
+// ── Photo by account id — the ONE source of truth ─────────
+// Every avatar resolves a person's CURRENT photo from their account id. The id is
+// the key; the account's photo (Account.avatar in the DB) is the single value,
+// looked up everywhere. `avatars` is the device's id→photo cache (fetched in
+// batch). Self is resolved straight from `account`. Name-match and the photo
+// stored on the player are only graceful fallbacks while the id photo loads or
+// when the id is unknown.
+function resolvePhoto(person, account, family, avatars) {
+  if (!person) return '';
+  let aid = person.account_id || person.accountId || null;
+  const nm = (person.name || '').trim().toLowerCase();
+  if (!aid && nm) { // no id on the person → recover it from what this device knows
+    if (account && (account.name || '').trim().toLowerCase() === nm) aid = account.id;
+    else { const m = (family || []).find(x => x && x.accountId && (x.name || '').trim().toLowerCase() === nm); if (m) aid = m.accountId; }
   }
-  return player.avatar || '';
+  if (aid && account && aid === account.id) return account.avatar || '';   // me → always current
+  if (aid && avatars && Object.prototype.hasOwnProperty.call(avatars, aid)) return avatars[aid] || ''; // loaded by id → authoritative
+  // id photo not loaded yet (or unknown person): fall back gracefully
+  if (account && account.avatar && (account.name || '').trim().toLowerCase() === nm) return account.avatar;
+  const fm = (family || []).find(x => x && x.avatar && (x.name || '').trim().toLowerCase() === nm);
+  if (fm) return fm.avatar;
+  return person.avatar || '';
 }
+// Context carries a bound resolver `(person) => photo` so every <Avatar> resolves
+// by id without threading account/family/avatars through every component.
+const AvatarCtx = React.createContext(null);
+// kept for back-compat; prefer <Avatar accountId=… /> which resolves via context
+function liveAvatar(player, account, family) { return resolvePhoto(player, account, family, null); }
 
 // ── Phone screen scaffold ─────────────────────────────────
 function Screen({ children, bg = 'var(--paper)', style = {} }) {
@@ -128,7 +140,10 @@ function Btn({ children, onClick, kind = 'primary', icon, iconR, disabled, style
 
 // ── Avatar ────────────────────────────────────────────────
 const AV_COLORS = ['#15A35A', '#2F6FE0', '#E0792F', '#9B4FD8', '#D8533B', '#0FA0A8', '#C7A412', '#E04F8C'];
-function Avatar({ name, color, size = 38, ring = false, dim = false, src = null }) {
+function Avatar({ name, color, size = 38, ring = false, dim = false, src = null, accountId = null }) {
+  const resolve = React.useContext(AvatarCtx);
+  const finalSrc = resolve ? resolve({ account_id: accountId, name, avatar: src }) : src;
+  src = finalSrc;
   const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';
   return (
     <div style={{
@@ -233,4 +248,4 @@ function Steps({ n, i }) {
   );
 }
 
-window.UI = { Screen, Body, AppHeader, Footer, Btn, Avatar, ChoiceCard, QRMock, QRCode, Steps, AV_COLORS, pickPhoto, liveAvatar };
+window.UI = { Screen, Body, AppHeader, Footer, Btn, Avatar, ChoiceCard, QRMock, QRCode, Steps, AV_COLORS, pickPhoto, liveAvatar, resolvePhoto, AvatarCtx };

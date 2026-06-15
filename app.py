@@ -77,9 +77,10 @@ class Player(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     game_id = db.Column(db.String, db.ForeignKey("game.id", ondelete="CASCADE"), nullable=False, index=True)
     ext_id = db.Column(db.String, nullable=True)
+    account_id = db.Column(db.String, nullable=True, index=True)  # which account this player IS (resolve photo live by id)
     name = db.Column(db.String, nullable=False, default="")
     color = db.Column(db.String, nullable=False, default="")
-    avatar = db.Column(db.Text, nullable=False, default="")  # snapshot photo so saved games show faces too
+    avatar = db.Column(db.Text, nullable=False, default="")  # snapshot photo: only a fallback when the account id is unknown
     scores = db.relationship(
         "Score", backref="player", cascade="all, delete-orphan", passive_deletes=True
     )
@@ -163,6 +164,7 @@ def game_to_dict(game):
         "players": [
             {
                 "id": p.ext_id or p.id,
+                "account_id": p.account_id,
                 "name": p.name,
                 "color": p.color,
                 "avatar": p.avatar or "",
@@ -221,6 +223,7 @@ def upsert_game():
     for pdata in data.get("players", []):
         player = Player(
             ext_id=str(pdata.get("id")) if pdata.get("id") is not None else None,
+            account_id=pdata.get("account_id"),
             name=pdata.get("name") or "",
             color=pdata.get("color") or "",
             avatar=pdata.get("avatar") or "",
@@ -258,6 +261,18 @@ def get_account(account_id):
     if acc is None:
         abort(404)
     return jsonify(account_to_dict(acc))
+
+
+@app.route("/api/accounts", methods=["GET"])
+def get_accounts():
+    """Batch photo lookup: ?ids=a,b,c -> [{id,name,color,avatar}]. The one place
+    every avatar is resolved from — account id -> current photo."""
+    raw = request.args.get("ids") or ""
+    ids = [i for i in (s.strip() for s in raw.split(",")) if i][:200]
+    if not ids:
+        return jsonify([])
+    accs = Account.query.filter(Account.id.in_(ids)).all()
+    return jsonify([{"id": a.id, "name": a.name, "color": a.color, "avatar": a.avatar or ""} for a in accs])
 
 
 @app.route("/api/account", methods=["POST"])
@@ -515,6 +530,9 @@ def ensure_schema():
     player_cols = {c["name"] for c in inspector.get_columns("player")}
     if "avatar" not in player_cols:
         db.session.execute(text("ALTER TABLE player ADD COLUMN avatar TEXT NOT NULL DEFAULT ''"))
+        db.session.commit()
+    if "account_id" not in player_cols:
+        db.session.execute(text("ALTER TABLE player ADD COLUMN account_id VARCHAR"))
         db.session.commit()
 
 
