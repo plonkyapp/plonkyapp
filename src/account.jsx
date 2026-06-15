@@ -431,7 +431,7 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
 }
 
 // ── Settings ──────────────────────────────────────────────
-function SettingsScreen({ account, setAccount, family, setFamily, go, logout, defaultMode, setDefaultMode, autoCrew, setAutoCrew, companion = false, openLegal, openFeedback }) {
+function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto, go, logout, defaultMode, setDefaultMode, autoCrew, setAutoCrew, companion = false, openLegal, openFeedback }) {
   const { Screen, AppHeader, Body, Avatar, AV_COLORS } = UI;
   const [editId, setEditId] = useAcS(null);
   const [newName, setNewName] = useAcS('');
@@ -446,7 +446,7 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
   const recolor = (id) => setFamily(f => f.map(m => m.id === id ? { ...m, color: AV_COLORS[(AV_COLORS.indexOf(m.color) + 1) % AV_COLORS.length] } : m));
   const rename = (id, name) => setFamily(f => f.map(m => m.id === id ? { ...m, name } : m));
   const removeM = (id) => setFamily(f => f.filter(m => m.id !== id));
-  const setMemberPhoto = (id, src) => setFamily(f => f.map(m => m.id === id ? { ...m, avatar: src } : m));
+  const setMemberPhoto = (member, src) => (onMemberPhoto ? onMemberPhoto(member, src) : setFamily(f => f.map(m => m.id === member.id ? { ...m, avatar: src } : m)));
 
   return (
     <Screen>
@@ -493,7 +493,7 @@ function SettingsScreen({ account, setAccount, family, setFamily, go, logout, de
                   ? <input autoFocus value={m.name} onChange={e => rename(m.id, e.target.value)} onKeyDown={e => e.key === 'Enter' && setEditId(null)}
                       style={{ flex: 1, border: 'none', background: 'transparent', fontFamily: 'var(--font)', fontSize: 15.5, fontWeight: 600, outline: 'none', color: 'var(--ink)' }} />
                   : <div style={{ flex: 1, fontSize: 15.5, fontWeight: 600 }}>{m.name}</div>}
-                <button onClick={() => UI.pickPhoto(src => setMemberPhoto(m.id, src))} title="Foto" style={iconBtn}><Ic.camera size={17} color={m.avatar ? 'var(--accent)' : 'var(--ink-3)'} /></button>
+                <button onClick={() => UI.pickPhoto(src => setMemberPhoto(m, src))} title="Foto" style={iconBtn}><Ic.camera size={17} color={(m.avatar || m.accountId) ? 'var(--accent)' : 'var(--ink-3)'} /></button>
                 <button onClick={() => setEditId(editId === m.id ? null : m.id)} style={iconBtn}>{editId === m.id ? <Ic.check size={18} color="var(--accent)" /> : <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-3)' }}>Bearb.</span>}</button>
                 <button onClick={() => removeM(m.id)} style={iconBtn}><Ic.x size={17} color="var(--ink-3)" /></button>
               </div>

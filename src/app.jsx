@@ -255,6 +255,16 @@ function App() {
   };
 
   const openGame = (id) => { setHistId(id); setHistFrom(screen); go('historyDetail'); };
+  // Setting a crew member's photo writes to the ONE source: their account (when
+  // linked), so it sticks and shows everywhere via the id lookup. An unlinked
+  // member (no own account) just keeps the photo on the local crew entry.
+  const setCrewPhoto = (member, src) => {
+    setFamily(f => f.map(m => m.id === member.id ? { ...m, avatar: src } : m));
+    if (member.accountId) {
+      setAvatars(prev => ({ ...prev, [member.accountId]: src })); // show immediately
+      ACC.API.saveAccount({ id: member.accountId, avatar: src }).catch(() => {}); // persist to that account
+    }
+  };
   // drop the "Laufende Runde" bookmark. ONLY the host may delete the round for
   // everyone. A Sub-Konto (companion) must NEVER delete it — not her round; a
   // master who merely joined (me != null) only frees her own slot. Hard-guarded
@@ -410,7 +420,7 @@ function App() {
     case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} />; break;
     case 'account': view = <OB.AccountScreen go={go} onCreate={me != null ? createCompanion : createAccount} companion={me != null} presetName={me != null ? ((players.find(p => String(p.id) === String(me)) || {}).name || '') : ''} back={me != null ? 'results' : 'cover'} />; break;
     case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={newGame} scanEnabled={scanEnabled} companion={isCompanion} activeSession={activeSession} onResume={resumeSession} onDiscard={discardActiveSession} />; break;
-    case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} openLegal={openLegal} openFeedback={openFeedback} />; break;
+    case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} onMemberPhoto={setCrewPhoto} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} openLegal={openLegal} openFeedback={openFeedback} />; break;
     case 'joinCode': view = <OB.JoinCodeScreen go={go} onJoined={enterSession} back={account ? 'home' : 'cover'} />; break;
     case 'history': view = <ACC.HistoryScreen history={history} go={go} openGame={openGame} account={account} family={family} />; break;
     case 'historyDetail': view = <ACC.HistoryDetailScreen game={history.find(g => g.id === histId)} go={go} from={histFrom} onSave={isCompanion ? undefined : saveEditedGame} account={account} family={family} />; break;
