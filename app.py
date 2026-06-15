@@ -57,6 +57,19 @@ class Game(db.Model):
     players = db.relationship(
         "Player", backref="game", cascade="all, delete-orphan", passive_deletes=True
     )
+    # accounts that took part but DON'T own this game (joiners/companions). The
+    # host owns ONE shared record; participants reference it so a host edit is
+    # seen by everyone instead of diverging per-account copies.
+    participants = db.relationship(
+        "GameParticipant", backref="game", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class GameParticipant(db.Model):
+    __tablename__ = "game_participant"
+    id = db.Column(db.Integer, primary_key=True)
+    game_id = db.Column(db.String, db.ForeignKey("game.id", ondelete="CASCADE"), nullable=False, index=True)
+    account_id = db.Column(db.String, nullable=False, index=True)
 
 
 class Player(db.Model):
@@ -146,6 +159,7 @@ def game_to_dict(game):
         "date": game.date,
         "venue": game.venue,
         "mode": game.mode,
+        "participants": [gp.account_id for gp in game.participants],
         "players": [
             {
                 "id": p.ext_id or p.id,
@@ -167,10 +181,15 @@ def health():
 @app.route("/api/games", methods=["GET"])
 def list_games():
     account_id = request.args.get("account_id")
-    query = Game.query
-    if account_id:
-        query = query.filter_by(account_id=account_id)
-    games = query.order_by(Game.date.desc().nullslast()).all()
+    if not account_id:
+        games = Game.query.order_by(Game.date.desc().nullslast()).all()
+        return jsonify([game_to_dict(g) for g in games])
+    # games this account OWNS, plus games it TOOK PART in (one shared record)
+    ids = {gid for (gid,) in db.session.query(Game.id).filter_by(account_id=account_id).all()}
+    ids |= {gid for (gid,) in db.session.query(GameParticipant.game_id).filter_by(account_id=account_id).all()}
+    if not ids:
+        return jsonify([])
+    games = Game.query.filter(Game.id.in_(ids)).order_by(Game.date.desc().nullslast()).all()
     return jsonify([game_to_dict(g) for g in games])
 
 
@@ -209,6 +228,15 @@ def upsert_game():
         for hole, strokes in (pdata.get("scores") or {}).items():
             player.scores.append(Score(hole=int(hole), strokes=strokes))
         game.players.append(player)
+
+    # Replace the participant links (accounts that joined but don't own the game).
+    # Only set when provided, so an edit that omits them doesn't wipe them.
+    if data.get("participants") is not None:
+        game.participants.clear()
+        db.session.flush()
+        for pid in data.get("participants") or []:
+            if pid and pid != account_id:
+                game.participants.append(GameParticipant(account_id=pid))
 
     db.session.commit()
     return jsonify(game_to_dict(game))

@@ -184,11 +184,13 @@ function App() {
       .finally(() => { soloSessionRef.current = false; });
   }, [hydrated, screen, sessionCode, me, account, players.length]);
 
-  // keep linked crew photos current: re-pull when opening home/settings, so a
-  // companion who changed their photo shows up-to-date for the master without a
-  // cold reload (the master↔account link is set when that person joins a round)
+  // opening home: re-pull my games from the server so the host's ONE shared
+  // record (where I'm a participant) and any later host edit show up. Also keep
+  // linked crew photos current (master), without needing a cold reload.
   useAE(() => {
-    if (hydrated && account && account.kind !== 'companion' && (screen === 'home' || screen === 'settings')) refreshLinkedCrew(family);
+    if (!hydrated || !account || !account.id) return;
+    if (screen === 'home') ACC.API.listGames(account.id).then(server => setHistory(local => ACC.mergeGames(local, server || []))).catch(() => {});
+    if (account.kind !== 'companion' && (screen === 'home' || screen === 'settings')) refreshLinkedCrew(family);
   }, [screen, hydrated]);
 
   useAE(() => { document.documentElement.style.setProperty('--accent', t.accent); }, [t.accent]);
@@ -203,7 +205,11 @@ function App() {
     if (!pls.some(p => GAME.totals(p).played > 0)) return;
     gameSavedRef.current = true;
     setActiveSession(null); // finished & archived → drop the live bookmark
-    const game = { id: 'g' + Date.now(), date: Date.now(), venue: OB.VENUE, mode: mode || 'sequential', code: sessionCode || '',
+    const owner = (acc || account) && (acc || account).id;
+    // accounts that joined with their own device become participants of this ONE
+    // shared record (so they see it — and any later host edit — in their history)
+    const participants = [...new Set(pls.map(p => p.account_id).filter(id => id && id !== owner))];
+    const game = { id: 'g' + Date.now(), date: Date.now(), venue: OB.VENUE, mode: mode || 'sequential', code: sessionCode || '', participants,
       players: pls.map(p => ({ id: p.id, name: p.name, color: p.color, avatar: p.avatar || '', scores: { ...p.scores } })) };
     setHistory(h => [...h, game]);
     setFamily(fam => {
@@ -211,22 +217,25 @@ function App() {
       const add = pls.filter(p => !names.has(p.name.toLowerCase())).map(p => ({ id: 'f' + p.id, name: p.name, color: p.color }));
       return [...fam, ...add];
     });
-    const aid = (acc || account) && (acc || account).id;
-    if (aid) ACC.API.saveGame(aid, game).catch(() => {}); // best-effort; local copy already saved
+    if (owner) ACC.API.saveGame(owner, game).catch(() => {}); // best-effort; local copy already saved
   };
 
-  // A joined guest with a Mitspieler-Konto keeps a READ-ONLY copy of the round in
-  // her own history. Unlike saveGame this never imports anyone into her crew.
+  // A joined guest does NOT own the game — the host saves ONE shared record with
+  // her as a participant. So she keeps no separate copy; she pulls that shared
+  // game into her history (she appears via participants). This is why a later
+  // host edit shows up for her instead of leaving a stale private copy.
+  const pullSharedGames = (aid, tries = 0) => {
+    if (!aid) return;
+    ACC.API.listGames(aid)
+      .then(server => { setHistory(local => ACC.mergeGames(local, server || [])); if (tries < 3) setTimeout(() => pullSharedGames(aid, tries + 1), 1600); })
+      .catch(() => { if (tries < 3) setTimeout(() => pullSharedGames(aid, tries + 1), 1600); });
+  };
   const saveCompanionGame = (pls, acc) => {
     if (gameSavedRef.current) return;
     if (!pls.some(p => GAME.totals(p).played > 0)) return;
     gameSavedRef.current = true;
-    setActiveSession(null); // her copy is saved → drop the live bookmark
-    const game = { id: 'g' + Date.now(), date: Date.now(), venue: OB.VENUE, mode: mode || 'sequential', code: sessionCode || '',
-      players: pls.map(p => ({ id: p.id, name: p.name, color: p.color, avatar: p.avatar || '', scores: { ...p.scores } })) };
-    setHistory(h => [...h, game]);
-    const aid = (acc || account) && (acc || account).id;
-    if (aid) ACC.API.saveGame(aid, game).catch(() => {});
+    setActiveSession(null); // round over for me → drop the live bookmark
+    pullSharedGames((acc || account) && (acc || account).id); // host's shared game lands in my history (retries ride out the save race)
   };
 
   const openGame = (id) => { setHistId(id); setHistFrom(screen); go('historyDetail'); };
@@ -295,7 +304,7 @@ function App() {
         if (sess && sess.players) {
           finalPlayers = players.map(p => {
             const sp = sess.players.find(x => String(x.id) === String(p.id));
-            return sp ? { ...p, scores: sp.scores || {} } : p;
+            return sp ? { ...p, scores: sp.scores || {}, account_id: sp.account_id || p.account_id } : p;
           });
           setPlayers(finalPlayers);
         }
