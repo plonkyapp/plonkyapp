@@ -48,6 +48,7 @@ function App() {
   const [avatars, setAvatars] = useAS({}); // account id -> current photo (the one source, fetched in batch)
   const gameSavedRef = useAR(false);
   const soloSessionRef = useAR(false); // guards one-time session creation for a solo "ich tippe für alle" game
+  const pendingAvatarRef = useAR(new Set()); // account ids whose photo is being saved — a fetch must not overwrite them
 
   // For crew members linked to a Mitspieler-Konto, pull that account's current
   // photo so the master always shows the person's up-to-date picture.
@@ -205,7 +206,7 @@ function App() {
     const list = [...ids];
     if (!list.length) return;
     ACC.API.getAccounts(list)
-      .then(accs => setAvatars(prev => { const next = { ...prev }; (accs || []).forEach(a => { next[a.id] = a.avatar || ''; }); return next; }))
+      .then(accs => setAvatars(prev => { const next = { ...prev }; (accs || []).forEach(a => { if (!pendingAvatarRef.current.has(a.id)) next[a.id] = a.avatar || ''; }); return next; }))
       .catch(() => {});
   }, [hydrated, screen, family.length, history.length]);
 
@@ -260,10 +261,13 @@ function App() {
   // member (no own account) just keeps the photo on the local crew entry.
   const setCrewPhoto = (member, src) => {
     setFamily(f => f.map(m => m.id === member.id ? { ...m, avatar: src } : m));
-    if (member.accountId) {
-      setAvatars(prev => ({ ...prev, [member.accountId]: src })); // show immediately
-      ACC.API.saveAccount({ id: member.accountId, avatar: src }).catch(() => {}); // persist to that account
-    }
+    const aid = member.accountId;
+    if (!aid) return; // unlinked member: photo lives on the local crew entry
+    pendingAvatarRef.current.add(aid);                 // shield from a stale in-flight fetch
+    setAvatars(prev => ({ ...prev, [aid]: src }));     // show immediately
+    ACC.API.saveAccount({ id: aid, avatar: src })      // persist to the ONE source: their account
+      .catch(() => {})
+      .finally(() => { pendingAvatarRef.current.delete(aid); });
   };
   // drop the "Laufende Runde" bookmark. ONLY the host may delete the round for
   // everyone. A Sub-Konto (companion) must NEVER delete it — not her round; a
