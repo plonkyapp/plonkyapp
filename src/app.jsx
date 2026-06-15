@@ -49,6 +49,7 @@ function App() {
   const gameSavedRef = useAR(false);
   const soloSessionRef = useAR(false); // guards one-time session creation for a solo "ich tippe für alle" game
   const pendingAvatarRef = useAR(new Set()); // account ids whose photo is being saved — a fetch must not overwrite them
+  const firstAccountSyncRef = useAR(true); // skip the first server-push after load so stale local doesn't clobber a remote change
 
   // For crew members linked to a Mitspieler-Konto, pull that account's current
   // photo so the master always shows the person's up-to-date picture.
@@ -138,11 +139,22 @@ function App() {
     if (acc && acc.id) ACC.API.listGames(acc.id)
       .then(server => setHistory(local => ACC.mergeGames(local, server)))
       .catch(() => {}); // offline / old static host: keep localStorage only
+    // adopt this account's photo from the server (the shared source), so a change
+    // made on another device — e.g. the master setting your crew photo — shows here
+    if (acc && acc.id) ACC.API.getAccount(acc.id)
+      .then(server => { if (server && server.avatar !== undefined) setAccount(a => (a && String(a.id) === String(acc.id) && a.avatar !== server.avatar) ? { ...a, avatar: server.avatar } : a); })
+      .catch(() => {});
   }, []);
   // persist
   useAE(() => { if (hydrated) ACC.STORE.save({ account, family, history, defaultMode, autoCrew, activeSession }); }, [hydrated, account, family, history, defaultMode, autoCrew, activeSession]);
-  // keep the server copy of the account (name/color) in sync
-  useAE(() => { if (hydrated && account && account.id) ACC.API.saveAccount(account, family).catch(() => {}); }, [hydrated, account, family]);
+  // keep the server copy of the account (name/color/photo) in sync. Skip the very
+  // first run after load: otherwise this device's stale localStorage would clobber
+  // a change made elsewhere (e.g. the master set your crew photo) before we adopt it.
+  useAE(() => {
+    if (!hydrated || !account || !account.id) return;
+    if (firstAccountSyncRef.current) { firstAccountSyncRef.current = false; return; }
+    ACC.API.saveAccount(account, family).catch(() => {});
+  }, [hydrated, account, family]);
   // when a crew slot is claimed by someone with their own account, remember the
   // link (crew member ↔ account) so the master shows their current photo later
   useAE(() => {
