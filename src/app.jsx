@@ -184,6 +184,13 @@ function App() {
       .finally(() => { soloSessionRef.current = false; });
   }, [hydrated, screen, sessionCode, me, account, players.length]);
 
+  // keep linked crew photos current: re-pull when opening home/settings, so a
+  // companion who changed their photo shows up-to-date for the master without a
+  // cold reload (the master↔account link is set when that person joins a round)
+  useAE(() => {
+    if (hydrated && account && account.kind !== 'companion' && (screen === 'home' || screen === 'settings')) refreshLinkedCrew(family);
+  }, [screen, hydrated]);
+
   useAE(() => { document.documentElement.style.setProperty('--accent', t.accent); }, [t.accent]);
   useAE(() => { window.__fitPhone && window.__fitPhone(); }, []);
 
@@ -381,7 +388,7 @@ function App() {
     case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} openLegal={openLegal} openFeedback={openFeedback} />; break;
     case 'joinCode': view = <OB.JoinCodeScreen go={go} onJoined={enterSession} back={account ? 'home' : 'cover'} />; break;
     case 'history': view = <ACC.HistoryScreen history={history} go={go} openGame={openGame} account={account} family={family} />; break;
-    case 'historyDetail': view = <ACC.HistoryDetailScreen game={history.find(g => g.id === histId)} go={go} from={histFrom} onSave={saveEditedGame} account={account} family={family} />; break;
+    case 'historyDetail': view = <ACC.HistoryDetailScreen game={history.find(g => g.id === histId)} go={go} from={histFrom} onSave={isCompanion ? undefined : saveEditedGame} account={account} family={family} />; break;
     case 'scan': view = <OB.ScanScreen go={go} express={t.onboardingFlow === 'express'} />; break;
     case 'welcome': view = <OB.RoleScreen go={go} role={role} setRole={setRole} back={scanEnabled ? 'scan' : 'cover'} />; break;
     case 'players': view = <OB.PlayersScreen go={go} players={players} setPlayers={setPlayers} role={role} family={family} />; break;
