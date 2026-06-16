@@ -53,6 +53,7 @@ class Game(db.Model):
     date = db.Column(db.BigInteger, nullable=True)
     venue = db.Column(db.String, nullable=False, default="")
     mode = db.Column(db.String, nullable=False, default="")
+    code = db.Column(db.String, nullable=False, default="")  # round code, so participants see it too
     created_at = db.Column(db.BigInteger, nullable=False, default=lambda: int(time.time() * 1000))
     players = db.relationship(
         "Player", backref="game", cascade="all, delete-orphan", passive_deletes=True
@@ -160,6 +161,7 @@ def game_to_dict(game):
         "date": game.date,
         "venue": game.venue,
         "mode": game.mode,
+        "code": game.code or "",
         "participants": [gp.account_id for gp in game.participants],
         "players": [
             {
@@ -215,6 +217,7 @@ def upsert_game():
     game.date = data.get("date")
     game.venue = data.get("venue") or ""
     game.mode = data.get("mode") or ""
+    game.code = data.get("code") or ""
 
     # Replace players/scores wholesale (cascade clears the old ones).
     game.players.clear()
@@ -533,6 +536,11 @@ def ensure_schema():
         db.session.commit()
     if "account_id" not in player_cols:
         db.session.execute(text("ALTER TABLE player ADD COLUMN account_id VARCHAR"))
+        db.session.commit()
+
+    game_cols = {c["name"] for c in inspector.get_columns("game")}
+    if "code" not in game_cols:
+        db.session.execute(text("ALTER TABLE game ADD COLUMN code VARCHAR NOT NULL DEFAULT ''"))
         db.session.commit()
 
 

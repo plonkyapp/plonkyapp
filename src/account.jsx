@@ -175,7 +175,7 @@ const aFmtPar = n => n === 0 ? 'Par' : n > 0 ? '+' + n : '' + n;
 const aRelCol = n => n < 0 ? 'var(--accent)' : n > 0 ? 'var(--bad)' : 'var(--ink-2)';
 
 // ── Home hub ──────────────────────────────────────────────
-function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabled = true, companion = false, activeSession = null, onResume, onDiscard }) {
+function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabled = true, companion = false, activeSession = null, onResume, onDiscard, openFeedback }) {
   const { Screen, Body, Btn, Avatar } = UI;
   const [confirmDiscard, setConfirmDiscard] = useAcS(false);
   const recent = [...history].slice(-3).reverse();
@@ -188,7 +188,7 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
       <div style={{ paddingTop: 64, padding: '64px 22px 6px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: 13, color: 'var(--ink-3)', fontWeight: 600 }}>{companion ? 'Mitspieler-Konto' : 'Willkommen zurück'}</div>
-          <div style={{ fontSize: 27, fontWeight: 800, letterSpacing: -0.6 }}>Hoi {account.name} 👋</div>
+          <div style={{ fontSize: 27, fontWeight: 800, letterSpacing: -0.6 }}>Hoi {account.name}</div>
         </div>
         <button onClick={() => go('settings')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}>
           <Avatar name={account.name} color={account.color} size={48} accountId={account.id} src={account.avatar} />
@@ -289,6 +289,13 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
             </div>
           </>
         )}
+
+        {/* beta: nudge testers to give feedback right from home */}
+        <button onClick={() => (openFeedback ? openFeedback() : go('feedback'))} style={{ width: '100%', marginTop: 24, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 13, background: 'color-mix(in srgb, var(--accent) 8%, var(--card))', border: '1px solid color-mix(in srgb, var(--accent) 30%, var(--line))', borderRadius: 16, padding: '14px 16px', cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font)' }}>
+          <div style={{ color: 'var(--accent)' }}><Ic.sparkle size={20} /></div>
+          <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 700 }}>Feedback geben</div><div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>Beta-Test — sag uns, wie's läuft</div></div>
+          <Ic.chevR size={18} color="var(--accent)" />
+        </button>
       </Body>
     </Screen>
   );
@@ -539,6 +546,9 @@ const FB_FACES = [[1, '😞'], [2, '😐'], [3, '😍']];
 
 // ── Feedback form ─────────────────────────────────────────
 const FB_REC = [['ja', 'Ja 👍'], ['vielleicht', 'Vielleicht'], ['nein', 'Nein']];
+const FB_APP = [['ja', 'Ja, App'], ['vielleicht', 'Vielleicht'], ['nein', 'Browser reicht']];
+const FB_PRICE = [['gratis', 'Gratis'], ['3', 'bis 3.–'], ['5', 'bis 5.–'], ['mehr', 'Mehr']];
+const segBtn = (on) => ({ flex: 1, height: 46, borderRadius: 13, cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 13.5, fontWeight: 600, background: on ? 'var(--accent)' : 'var(--card)', color: on ? '#fff' : 'var(--ink-2)', border: on ? '2px solid var(--accent)' : '1px solid var(--line)', transition: 'all .12s' });
 const fieldLabel = { fontSize: 13, fontWeight: 600, color: 'var(--ink-2)', display: 'block', marginTop: 18, marginBottom: 8 };
 const fieldInput = { width: '100%', height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'var(--card)', padding: '0 15px', fontSize: 15, fontFamily: 'var(--font)', outline: 'none' };
 
@@ -546,20 +556,26 @@ function FeedbackScreen({ go, account, back = 'home' }) {
   const { Screen, AppHeader, Body, Footer, Btn } = UI;
   const [rating, setRating] = useAcS(0);
   const [recommend, setRecommend] = useAcS('');
+  const [appWant, setAppWant] = useAcS('');
+  const [appPrice, setAppPrice] = useAcS('');
   const [liked, setLiked] = useAcS('');
   const [missing, setMissing] = useAcS('');
   const [msg, setMsg] = useAcS('');
   const [contact, setContact] = useAcS('');
   const [busy, setBusy] = useAcS(false);
   const [sent, setSent] = useAcS(false);
-  const hasContent = !!(rating || recommend || liked.trim() || missing.trim() || msg.trim());
+  const hasContent = !!(rating || recommend || appWant || appPrice || liked.trim() || missing.trim() || msg.trim());
   const send = () => {
     if (!hasContent || busy) return;
     setBusy(true);
     // fold the guided answers + free text into one readable message (no schema change)
     const REC = { ja: 'Ja', vielleicht: 'Vielleicht', nein: 'Nein' };
+    const APP = { ja: 'Ja, App', vielleicht: 'Vielleicht', nein: 'Browser reicht' };
+    const PRICE = { gratis: 'Gratis', '3': 'bis 3.–', '5': 'bis 5.–', mehr: 'Mehr' };
     const lines = [];
     if (recommend) lines.push('Weiterempfehlen: ' + REC[recommend]);
+    if (appWant) lines.push('App installieren: ' + APP[appWant]);
+    if (appPrice) lines.push('App-Wert: ' + PRICE[appPrice]);
     if (liked.trim()) lines.push('👍 Gut: ' + liked.trim());
     if (missing.trim()) lines.push('🔧 Fehlt/nervt: ' + missing.trim());
     if (msg.trim()) lines.push((lines.length ? '\n' : '') + msg.trim());
@@ -593,10 +609,10 @@ function FeedbackScreen({ go, account, back = 'home' }) {
         </div>
 
         <label style={{ ...fieldLabel, marginTop: 20 }}>Gesamteindruck</label>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
           {FB_FACES.map(([v, e]) => (
             <button key={v} onClick={() => setRating(rating === v ? 0 : v)} style={{
-              flex: 1, height: 60, borderRadius: 16, cursor: 'pointer', fontSize: 28, fontFamily: 'var(--font)',
+              width: 62, height: 48, borderRadius: 13, cursor: 'pointer', fontSize: 24, fontFamily: 'var(--font)',
               background: rating === v ? 'color-mix(in srgb, var(--accent) 12%, var(--card))' : 'var(--card)',
               border: rating === v ? '2px solid var(--accent)' : '1px solid var(--line)', transition: 'all .12s',
             }}>{e}</button>
@@ -606,11 +622,21 @@ function FeedbackScreen({ go, account, back = 'home' }) {
         <label style={fieldLabel}>Würdest du PLONKY weiterempfehlen?</label>
         <div style={{ display: 'flex', gap: 8 }}>
           {FB_REC.map(([v, l]) => (
-            <button key={v} onClick={() => setRecommend(recommend === v ? '' : v)} style={{
-              flex: 1, height: 46, borderRadius: 13, cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 14, fontWeight: 600,
-              background: recommend === v ? 'var(--accent)' : 'var(--card)', color: recommend === v ? '#fff' : 'var(--ink-2)',
-              border: recommend === v ? '2px solid var(--accent)' : '1px solid var(--line)', transition: 'all .12s',
-            }}>{l}</button>
+            <button key={v} onClick={() => setRecommend(recommend === v ? '' : v)} style={segBtn(recommend === v)}>{l}</button>
+          ))}
+        </div>
+
+        <label style={fieldLabel}>Jetzt läuft alles im Browser — würdest du eine App installieren?</label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {FB_APP.map(([v, l]) => (
+            <button key={v} onClick={() => setAppWant(appWant === v ? '' : v)} style={segBtn(appWant === v)}>{l}</button>
+          ))}
+        </div>
+
+        <label style={fieldLabel}>Was wäre dir die App wert?</label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {FB_PRICE.map(([v, l]) => (
+            <button key={v} onClick={() => setAppPrice(appPrice === v ? '' : v)} style={segBtn(appPrice === v)}>{l}</button>
           ))}
         </div>
 
