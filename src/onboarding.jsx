@@ -174,8 +174,8 @@ function CoverScreen({ go, account, scanEnabled = true, onStart, companion = fal
         {account
           ? <Btn kind="secondary" icon={<Ic.home size={19} />} onClick={() => go('home')}>Zu meinem plonky</Btn>
           : <Btn kind="secondary" onClick={() => go('account')}>Konto einrichten</Btn>}
+        {!account && <button onClick={() => go('restore')} style={{ alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 7, border: 'none', background: 'transparent', color: 'var(--accent)', fontSize: 14.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--font)', padding: '8px 6px' }}><Ic.link size={17} /> Schon ein Konto? Link einfügen</button>}
         <div style={{ textAlign: 'center', fontSize: 12.5, color: 'var(--ink-3)' }}>{account ? 'Schön, dass du wieder da bist 🏌️' : 'Konto: jetzt oder gemütlich zuhause · dauert 20 Sek.'}</div>
-        {!account && <button onClick={() => go('restore')} style={{ alignSelf: 'center', border: 'none', background: 'transparent', color: 'var(--ink-3)', textDecoration: 'underline', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font)', padding: '2px 4px' }}>Schon ein Konto? Link einfügen</button>}
       </div>
     </Screen>
   );
