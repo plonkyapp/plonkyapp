@@ -438,7 +438,7 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
 }
 
 // ── Settings ──────────────────────────────────────────────
-function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto, go, logout, defaultMode, setDefaultMode, autoCrew, setAutoCrew, companion = false, openLegal, openFeedback }) {
+function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto, go, logout, defaultMode, setDefaultMode, autoCrew, setAutoCrew, companion = false, openLegal, openFeedback, openFaq }) {
   const { Screen, AppHeader, Body, Avatar, AV_COLORS } = UI;
   const [editId, setEditId] = useAcS(null);
   const [newName, setNewName] = useAcS('');
@@ -531,6 +531,12 @@ function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto,
         <button onClick={() => (openFeedback ? openFeedback() : go('feedback'))} style={{ width: '100%', marginTop: 24, display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '14px 16px', cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font)' }}>
           <div style={{ color: 'var(--accent)' }}><Ic.sparkle size={20} /></div>
           <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 700 }}>Feedback geben</div><div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>Sag uns, wie's läuft — Beta-Test</div></div>
+          <Ic.chevR size={18} color="var(--ink-3)" />
+        </button>
+
+        <button onClick={() => (openFaq ? openFaq() : go('faq'))} style={{ width: '100%', marginTop: 10, display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '14px 16px', cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font)' }}>
+          <div style={{ color: 'var(--accent)' }}><Ic.list size={20} /></div>
+          <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 700 }}>Häufige Fragen</div><div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>So funktioniert's — kurz erklärt</div></div>
           <Ic.chevR size={18} color="var(--ink-3)" />
         </button>
 

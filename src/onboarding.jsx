@@ -23,7 +23,7 @@ function Wordmark({ size = 34, color = 'var(--ink)' }) {
 }
 
 // ── 0. Landing / Begrüßung ────────────────────────────────
-function LandingScreen({ go, openLegal }) {
+function LandingScreen({ go, openLegal, openFaq }) {
   const { Screen, Btn } = UI;
   return (
     <Screen bg="var(--paper)">
@@ -48,10 +48,55 @@ function LandingScreen({ go, openLegal }) {
           <span style={{ flexShrink: 0 }}>ℹ️</span>
           <span><b>Beta-Version.</b> Diese App wird gerade getestet — keine Gewähr auf Verfügbarkeit oder Richtigkeit der Resultate. Alles dient nur dem Ausprobieren. Viel Spaß!</span>
         </div>
-        <div style={{ textAlign: 'center', marginTop: 10 }}>
+        <div style={{ textAlign: 'center', marginTop: 10, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 4 }}>
+          <button onClick={() => (openFaq ? openFaq() : go('faq'))} style={{ border: 'none', background: 'transparent', color: 'var(--ink-3)', textDecoration: 'underline', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font)', padding: 4 }}>Häufige Fragen</button>
+          <span style={{ color: 'var(--ink-3)', fontSize: 11.5 }}>·</span>
           <button onClick={() => (openLegal ? openLegal() : go('legal'))} style={{ border: 'none', background: 'transparent', color: 'var(--ink-3)', textDecoration: 'underline', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font)', padding: 4 }}>Hinweise &amp; Datenschutz</button>
         </div>
       </div>
+    </Screen>
+  );
+}
+
+// ── Häufige Fragen (kurze Hilfe-/Q&A-Seite) ───────────────
+function FaqScreen({ go, back = 'home', openLegal }) {
+  const { Screen, AppHeader, Body } = UI;
+  const Q = ({ children }) => <div style={{ fontSize: 15, fontWeight: 700, marginTop: 22, marginBottom: 6 }}>{children}</div>;
+  const A = ({ children }) => <div style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink-2)' }}>{children}</div>;
+  return (
+    <Screen>
+      <AppHeader title="Häufige Fragen" sub="So funktioniert's" onBack={() => go(back)} />
+      <Body>
+        <A>Das Wichtigste in Kürze — damit ihr in 30 Sekunden loslegt.</A>
+
+        <Q>Was ist PLONKY?</Q>
+        <A>Dein digitaler Mini-Golf-Zettel: Schläge eintragen, Stand sehen, fertig. Kein Download, keine Anmeldung.</A>
+
+        <Q>„Ich tippe für alle" oder „Andere tippen mit"?</Q>
+        <A><b>Ich tippe für alle:</b> ein Handy führt das Spiel, du trägst alle Schläge ein — am einfachsten.<br /><b>Andere tippen mit:</b> jeder trägt auf dem eigenen Handy nur sich selbst ein.</A>
+
+        <Q>Wie machen die anderen mit?</Q>
+        <A>Sie scannen den <b>QR-Code in deiner App</b> (Schritt „Anderen Code geben") — <b>nicht</b> einen QR-Code an der Bahn. Ohne Kamera: einfach den <b>4-Zeichen-Code</b> eintippen. So sind alle in derselben Runde.</A>
+
+        <Q>Brauche ich ein Konto?</Q>
+        <A>Nein — aber es lohnt sich. Dein Konto ist nur ein <b>persönlicher Link</b>, kein Passwort. Per „Link senden" schickst du ihn dir selbst oder speicherst ihn als Lesezeichen. So hast du deine Spiele auf jedem Gerät.</A>
+
+        <Q>Familie & Crew?</Q>
+        <A>Leg deine Mitspieler einmal an — beim nächsten Spiel sind sie direkt dabei. Wer mit eigenem Handy mitspielt, bekommt ein eigenes, verknüpftes Mitspieler-Konto.</A>
+
+        <Q>Mitten im Spiel rausgehen?</Q>
+        <A>Tippe oben auf <b>Pause</b> — die Runde läuft weiter. Über „▶ Laufende Runde" auf der Startseite tauchst du wieder ein.</A>
+
+        <Q>Wie beende ich ein Spiel?</Q>
+        <A>Auf der letzten Bahn auf <b>„Spiel beenden"</b> — dann sehen alle den Endstand und der Sieger steht fest. Fehlt noch etwas, fragt die App kurz nach.</A>
+
+        <Q>Fotos?</Q>
+        <A>Gib dir und deiner Crew in den Einstellungen ein Foto — es erscheint überall: im Spiel, im Endstand und im Verlauf.</A>
+
+        <div style={{ marginTop: 24, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+          Noch eine Frage? Schreib uns über „Feedback geben". Zu Daten &amp; Beta: <button onClick={() => (openLegal ? openLegal() : go('legal'))} style={{ border: 'none', background: 'transparent', color: 'var(--accent)', fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font)', padding: 0 }}>Hinweise &amp; Datenschutz</button>.
+        </div>
+      </Body>
     </Screen>
   );
 }
@@ -659,4 +704,4 @@ function JoinCodeScreen({ go, onJoined, back = 'home' }) {
   );
 }
 
-window.OB = { Wordmark, LandingScreen, LegalScreen, CoverScreen, AccountScreen, ScanScreen, RoleScreen, PlayersScreen, InviteScreen, JoinScreen, JoinCodeScreen, VENUE };
+window.OB = { Wordmark, LandingScreen, LegalScreen, FaqScreen, CoverScreen, AccountScreen, ScanScreen, RoleScreen, PlayersScreen, InviteScreen, JoinScreen, JoinCodeScreen, VENUE };

@@ -37,5 +37,6 @@ mk('list', <g><path d="M8 7h11" /><path d="M8 12h11" /><path d="M8 17h11" /><cir
 mk('shuffle', <g><path d="M4 7h3.5l9 10H20" /><path d="M17 4l3 3-3 3" /><path d="M4 17h3.5l2.2-2.5" /><path d="M14.3 9.5L16.5 7" /><path d="M17 14l3 3-3 3" /></g>);
 mk('scan', <g><path d="M4 8V5.5A1.5 1.5 0 015.5 4H8" /><path d="M16 4h2.5A1.5 1.5 0 0120 5.5V8" /><path d="M20 16v2.5a1.5 1.5 0 01-1.5 1.5H16" /><path d="M8 20H5.5A1.5 1.5 0 014 18.5V16" /><path d="M4 12h16" /></g>);
 mk('pin', <g><path d="M12 21s6-5.3 6-10a6 6 0 10-12 0c0 4.7 6 10 6 10z" /><circle cx="12" cy="11" r="2.4" /></g>);
+mk('help', <g><circle cx="12" cy="12" r="8.5" /><path d="M9.7 9.6a2.3 2.3 0 014.4.8c0 1.5-2.1 1.9-2.1 3.3" /><path d="M12 17.1v.01" /></g>);
 
 window.Ic = Ic;
