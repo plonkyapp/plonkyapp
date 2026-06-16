@@ -175,6 +175,7 @@ function CoverScreen({ go, account, scanEnabled = true, onStart, companion = fal
           ? <Btn kind="secondary" icon={<Ic.home size={19} />} onClick={() => go('home')}>Zu meinem plonky</Btn>
           : <Btn kind="secondary" onClick={() => go('account')}>Konto einrichten</Btn>}
         <div style={{ textAlign: 'center', fontSize: 12.5, color: 'var(--ink-3)' }}>{account ? 'Schön, dass du wieder da bist 🏌️' : 'Konto: jetzt oder gemütlich zuhause · dauert 20 Sek.'}</div>
+        {!account && <button onClick={() => go('restore')} style={{ alignSelf: 'center', border: 'none', background: 'transparent', color: 'var(--ink-3)', textDecoration: 'underline', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font)', padding: '2px 4px' }}>Schon ein Konto? Link einfügen</button>}
       </div>
     </Screen>
   );
@@ -247,6 +248,44 @@ function AccountScreen({ go, onCreate, companion = false, presetName = '', back 
           ? <Btn kind="primary" disabled={!name.trim()} onClick={() => { const acc = onCreate && onCreate(name.trim()); setCreated(acc); setSaved(true); }} icon={<Ic.link size={19} />}>Link erstellen</Btn>
           : <Btn kind="primary" onClick={() => go('home')} iconR={<Ic.arrowR size={20} />}>Zu meinem plonky</Btn>}
         {!saved && <Btn kind="ghost" onClick={() => go(back)}>Später</Btn>}
+      </Footer>
+    </Screen>
+  );
+}
+
+// ── Konto wiederherstellen (Link einfügen → Konto in diese „Schublade" holen) ──
+function RestoreScreen({ go, onRestore, back = 'cover' }) {
+  const { Screen, AppHeader, Body, Footer, Btn } = UI;
+  const [val, setVal] = useStateOB('');
+  const [busy, setBusy] = useStateOB(false);
+  const [err, setErr] = useStateOB('');
+  const submit = () => {
+    const v = val.trim();
+    if (!v || busy || !onRestore) return;
+    setBusy(true); setErr('');
+    onRestore(v).catch(() => { setErr('Konto nicht gefunden. Prüfe deinen Link und versuch es nochmal.'); setBusy(false); });
+  };
+  return (
+    <Screen>
+      <AppHeader title="Konto wiederherstellen" onBack={() => go(back)} />
+      <Body>
+        <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45, marginBottom: 16 }}>
+          Du hast dein Konto schon auf einem anderen Gerät oder im Browser? Füge hier deinen <b>persönlichen Link</b> ein — dann hast du dasselbe Konto auch hier.
+        </div>
+        <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-2)' }}>Dein Zugangslink</label>
+        <input autoFocus value={val} onChange={e => { setVal(e.target.value); setErr(''); }}
+          onKeyDown={e => e.key === 'Enter' && submit()}
+          placeholder="app.plonky.ch/m/…"
+          autoCapitalize="off" autoCorrect="off" spellCheck={false}
+          style={{ width: '100%', marginTop: 8, height: 54, borderRadius: 16, border: err ? '1px solid var(--bad)' : '1px solid var(--line)', background: 'var(--card)', padding: '0 16px', fontSize: 15, fontFamily: 'var(--font)', outline: 'none' }} />
+        {err && <div style={{ fontSize: 13, color: 'var(--bad)', marginTop: 9, fontWeight: 600 }}>{err}</div>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 13, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '14px 16px', marginTop: 20 }}>
+          <div style={{ color: 'var(--accent)' }}><Ic.link size={20} /></div>
+          <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.45 }}>Den Link findest du auf dem anderen Gerät in den <b>Einstellungen</b> unter „Dein Zugangslink" (Kopieren oder „Link senden").</div>
+        </div>
+      </Body>
+      <Footer>
+        <Btn kind={val.trim() ? 'primary' : 'secondary'} disabled={!val.trim() || busy} onClick={submit} icon={<Ic.link size={19} />}>{busy ? 'Suche dein Konto …' : 'Konto wiederherstellen'}</Btn>
       </Footer>
     </Screen>
   );
@@ -704,4 +743,4 @@ function JoinCodeScreen({ go, onJoined, back = 'home' }) {
   );
 }
 
-window.OB = { Wordmark, LandingScreen, LegalScreen, FaqScreen, CoverScreen, AccountScreen, ScanScreen, RoleScreen, PlayersScreen, InviteScreen, JoinScreen, JoinCodeScreen, VENUE };
+window.OB = { Wordmark, LandingScreen, LegalScreen, FaqScreen, CoverScreen, AccountScreen, RestoreScreen, ScanScreen, RoleScreen, PlayersScreen, InviteScreen, JoinScreen, JoinCodeScreen, VENUE };

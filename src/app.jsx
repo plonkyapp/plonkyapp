@@ -415,6 +415,22 @@ function App() {
     go('join');
   };
   const logout = () => { setAccount(null); go('cover'); };
+  // restore an existing account into THIS browser context (e.g. the home-screen
+  // app) by pasting its personal link — bridges Safari ↔ installed app, which
+  // keep separate storage on iOS. Accepts a full /m/<id> link or just the id.
+  const restoreAccount = (raw) => {
+    const m = String(raw || '').match(/\/m\/([^\/?#\s]+)/);
+    const token = m ? decodeURIComponent(m[1]) : String(raw || '').trim();
+    if (!token) return Promise.reject(new Error('empty'));
+    return ACC.API.getAccount(token).then(acc => {
+      if (!acc || !acc.id) throw new Error('not found');
+      setAccount({ id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', avatar: acc.avatar || '', created: acc.created || Date.now() });
+      if (Array.isArray(acc.crew)) setFamily(acc.crew);
+      ACC.API.listGames(acc.id).then(server => setHistory(local => ACC.mergeGames(local, server || []))).catch(() => {});
+      go('home');
+      return acc;
+    });
+  };
   const openLegal = () => { setLegalFrom(screen); go('legal'); };
   const openFaq = () => { setFaqFrom(screen); go('faq'); };
   const openFeedback = () => { setFeedbackFrom(screen); go('feedback'); };
@@ -434,6 +450,7 @@ function App() {
     case 'landing': view = <OB.LandingScreen go={go} openLegal={openLegal} openFaq={openFaq} />; break;
     case 'legal': view = <OB.LegalScreen go={go} back={legalFrom} />; break;
     case 'faq': view = <OB.FaqScreen go={go} back={faqFrom} openLegal={openLegal} />; break;
+    case 'restore': view = <OB.RestoreScreen go={go} onRestore={restoreAccount} back={account ? 'home' : 'cover'} />; break;
     case 'feedback': view = <ACC.FeedbackScreen go={go} account={account} back={feedbackFrom} />; break;
     case 'feedbackInbox': view = <ACC.FeedbackInbox items={feedbackItems} go={go} />; break;
     case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} />; break;
