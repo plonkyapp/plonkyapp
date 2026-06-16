@@ -593,7 +593,7 @@ function FeedbackScreen({ go, account, back = 'home' }) {
       <Body>
         <div style={{ textAlign: 'center', paddingTop: 40, animation: 'fadeUp .4s both' }}>
           <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--accent)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', animation: 'plonkPop .5s both' }}><Ic.check size={42} sw={2.6} /></div>
-          <div style={{ fontSize: 21, fontWeight: 700, marginTop: 18 }}>Danke dir! 🙌</div>
+          <div style={{ fontSize: 21, fontWeight: 700, marginTop: 18 }}>Danke dir!</div>
           <div style={{ fontSize: 14.5, color: 'var(--ink-2)', marginTop: 8, lineHeight: 1.45, padding: '0 12px' }}>Deine Rückmeldung ist angekommen und hilft uns, PLONKY besser zu machen.</div>
         </div>
       </Body>
