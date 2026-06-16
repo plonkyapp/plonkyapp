@@ -1,0 +1,17 @@
+{
+  "name": "plonky — Mini-Golf",
+  "short_name": "plonky",
+  "description": "Mini-Golf-Runden digital zählen — kein Zettel, kein Download.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F4F4F1",
+  "theme_color": "#15A35A",
+  "lang": "de",
+  "icons": [
+    { "src": "/assets/icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "/assets/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any maskable" },
+    { "src": "/assets/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable" }
+  ]
+}
