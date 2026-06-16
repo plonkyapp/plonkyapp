@@ -37,7 +37,7 @@ function LandingScreen({ go, openLegal, openFaq }) {
             {VENUE} · 18 Bahnen
           </div>
         </div>
-        <div style={{ marginTop: 22, fontSize: 27, fontWeight: 800, lineHeight: 1.12, letterSpacing: -0.7, animation: 'fadeUp .5s .16s both' }}>Willkommen! 👋</div>
+        <div style={{ marginTop: 22, fontSize: 27, fontWeight: 800, lineHeight: 1.12, letterSpacing: -0.7, animation: 'fadeUp .5s .16s both' }}>Willkommen!</div>
         <div style={{ marginTop: 10, fontSize: 15, lineHeight: 1.5, color: 'var(--ink-2)', maxWidth: 300, animation: 'fadeUp .5s .2s both' }}>
           Trag deine Runde digital ein — ganz ohne Zettel. Wir sind im Beta-Test, schön dass du dabei bist!
         </div>
@@ -308,7 +308,7 @@ function ScanScreen({ go, express }) {
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.12)', borderRadius: 999, padding: '7px 14px', fontSize: 13, fontWeight: 600, marginBottom: 14 }}>
               <Ic.pin size={15} color="var(--accent)" /> {VENUE}
             </div>
-            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.4 }}>Willkommen! 👋</div>
+            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.4 }}>Willkommen!</div>
             <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', marginTop: 6, marginBottom: 18 }}>Neue Session bereit · 18 Bahnen</div>
             <UI.Btn kind="primary" onClick={() => go(express ? 'express' : 'welcome')} iconR={<Ic.arrowR size={20} />}>Los geht's</UI.Btn>
           </div>
