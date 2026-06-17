@@ -468,12 +468,15 @@ function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto,
             <button onClick={() => UI.pickPhoto(src => setAccount(a => ({ ...a, avatar: src })))} title="Foto wählen" style={{ position: 'absolute', right: -3, bottom: -3, width: 26, height: 26, borderRadius: '50%', background: 'var(--accent)', color: '#fff', border: '2px solid var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><Ic.camera size={13} /></button>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <input value={account.name} onChange={e => setAccount(a => ({ ...a, name: e.target.value }))}
-              style={{ width: '100%', border: 'none', background: 'transparent', fontFamily: 'var(--font)', fontSize: 19, fontWeight: 700, outline: 'none', padding: 0, color: 'var(--ink)' }} />
-            <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, borderBottom: '1.5px solid var(--line)', paddingBottom: 3 }}>
+              <input value={account.name} onChange={e => setAccount(a => ({ ...a, name: e.target.value }))} placeholder="Dein Name"
+                style={{ flex: 1, minWidth: 0, border: 'none', background: 'transparent', fontFamily: 'var(--font)', fontSize: 19, fontWeight: 700, outline: 'none', padding: 0, color: 'var(--ink)' }} />
+              <Ic.pencil size={15} color="var(--ink-3)" />
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 5 }}>
               {account.avatar
-                ? <>Foto gesetzt · <button onClick={() => setAccount(a => ({ ...a, avatar: '' }))} style={{ border: 'none', background: 'transparent', color: 'var(--accent)', fontWeight: 600, fontSize: 12.5, cursor: 'pointer', fontFamily: 'var(--font)', padding: 0 }}>entfernen</button></>
-                : 'Kamera-Symbol für ein Foto · Avatar antippen für eine Farbe'}
+                ? <>Tippen, um den Namen zu ändern · Foto gesetzt · <button onClick={() => setAccount(a => ({ ...a, avatar: '' }))} style={{ border: 'none', background: 'transparent', color: 'var(--accent)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font)', padding: 0 }}>entfernen</button></>
+                : 'Tippen, um den Namen zu ändern · Kamera für ein Foto · Avatar für eine Farbe'}
             </div>
           </div>
         </div>
