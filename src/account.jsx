@@ -183,6 +183,8 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
   // business discarding it. A companion is a joiner even if the bookmark's slot id
   // is missing, so it's the hard signal; me != null catches a master who joined.
   const joinedRound = !!(companion || (activeSession && activeSession.me != null));
+  // you're never in your own crew (drop a self-entry by account id)
+  const crew = (family || []).filter(m => !(account && account.id && m.accountId === account.id));
   return (
     <Screen>
       <div style={{ paddingTop: 64, padding: '64px 22px 6px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -279,8 +281,8 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
               <button onClick={() => go('settings')} style={ghostLink}>Verwalten</button>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {family.length === 0 && <div style={{ fontSize: 13.5, color: 'var(--ink-3)' }}>Spieler aus deinen Spielen erscheinen hier.</div>}
-              {family.map(m => (
+              {crew.length === 0 && <div style={{ fontSize: 13.5, color: 'var(--ink-3)' }}>Spieler aus deinen Spielen erscheinen hier.</div>}
+              {crew.map(m => (
                 <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 13px 5px 5px' }}>
                   <Avatar name={m.name} color={m.color} size={28} accountId={m.accountId} src={m.avatar} />
                   <span style={{ fontSize: 14, fontWeight: 600 }}>{m.name}</span>
@@ -495,7 +497,7 @@ function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto,
         {/* family management */}
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: 0.4, margin: '24px 0 8px' }}>Familie & Crew</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {family.map(m => (
+          {family.filter(m => !(account && account.id && m.accountId === account.id)).map(m => (
             <div key={m.id} style={{ background: 'var(--card)', border: editId === m.id ? '2px solid var(--accent)' : '1px solid var(--line)', borderRadius: 14, padding: editId === m.id ? '9px 11px' : '10px 12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
                 <button onClick={() => recolor(m.id)} title="Farbe" style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><Avatar name={m.name} color={m.color} size={34} accountId={m.accountId} src={m.avatar} /></button>

@@ -206,6 +206,13 @@ function App() {
     if (screen === 'home') ACC.API.listGames(account.id).then(server => setHistory(local => ACC.mergeGames(local, server || []))).catch(() => {});
   }, [screen, hydrated]);
 
+  // you are never your own crew member — drop any self-entry (from older auto-adds).
+  // keyed by account id, so it also cleans up after a rename (no stale duplicate).
+  useAE(() => {
+    if (!hydrated || !account || !account.id) return;
+    setFamily(fam => fam.some(m => m.accountId === account.id) ? fam.filter(m => m.accountId !== account.id) : fam);
+  }, [hydrated, account]);
+
   // The ONE photo lookup: collect every account id this device shows (crew links +
   // players in saved games) and batch-fetch their CURRENT photo by id. Re-runs on
   // navigation so a changed photo appears without a cold reload. Self is resolved
@@ -244,7 +251,10 @@ function App() {
     setHistory(h => [...h, game]);
     setFamily(fam => {
       const names = new Set(fam.map(m => m.name.toLowerCase()));
-      const add = pls.filter(p => !names.has(p.name.toLowerCase())).map(p => ({ id: 'f' + p.id, name: p.name, color: p.color, accountId: p.account_id || undefined }));
+      // never add the host to their OWN crew (by account id, not name) — otherwise
+      // renaming the account leaves a stale, unmatched self-entry → a duplicate
+      const add = pls.filter(p => !(owner && p.account_id === owner) && !names.has(p.name.toLowerCase()))
+        .map(p => ({ id: 'f' + p.id, name: p.name, color: p.color, accountId: p.account_id || undefined }));
       return [...fam, ...add];
     });
     if (owner) ACC.API.saveGame(owner, game).catch(() => {}); // best-effort; local copy already saved
@@ -323,7 +333,7 @@ function App() {
   const buildInitialPlayers = () => {
     const list = []; const seen = new Set();
     if (account) { list.push({ id: 'me', name: account.name, color: account.color, avatar: account.avatar || '', account_id: account.id, scores: {} }); seen.add(account.name.toLowerCase()); }
-    if (account && autoCrew) family.forEach(m => { if (!seen.has(m.name.toLowerCase())) { list.push({ id: 'c' + m.id, name: m.name, color: m.color, avatar: m.avatar || '', account_id: m.accountId || null, scores: {} }); seen.add(m.name.toLowerCase()); } });
+    if (account && autoCrew) family.forEach(m => { if (m.accountId === account.id) return; if (!seen.has(m.name.toLowerCase())) { list.push({ id: 'c' + m.id, name: m.name, color: m.color, avatar: m.avatar || '', account_id: m.accountId || null, scores: {} }); seen.add(m.name.toLowerCase()); } });
     return list;
   };
   const firstStep = () => (t.onboardingFlow === 'express' ? 'express' : 'welcome');
