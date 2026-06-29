@@ -1,7 +1,37 @@
 // onboarding.jsx — plonky onboarding screens
 const { useState: useStateOB, useEffect: useEffectOB, useRef: useRefOB } = React;
 
-const VENUE = 'Mini-Golf Seebach';
+const VENUE = 'Mini-Golf Seebach'; // Default-/Fallback-Name
+
+// ── Anlagen (venues) ──────────────────────────────────────
+// Phase 1: kuratierte Liste im Code. Neue Anlage = eine Zeile + Push.
+// holes = Bahnenzahl · illu = 'seebach' (eigene Grafik) | 'generic' (Fallback) · dev = nur zum Testen.
+const VENUES = [
+  { slug: 'seebach', name: 'Mini-Golf Seebach', holes: 18, illu: 'seebach' },
+  { slug: 'davos',   name: 'Davos Hotel Waldhuus', holes: 9, illu: 'generic' },
+  { slug: 'test',    name: 'Test-Platz',        holes: 4,  illu: 'generic', dev: true },
+];
+const DEFAULT_VENUE = VENUES[0];
+const venueBySlug = s => VENUES.find(v => v.slug === String(s || '').toLowerCase()) || null;
+const venueByName = n => VENUES.find(v => v.name === n) || null;
+
+// flat plonky-style illustration: Seebach has its own SVG, others get a generic minigolf scene
+function VenueIllo({ venue }) {
+  if (venue && venue.illu === 'seebach') return <img src="/assets/seebach.svg" alt={venue.name} style={{ display: 'block', width: '100%' }} />;
+  return (
+    <svg viewBox="0 0 320 150" style={{ display: 'block', width: '100%' }} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={(venue && venue.name) || 'Minigolf'}>
+      <rect width="320" height="150" fill="#DDEBD6" />
+      <circle cx="58" cy="40" r="26" fill="#C6DEB8" /><circle cx="92" cy="34" r="30" fill="#C6DEB8" /><circle cx="128" cy="42" r="24" fill="#C6DEB8" />
+      <rect y="78" width="320" height="72" fill="#A9CE97" />
+      <path d="M150 150 L132 88 L188 88 L170 150 Z" fill="#B85C3C" />
+      <ellipse cx="160" cy="120" rx="9" ry="3.4" fill="rgba(0,0,0,0.10)" />
+      <circle cx="160" cy="113" r="6.5" fill="#fff" />
+      <rect x="206" y="58" width="3.4" height="42" rx="1.7" fill="#6f7068" />
+      <path d="M209 60 L228 66 L209 74 Z" fill="#15A35A" />
+      <circle cx="250" cy="92" r="20" fill="#9CC487" /><circle cx="278" cy="96" r="16" fill="#9CC487" />
+    </svg>
+  );
+}
 
 // ── Wordmark ──────────────────────────────────────────────
 function Wordmark({ size = 34, color = 'var(--ink)' }) {
@@ -23,20 +53,21 @@ function Wordmark({ size = 34, color = 'var(--ink)' }) {
 }
 
 // ── 0. Landing / Begrüßung ────────────────────────────────
-function LandingScreen({ go, openLegal, openFaq }) {
+function LandingScreen({ go, openLegal, openFaq, venue = DEFAULT_VENUE }) {
   const { Screen, Btn } = UI;
   return (
     <Screen bg="var(--paper)">
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '0 26px', textAlign: 'center', overflowY: 'auto' }} className="noscroll">
         <div style={{ animation: 'fadeUp .5s both' }}><Wordmark size={28} /></div>
-        {/* venue hero — flat plonky-style illustration of the course */}
-        <div style={{ width: '100%', maxWidth: 320, marginTop: 20, borderRadius: 22, overflow: 'hidden', border: '1px solid var(--line)', boxShadow: '0 16px 40px -22px rgba(0,0,0,0.45)', background: 'var(--card)', animation: 'fadeUp .6s .1s both' }}>
-          <img src="/assets/seebach.svg" alt="Mini-Golf Seebach" style={{ display: 'block', width: '100%' }} />
+        {/* venue hero — tap to switch venue */}
+        <button onClick={() => go('venues')} style={{ width: '100%', maxWidth: 320, marginTop: 20, borderRadius: 22, overflow: 'hidden', border: '1px solid var(--line)', boxShadow: '0 16px 40px -22px rgba(0,0,0,0.45)', background: 'var(--card)', animation: 'fadeUp .6s .1s both', padding: 0, cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font)' }}>
+          <VenueIllo venue={venue} />
           <div style={{ padding: '11px 15px', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0 }} />
-            {VENUE} · 18 Bahnen
+            <span style={{ flex: 1 }}>{venue.name} · {venue.holes} Bahnen</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>wechseln <Ic.chevR size={15} /></span>
           </div>
-        </div>
+        </button>
         <div style={{ marginTop: 22, fontSize: 27, fontWeight: 800, lineHeight: 1.12, letterSpacing: -0.7, animation: 'fadeUp .5s .16s both' }}>Willkommen!</div>
         <div style={{ marginTop: 10, fontSize: 15, lineHeight: 1.5, color: 'var(--ink-2)', maxWidth: 300, animation: 'fadeUp .5s .2s both' }}>
           Trag deine Runde digital ein — ganz ohne Zettel. Wir sind im Beta-Test, schön dass du dabei bist!
@@ -128,7 +159,7 @@ function LegalScreen({ go, back = 'cover' }) {
 }
 
 // ── 1. Cover ──────────────────────────────────────────────
-function CoverScreen({ go, account, scanEnabled = true, onStart, companion = false }) {
+function CoverScreen({ go, account, scanEnabled = true, onStart, companion = false, venue = DEFAULT_VENUE }) {
   const { Screen, Btn, Avatar } = UI;
   return (
     <Screen bg="var(--paper)">
@@ -143,9 +174,9 @@ function CoverScreen({ go, account, scanEnabled = true, onStart, companion = fal
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '0 26px', paddingTop: 96 }}>
         <div style={{ animation: 'fadeUp .5s both' }}><Wordmark size={36} /></div>
         {!scanEnabled && (
-          <div style={{ marginTop: 16, display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '7px 14px', animation: 'fadeUp .5s .03s both' }}>
-            <Ic.pin size={15} color="var(--accent)" /><span style={{ fontSize: 13.5, fontWeight: 600 }}>{VENUE} · 18 Bahnen</span>
-          </div>
+          <button onClick={() => go('venues')} style={{ marginTop: 16, display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '7px 12px 7px 14px', animation: 'fadeUp .5s .03s both', cursor: 'pointer', fontFamily: 'var(--font)' }}>
+            <Ic.pin size={15} color="var(--accent)" /><span style={{ fontSize: 13.5, fontWeight: 600 }}>{venue.name} · {venue.holes} Bahnen</span><Ic.chevR size={15} color="var(--ink-3)" />
+          </button>
         )}
         <div style={{ marginTop: 22, fontSize: 30, fontWeight: 700, lineHeight: 1.1, letterSpacing: -0.8, maxWidth: 290, animation: 'fadeUp .5s .05s both' }}>
           Schläge zählen,<br />ohne Zettel.
@@ -292,7 +323,7 @@ function RestoreScreen({ go, onRestore, back = 'cover' }) {
 }
 
 // ── 2. Scan ───────────────────────────────────────────────
-function ScanScreen({ go, express }) {
+function ScanScreen({ go, express, venue = DEFAULT_VENUE }) {
   const [phase, setPhase] = useStateOB('scanning'); // scanning -> found
   useEffectOB(() => {
     const t = setTimeout(() => setPhase('found'), 1700);
@@ -345,10 +376,10 @@ function ScanScreen({ go, express }) {
         ) : (
           <div style={{ animation: 'fadeUp .4s both' }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.12)', borderRadius: 999, padding: '7px 14px', fontSize: 13, fontWeight: 600, marginBottom: 14 }}>
-              <Ic.pin size={15} color="var(--accent)" /> {VENUE}
+              <Ic.pin size={15} color="var(--accent)" /> {venue.name}
             </div>
             <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.4 }}>Willkommen!</div>
-            <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', marginTop: 6, marginBottom: 18 }}>Neue Session bereit · 18 Bahnen</div>
+            <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', marginTop: 6, marginBottom: 18 }}>Neue Session bereit · {venue.holes} Bahnen</div>
             <UI.Btn kind="primary" onClick={() => go(express ? 'express' : 'welcome')} iconR={<Ic.arrowR size={20} />}>Los geht's</UI.Btn>
           </div>
         )}
@@ -451,7 +482,7 @@ function PlayersScreen({ go, players, setPlayers, role, family = [] }) {
 }
 
 // ── 6. Invite (role B) — real live session ────────────────
-function InviteScreen({ go, players, mode, sessionCode, setSessionCode }) {
+function InviteScreen({ go, players, mode, sessionCode, setSessionCode, venueName = VENUE }) {
   const { Screen, AppHeader, Body, Footer, Btn, Steps, QRCode, Avatar } = UI;
   const [code, setCode] = useStateOB(sessionCode || null);
   const [claimed, setClaimed] = useStateOB({});
@@ -464,7 +495,7 @@ function InviteScreen({ go, players, mode, sessionCode, setSessionCode }) {
     if (code || creatingRef.current) return;
     creatingRef.current = true;
     ACC.API.createSession({
-      mode: mode || 'sequential', venue: VENUE,
+      mode: mode || 'sequential', venue: venueName,
       players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '' })),
     }).then(sess => { setCode(sess.code); setSessionCode && setSessionCode(sess.code); })
       .catch(() => setErr(true));
@@ -743,4 +774,45 @@ function JoinCodeScreen({ go, onJoined, back = 'home' }) {
   );
 }
 
-window.OB = { Wordmark, LandingScreen, LegalScreen, FaqScreen, CoverScreen, AccountScreen, RestoreScreen, ScanScreen, RoleScreen, PlayersScreen, InviteScreen, JoinScreen, JoinCodeScreen, VENUE };
+// ── Anlagen-Auswahl ───────────────────────────────────────
+function VenuesScreen({ go, onPick, active = null, back = null }) {
+  const { Screen, Body } = UI;
+  return (
+    <Screen bg="var(--paper)">
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '0 22px', paddingTop: 64, overflowY: 'auto' }} className="noscroll">
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}><Wordmark size={26} /></div>
+        <div style={{ fontSize: 25, fontWeight: 800, letterSpacing: -0.6, textAlign: 'center' }}>Wo spielst du?</div>
+        <div style={{ fontSize: 14, color: 'var(--ink-2)', textAlign: 'center', marginTop: 6, marginBottom: 22, lineHeight: 1.45 }}>Wähle deine Anlage — oder scanne den QR-Code am Platz.</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+          {VENUES.map(v => (
+            <button key={v.slug} onClick={() => onPick(v.slug)} style={{
+              display: 'flex', alignItems: 'center', gap: 13, width: '100%', textAlign: 'left',
+              background: 'var(--card)', border: (active === v.slug ? '2px solid var(--accent)' : v.dev ? '1px dashed var(--line)' : '1px solid var(--line)'),
+              borderRadius: 18, padding: '12px 13px', cursor: 'pointer', fontFamily: 'var(--font)',
+            }}>
+              <div style={{ width: 56, height: 56, borderRadius: 13, overflow: 'hidden', flexShrink: 0, background: 'var(--line-2)' }}><VenueIllo venue={v} /></div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: v.dev ? 'var(--ink-2)' : 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.name}</div>
+                <div style={{ fontSize: 12.5, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)', display: 'inline-block' }} />
+                  {v.holes} Bahnen{v.dev ? ' · nur zum Ausprobieren' : ''}
+                </div>
+              </div>
+              <Ic.chevR size={19} color="var(--ink-3)" />
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 16, fontSize: 12.5, color: 'var(--ink-3)' }}>
+          <Ic.scan size={16} color="var(--ink-3)" /> Am Platz kommst du per QR-Code direkt rein.
+        </div>
+      </div>
+      {back && (
+        <div style={{ padding: '0 22px 26px' }}>
+          <UI.Btn kind="secondary" onClick={() => go(back)}>Zurück</UI.Btn>
+        </div>
+      )}
+    </Screen>
+  );
+}
+
+window.OB = { Wordmark, LandingScreen, LegalScreen, FaqScreen, CoverScreen, AccountScreen, RestoreScreen, ScanScreen, RoleScreen, PlayersScreen, InviteScreen, JoinScreen, JoinCodeScreen, VenuesScreen, VENUE, VENUES, DEFAULT_VENUE, venueBySlug, venueByName };

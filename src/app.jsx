@@ -33,6 +33,7 @@ function App() {
   const [sessionCode, setSessionCode] = useAS(null);
   // persistent
   const [account, setAccount] = useAS(null);
+  const [venue, setVenue] = useAS(OB.DEFAULT_VENUE); // aktive Anlage (Name, Bahnenzahl, Illustration)
   const [family, setFamily] = useAS([]);
   const [history, setHistory] = useAS([]);
   const [defaultMode, setDefaultMode] = useAS('sequential');
@@ -96,6 +97,7 @@ function App() {
           if (!sess) { setScreen(acc ? 'home' : 'cover'); return; } // code expired/unknown
           setSessionCode(sess.code);
           setMode(sess.mode || 'sequential');
+          const sv = OB.venueByName(sess.venue); if (sv) { setVenue(sv); GAME.setHoles(sv.holes); } // join the round's venue
           setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })));
           setRole('others');
           setScreen('join');
@@ -130,7 +132,24 @@ function App() {
 
     let acc = d.account || null;
     if (acc && !acc.id) acc = { ...acc, id: ACC.newAccountId() }; // backfill id for pre-DB accounts
-    if (acc) { setAccount(acc); setScreen('home'); }
+
+    // aktive Anlage: aus einem /p/<slug>-QR-Link, sonst die gemerkte
+    const pMatch = typeof location !== 'undefined' && location.pathname.match(/^\/p\/([^\/?#]+)/);
+    let pickedVenue = null;
+    if (pMatch) {
+      if (window.history && window.history.replaceState) window.history.replaceState({}, '', '/');
+      pickedVenue = OB.venueBySlug(decodeURIComponent(pMatch[1]));
+    }
+    if (!pickedVenue && d.venueSlug) pickedVenue = OB.venueBySlug(d.venueSlug);
+    if (pickedVenue) { setVenue(pickedVenue); GAME.setHoles(pickedVenue.holes); }
+
+    if (acc) setAccount(acc);
+    // QR-Link → direkt in die Anlage. Sonst: Konto → Home · Anlage bekannt → Willkommen · ganz neu → Anlagen-Auswahl.
+    if (pMatch && pickedVenue) setScreen('landing');
+    else if (acc) setScreen('home');
+    else if (pickedVenue) setScreen('landing');
+    else setScreen('venues');
+
     if (d.family) { setFamily(d.family); refreshLinkedCrew(d.family); }
     if (d.history) setHistory(d.history);
     if (d.activeSession) setActiveSession(d.activeSession);
@@ -147,7 +166,7 @@ function App() {
       .catch(() => {});
   }, []);
   // persist
-  useAE(() => { if (hydrated) ACC.STORE.save({ account, family, history, defaultMode, autoCrew, activeSession }); }, [hydrated, account, family, history, defaultMode, autoCrew, activeSession]);
+  useAE(() => { if (hydrated) ACC.STORE.save({ account, family, history, defaultMode, autoCrew, activeSession, venueSlug: venue && venue.slug }); }, [hydrated, account, family, history, defaultMode, autoCrew, activeSession, venue]);
   // keep the server copy of the account (name/color/photo) in sync. Skip the very
   // first run after load: otherwise this device's stale localStorage would clobber
   // a change made elsewhere (e.g. the master set your crew photo) before we adopt it.
@@ -174,7 +193,7 @@ function App() {
   // remember the live round you're in, so "Mein plonky" can dive back into it
   // (the bookmark survives going home; it's cleared on finish/save or delete)
   useAE(() => {
-    if (hydrated && sessionCode) setActiveSession({ code: sessionCode, role, me, mode: mode || 'sequential', venue: OB.VENUE });
+    if (hydrated && sessionCode) setActiveSession({ code: sessionCode, role, me, mode: mode || 'sequential', venue: venue.name });
   }, [hydrated, sessionCode, role, me, mode]);
 
   // accounts from the start: a fresh host (or a joiner) gets a real account from
@@ -193,7 +212,7 @@ function App() {
   useAE(() => {
     if (!hydrated || sessionCode || screen !== 'game' || me != null || !account || !players.length || soloSessionRef.current) return;
     soloSessionRef.current = true;
-    ACC.API.createSession({ mode: mode || 'sequential', venue: OB.VENUE, players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '' })) })
+    ACC.API.createSession({ mode: mode || 'sequential', venue: venue.name, players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '' })) })
       .then(sess => setSessionCode(sess.code))
       .catch(() => {})
       .finally(() => { soloSessionRef.current = false; });
@@ -231,6 +250,8 @@ function App() {
   }, [hydrated, screen, family.length, history.length]);
 
   useAE(() => { document.documentElement.style.setProperty('--accent', t.accent); }, [t.accent]);
+  // Bahnenzahl im Spiel folgt der aktiven Anlage (Backstop; Spielstart-Pfade setzen es zusätzlich synchron)
+  useAE(() => { if (venue && venue.holes) GAME.setHoles(venue.holes); }, [venue]);
   useAE(() => { window.__fitPhone && window.__fitPhone(); }, []);
 
   const go = (s) => { setScreen(s); const el = document.querySelector('.noscroll'); if (el) el.scrollTop = 0; };
@@ -246,7 +267,7 @@ function App() {
     // accounts that joined with their own device become participants of this ONE
     // shared record (so they see it — and any later host edit — in their history)
     const participants = [...new Set(pls.map(p => p.account_id).filter(id => id && id !== owner))];
-    const game = { id: 'g' + Date.now(), date: Date.now(), venue: OB.VENUE, mode: mode || 'sequential', code: sessionCode || '', participants,
+    const game = { id: 'g' + Date.now(), date: Date.now(), venue: venue.name, mode: mode || 'sequential', code: sessionCode || '', participants,
       players: pls.map(p => ({ id: p.id, name: p.name, color: p.color, avatar: p.avatar || '', account_id: p.account_id || null, scores: { ...p.scores } })) };
     setHistory(h => [...h, game]);
     setFamily(fam => {
@@ -323,6 +344,7 @@ function App() {
       gameSavedRef.current = false;
       setSessionCode(sess.code);
       setMode(sess.mode || 'sequential');
+      const sv = OB.venueByName(sess.venue); if (sv) setVenue(sv); GAME.setHoles((sv || venue).holes); // resume into the round's venue
       setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })));
       const b = activeSession || {};
       setRole(b.role || (b.me != null ? 'others' : 'me'));
@@ -337,7 +359,9 @@ function App() {
     return list;
   };
   const firstStep = () => (t.onboardingFlow === 'express' ? 'express' : 'welcome');
-  const newGame = () => { gameSavedRef.current = false; setPlayers(buildInitialPlayers()); setRole(account ? 'me' : null); setMode(defaultMode); setMe(null); setSessionCode(null); go(scanEnabled ? 'scan' : firstStep()); };
+  const newGame = () => { gameSavedRef.current = false; GAME.setHoles(venue.holes); setPlayers(buildInitialPlayers()); setRole(account ? 'me' : null); setMode(defaultMode); setMe(null); setSessionCode(null); go(scanEnabled ? 'scan' : firstStep()); };
+  // pick a venue from the Anlagen screen → remember it, set the hole count, show its welcome
+  const pickVenue = (slug) => { const v = OB.venueBySlug(slug); if (v) { setVenue(v); GAME.setHoles(v.holes); } go('landing'); };
   const openResults = (fin) => {
     setResultsFinal(fin);
     go('results');
@@ -419,6 +443,7 @@ function App() {
     gameSavedRef.current = false;
     setSessionCode(sess.code);
     setMode(sess.mode || 'sequential');
+    const sv = OB.venueByName(sess.venue); if (sv) setVenue(sv); GAME.setHoles((sv || venue).holes); // adopt the round's venue + hole count
     setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })));
     setRole('others');
     setMe(null);
@@ -447,6 +472,7 @@ function App() {
 
   const jump = (s) => {
     if ((s === 'game' || s === 'results') && players.length === 0) {
+      GAME.setHoles(18); // demo data fills up to 18 holes
       setPlayers(demoPlayers(s === 'results'));
       setRole('me'); setMode(m => m || 'sequential');
     }
@@ -457,28 +483,29 @@ function App() {
   const isCompanion = !!(account && account.kind === 'companion');
   let view;
   switch (screen) {
-    case 'landing': view = <OB.LandingScreen go={go} openLegal={openLegal} openFaq={openFaq} />; break;
+    case 'landing': view = <OB.LandingScreen go={go} openLegal={openLegal} openFaq={openFaq} venue={venue} />; break;
+    case 'venues': view = <OB.VenuesScreen go={go} onPick={pickVenue} active={venue && venue.slug} back={account ? 'home' : null} />; break;
     case 'legal': view = <OB.LegalScreen go={go} back={legalFrom} />; break;
     case 'faq': view = <OB.FaqScreen go={go} back={faqFrom} openLegal={openLegal} />; break;
     case 'restore': view = <OB.RestoreScreen go={go} onRestore={restoreAccount} back={account ? 'home' : 'cover'} />; break;
     case 'feedback': view = <ACC.FeedbackScreen go={go} account={account} back={feedbackFrom} />; break;
     case 'feedbackInbox': view = <ACC.FeedbackInbox items={feedbackItems} go={go} />; break;
-    case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} />; break;
+    case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} venue={venue} />; break;
     case 'account': view = <OB.AccountScreen go={go} onCreate={me != null ? createCompanion : createAccount} companion={me != null} presetName={me != null ? ((players.find(p => String(p.id) === String(me)) || {}).name || '') : ''} back={me != null ? 'results' : 'cover'} />; break;
     case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={newGame} scanEnabled={scanEnabled} companion={isCompanion} activeSession={activeSession} onResume={resumeSession} onDiscard={discardActiveSession} openFeedback={openFeedback} />; break;
     case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} onMemberPhoto={setCrewPhoto} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} openLegal={openLegal} openFeedback={openFeedback} openFaq={openFaq} />; break;
     case 'joinCode': view = <OB.JoinCodeScreen go={go} onJoined={enterSession} back={account ? 'home' : 'cover'} />; break;
     case 'history': view = <ACC.HistoryScreen history={history} go={go} openGame={openGame} account={account} family={family} />; break;
     case 'historyDetail': view = <ACC.HistoryDetailScreen game={history.find(g => g.id === histId)} go={go} from={histFrom} onSave={isCompanion ? undefined : saveEditedGame} account={account} family={family} />; break;
-    case 'scan': view = <OB.ScanScreen go={go} express={t.onboardingFlow === 'express'} />; break;
+    case 'scan': view = <OB.ScanScreen go={go} express={t.onboardingFlow === 'express'} venue={venue} />; break;
     case 'welcome': view = <OB.RoleScreen go={go} role={role} setRole={setRole} back={scanEnabled ? 'scan' : 'cover'} />; break;
     case 'players': view = <OB.PlayersScreen go={go} players={players} setPlayers={setPlayers} role={role} family={family} />; break;
-    case 'invite': view = <OB.InviteScreen go={go} players={players} mode={mode} sessionCode={sessionCode} setSessionCode={setSessionCode} />; break;
+    case 'invite': view = <OB.InviteScreen go={go} players={players} mode={mode} sessionCode={sessionCode} setSessionCode={setSessionCode} venueName={venue.name} />; break;
     case 'join': view = <OB.JoinScreen go={go} players={players} setMe={setMe} sessionCode={sessionCode} account={account} />; break;
     case 'express': view = <GAME.ExpressSetup go={go} role={role} setRole={setRole} mode={mode} setMode={setMode} players={players} setPlayers={setPlayers} family={family} />; break;
-    case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} onHome={account && sessionCode ? restart : null} account={account} family={family} />; break;
-    case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} family={family} onSave={saveGame} onCompanionSave={saveCompanionGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} me={me} onLeaveJoined={leaveJoined} />; break;
-    default: view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} />;
+    case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} onHome={account && sessionCode ? restart : null} account={account} family={family} venueName={venue.name} />; break;
+    case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} family={family} onSave={saveGame} onCompanionSave={saveCompanionGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} me={me} onLeaveJoined={leaveJoined} venueName={venue.name} />; break;
+    default: view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} venue={venue} />;
   }
 
   const panel = ReactDOM.createPortal(

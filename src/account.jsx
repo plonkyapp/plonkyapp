@@ -359,7 +359,15 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
   const [draft, setDraft] = useAcS({});   // { [pid]: { [hole]: strokes } } while editing
   const [sel, setSel] = useAcS(null);     // { pid, hole } selected cell
   if (!game) return <Screen><AppHeader title="Spiel" onBack={() => go(from)} /></Screen>;
-  const holes = Array.from({ length: (window.GAME && window.GAME.HOLES) || 18 }, (_, i) => i + 1);
+  // Bahnenzahl aus dem Spiel selbst (Anlagen im Verlauf können sich unterscheiden):
+  // erst die Anlage per Name nachschlagen, sonst die höchste gespielte Bahn, sonst 18.
+  const gameHoles = (() => {
+    const v = window.OB && OB.venueByName && OB.venueByName(game.venue);
+    if (v) return v.holes;
+    let mx = 0; (game.players || []).forEach(p => Object.keys(p.scores || {}).forEach(h => { if ((p.scores[h] || 0) > 0) mx = Math.max(mx, +h); }));
+    return mx || 18;
+  })();
+  const holes = Array.from({ length: gameHoles }, (_, i) => i + 1);
   const half = Math.ceil(holes.length / 2); // 18 → two rows of 9 so it fits a phone without scrolling
   const scoreOf = (p, h) => editing ? ((draft[p.id] || {})[h] || 0) : (p.scores[h] || 0);
   const totalOf = (p) => { let strokes = 0, played = 0; holes.forEach(h => { const v = scoreOf(p, h); if (v) { strokes += v; played++; } }); return { strokes, played }; };

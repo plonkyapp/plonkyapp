@@ -2,7 +2,10 @@
 const { useState: useS, useEffect: useE, useRef: useR } = React;
 
 const PARS = [2, 3, 2, 3, 2, 4, 2, 3, 3, 2, 3, 2, 4, 2, 3, 2, 3, 3];
-const HOLES = 4; // TEST: 4 Bahnen zum schnellen Durchspielen — vor dem Launch zurück auf 18
+// Bahnenzahl kommt aus der aktiven Anlage (app.jsx ruft GAME.setHoles beim Spielstart).
+// Default 18; eine Test-Anlage mit 4 Bahnen ersetzt den früheren Test-Hack.
+let HOLES = 18;
+const setHoles = n => { const v = parseInt(n, 10); HOLES = v > 0 ? v : 18; };
 const par = h => PARS[(h - 1) % PARS.length];
 const sumPar = (from, to) => { let s = 0; for (let h = from; h <= to; h++) s += par(h); return s; };
 
@@ -306,7 +309,7 @@ function EndConfirmSheet({ miss, onBack, onEnd }) {
   );
 }
 
-function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults, sessionCode, me, onHome, account = null, family = [] }) {
+function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults, sessionCode, me, onHome, account = null, family = [], venueName = OB.VENUE }) {
   const [hole, setHole] = useS(1);
   const [focus, setFocus] = useS(null);
   const [voice, setVoice] = useS(false);
@@ -388,7 +391,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
       <div style={{ paddingTop: 56, padding: '56px 18px 0', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--ink-2)', fontWeight: 600 }}>
-            <Ic.pin size={14} color="var(--accent)" /> {OB.VENUE}
+            <Ic.pin size={14} color="var(--accent)" /> {venueName}
           </div>
           {onHome && !srvFinished && <button onClick={onHome} title="Pause – zu meinem plonky; die Runde läuft weiter" style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', background: 'var(--card)', borderRadius: 999, padding: '5px 12px 5px 10px', cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)' }}><Ic.home size={15} /> Pause</button>}
         </div>
@@ -447,7 +450,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
 }
 
 // ── Results / standings ───────────────────────────────────
-function ResultsScreen({ players, go, restart, account, family = [], onSave, onCompanionSave, final = true, onFinish, joined = false, sessionCode, me = null, onLeaveJoined }) {
+function ResultsScreen({ players, go, restart, account, family = [], onSave, onCompanionSave, final = true, onFinish, joined = false, sessionCode, me = null, onLeaveJoined, venueName = OB.VENUE }) {
   // joined players watch the live session so the standings converge to the real endstand
   const [rows, setRows] = useS(players);
   const [srvDone, setSrvDone] = useS(false); // host pressed "Spiel beenden" (from the live session)
@@ -519,7 +522,7 @@ function ResultsScreen({ players, go, restart, account, family = [], onSave, onC
             <span style={{ fontSize: 26, lineHeight: 1 }}>🏆</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{winnerText}</div>
-              <div style={{ fontSize: 11, color: 'var(--ink-3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Endstand · {OB.VENUE}</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Endstand · {venueName}</div>
             </div>
           </div>
         ) : (
@@ -662,4 +665,4 @@ function ExpressSetup({ go, role, setRole, mode, setMode, players, setPlayers, f
   );
 }
 
-window.GAME = { GameScreen, ResultsScreen, ExpressSetup, totals, PARS, HOLES };
+window.GAME = { GameScreen, ResultsScreen, ExpressSetup, totals, PARS, setHoles, getHoles: () => HOLES };

@@ -498,6 +498,7 @@ def list_feedback():
 @app.route("/m/<token>")
 @app.route("/j/<token>")
 @app.route("/fb/<token>")
+@app.route("/p/<token>")  # per-venue QR link: /p/<venue-slug> — frontend reads it, sets the active venue
 def index(token=None):
     return send_from_directory(APP_DIR, "index.html")
 
