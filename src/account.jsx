@@ -307,7 +307,9 @@ const ghostLink = { border: 'none', background: 'transparent', color: 'var(--acc
 function HistoryCard({ g, onClick, account = null, family = [] }) {
   const { Avatar } = UI;
   const ranked = [...g.players].map(p => ({ p, t: aTotals(p) })).sort((a, b) => a.t.strokes - b.t.strokes);
-  const win = ranked[0];
+  // Gleichstand: ALLE mit der Best-Schlagzahl sind Sieger (nicht nur ranked[0])
+  const played = ranked.filter(r => r.t.played > 0);
+  const winners = played.length ? played.filter(r => r.t.strokes === played[0].t.strokes) : [];
   return (
     <button onClick={onClick} style={{
       width: '100%', textAlign: 'left', cursor: 'pointer', background: 'var(--card)',
@@ -321,10 +323,18 @@ function HistoryCard({ g, onClick, account = null, family = [] }) {
         </div>
         <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>{fmtShort(g.date)} · {g.players.length} Spieler</div>
       </div>
-      {win && (
+      {winners.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 18 }}>🥇</span>
-          <Avatar name={win.p.name} color={win.p.color} size={30} accountId={win.p.account_id} src={win.p.avatar} />
+          {/* bei Unentschieden alle Sieger zeigen (leicht überlappend, max 3 + Rest-Zähler) */}
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            {winners.slice(0, 3).map((w, i) => (
+              <div key={w.p.id} style={{ marginLeft: i ? -9 : 0, borderRadius: '50%', border: '2px solid var(--card)' }}>
+                <Avatar name={w.p.name} color={w.p.color} size={30} accountId={w.p.account_id} src={w.p.avatar} />
+              </div>
+            ))}
+            {winners.length > 3 && <span style={{ marginLeft: 4, fontSize: 11.5, fontWeight: 700, color: 'var(--ink-3)' }}>+{winners.length - 3}</span>}
+          </div>
         </div>
       )}
       <Ic.chevR size={18} color="var(--ink-3)" />
@@ -374,7 +384,20 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
   const rows = game.players.map(p => ({ p, t: totalOf(p) }));
   const ranked = editing ? rows : [...rows].sort((a, b) => a.t.strokes - b.t.strokes); // keep order steady while editing
   const startEdit = () => { const d = {}; game.players.forEach(p => { d[p.id] = { ...p.scores }; }); setDraft(d); setSel(null); setEditing(true); };
-  const setCell = (val) => { if (!sel) return; setDraft(d => ({ ...d, [sel.pid]: { ...(d[sel.pid] || {}), [sel.hole]: val } })); };
+  // Erste Ziffer nach Zell-Auswahl ERSETZT den Wert, eine zweite hängt an (1 → 15, max 99); 0 = leeren.
+  // Das Flag wird synchron beim Zell-Klick gesetzt (pickCell), nicht per Effekt — zuverlässig.
+  const freshCellRef = useAcR(true);
+  const pickCell = (pid, hole) => { freshCellRef.current = true; setSel({ pid, hole }); };
+  const setCell = (val) => {
+    if (!sel) return;
+    const fresh = freshCellRef.current; // JETZT lesen — der setDraft-Updater läuft erst später
+    freshCellRef.current = false;
+    setDraft(d => {
+      const cur = (d[sel.pid] || {})[sel.hole] || 0;
+      const next = val === 0 ? 0 : (fresh || cur * 10 + val > 99) ? val : cur * 10 + val;
+      return { ...d, [sel.pid]: { ...(d[sel.pid] || {}), [sel.hole]: next } };
+    });
+  };
   const finishEdit = () => {
     const players = game.players.map(p => ({ ...p, scores: Object.fromEntries(Object.entries(draft[p.id] || {}).filter(([h, v]) => v > 0)) }));
     onSave && onSave({ ...game, players });
@@ -391,7 +414,13 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
         {!editing && ranked[0] && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'color-mix(in srgb, var(--accent) 9%, var(--card))', border: '1px solid var(--accent)', borderRadius: 16, padding: '12px 16px', marginBottom: 16 }}>
             <span style={{ fontSize: 24 }}>🏆</span>
-            <Avatar name={ranked[0].p.name} color={ranked[0].p.color} size={36} accountId={ranked[0].p.account_id} src={ranked[0].p.avatar} />
+            <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              {(winners.length ? winners : ranked.slice(0, 1)).slice(0, 3).map((w, i) => (
+                <div key={w.p.id} style={{ marginLeft: i ? -10 : 0, borderRadius: '50%', border: '2px solid var(--card)' }}>
+                  <Avatar name={w.p.name} color={w.p.color} size={36} accountId={w.p.account_id} src={w.p.avatar} />
+                </div>
+              ))}
+            </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 16, fontWeight: 700 }}>{winText}</div>
               <div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{ranked[0].t.strokes} Schläge · {ranked[0].t.played} Bahnen</div>
@@ -423,7 +452,7 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
                     const on = editing && sel && sel.pid === p.id && sel.hole === h;
                     const inner = (<><div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-3)', lineHeight: 1 }}>{h}</div><div style={{ fontFamily: 'var(--num)', fontSize: 14.5, fontWeight: 600, color: v ? 'var(--ink)' : 'var(--ink-3)', lineHeight: 1.3 }}>{v || '·'}</div></>);
                     return editing
-                      ? <button key={h} onClick={() => setSel({ pid: p.id, hole: h })} style={{ flex: 1, textAlign: 'center', background: on ? 'color-mix(in srgb, var(--accent) 18%, var(--card))' : 'var(--line-2)', border: on ? '1.5px solid var(--accent)' : '1px solid transparent', borderRadius: 7, padding: '3px 0', cursor: 'pointer', fontFamily: 'var(--font)' }}>{inner}</button>
+                      ? <button key={h} onClick={() => pickCell(p.id, h)} style={{ flex: 1, textAlign: 'center', background: on ? 'color-mix(in srgb, var(--accent) 18%, var(--card))' : 'var(--line-2)', border: on ? '1.5px solid var(--accent)' : '1px solid transparent', borderRadius: 7, padding: '3px 0', cursor: 'pointer', fontFamily: 'var(--font)' }}>{inner}</button>
                       : <div key={h} style={{ flex: 1, textAlign: 'center', background: 'var(--line-2)', borderRadius: 7, padding: '4px 0' }}>{inner}</div>;
                   })}
                 </div>

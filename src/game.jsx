@@ -73,7 +73,7 @@ function ScoreRow({ p, hole, focused, onFocus, onSet, showTotals, editable = tru
               background: v > 0 ? 'var(--ink)' : 'var(--line-2)', color: v > 0 ? '#fff' : 'var(--ink-3)',
               fontFamily: 'var(--num)', fontSize: 22, fontWeight: 600,
             }}>{v > 0 ? v : '–'}</button>
-            <button onClick={() => onSet(p.id, Math.min(9, v + 1))} style={stepBtn(false, true)}><Ic.plus size={20} /></button>
+            <button onClick={() => onSet(p.id, Math.min(99, v + 1))} style={stepBtn(false, true)}><Ic.plus size={20} /></button>
           </div>
         ) : (
           /* read-only score (other players, when you joined as a single player) */
@@ -138,7 +138,7 @@ function Timeline({ hole, players, onJump }) {
 
 // ── Voice parsing (German) ────────────────────────────────
 const NUMW = { eins: 1, ein: 1, eine: 1, einen: 1, as: 1, ass: 1, einlochen: 1, zwei: 2, zwo: 2, drei: 3, vier: 4, 'fünf': 5, fuenf: 5, funf: 5, sechs: 6, sieben: 7, acht: 8, neun: 9 };
-function wordNum(tok) { if (/^[1-9]$/.test(tok)) return +tok; return NUMW[tok] != null ? NUMW[tok] : null; }
+function wordNum(tok) { if (/^[1-9][0-9]?$/.test(tok)) return +tok; return NUMW[tok] != null ? NUMW[tok] : null; } // Zahlen bis 99 (gesprochene Wörter weiterhin 1–9)
 function parseVoice(text, players) {
   const toks = (text || '').toLowerCase().replace(/[.,!?:;]/g, ' ').split(/\s+/).filter(Boolean);
   const nameMap = {}; players.forEach(p => { nameMap[p.name.toLowerCase().split(' ')[0]] = p.id; });
@@ -207,7 +207,7 @@ function VoiceSheet({ players, hole, onApply, onClose }) {
     return () => { doneRef.current = true; const rec = recRef.current; if (rec) { try { rec.abort(); } catch (e) {} } };
   }, []);
 
-  const setV = (idx, d) => setParsed(ps => ps.map((x, i) => i === idx ? { ...x, v: Math.max(1, Math.min(9, x.v + d)) } : x));
+  const setV = (idx, d) => setParsed(ps => ps.map((x, i) => i === idx ? { ...x, v: Math.max(1, Math.min(99, x.v + d)) } : x));
 
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 40, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', animation: 'fadeIn .2s both' }}>
