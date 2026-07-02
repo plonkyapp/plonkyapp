@@ -204,6 +204,9 @@ function App() {
     const src = me != null ? (players.find(p => String(p.id) === String(me)) || {}) : (players[0] || {});
     const acc = { id: ACC.newAccountId(), name: src.name || 'Spieler', color: src.color || AV[0], avatar: src.avatar || '', kind: me != null ? 'companion' : 'master', created: Date.now() };
     setAccount(acc);
+    // den eigenen Spieler-Slot ans neue Konto knüpfen — sonst erkennt der
+    // "Host nie in der eigenen Crew"-Filter (der über account_id geht) den Host nicht
+    setPlayers(ps => ps.map((p, i) => (me != null ? String(p.id) === String(me) : i === 0) ? { ...p, account_id: acc.id } : p));
     ACC.API.saveAccount(acc, me != null ? undefined : family).catch(() => {});
     if (me != null && sessionCode) ACC.API.sessionClaim(sessionCode, me, acc.avatar, acc.id).catch(() => {});
   }, [hydrated, screen, account, me, players.length, sessionCode]);
