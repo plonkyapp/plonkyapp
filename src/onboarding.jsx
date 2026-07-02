@@ -53,14 +53,14 @@ function Wordmark({ size = 34, color = 'var(--ink)' }) {
 }
 
 // ── 0. Landing / Begrüßung ────────────────────────────────
-function LandingScreen({ go, openLegal, openFaq, venue = DEFAULT_VENUE }) {
+function LandingScreen({ go, openLegal, openFaq, venue = DEFAULT_VENUE, onVenues = null }) {
   const { Screen, Btn } = UI;
   return (
     <Screen bg="var(--paper)">
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '0 26px', textAlign: 'center', overflowY: 'auto' }} className="noscroll">
         <div style={{ animation: 'fadeUp .5s both' }}><Wordmark size={28} /></div>
         {/* venue hero — tap to switch venue */}
-        <button onClick={() => go('venues')} style={{ width: '100%', maxWidth: 320, marginTop: 20, borderRadius: 22, overflow: 'hidden', border: '1px solid var(--line)', boxShadow: '0 16px 40px -22px rgba(0,0,0,0.45)', background: 'var(--card)', animation: 'fadeUp .6s .1s both', padding: 0, cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font)' }}>
+        <button onClick={() => (onVenues ? onVenues() : go('venues'))} style={{ width: '100%', maxWidth: 320, marginTop: 20, borderRadius: 22, overflow: 'hidden', border: '1px solid var(--line)', boxShadow: '0 16px 40px -22px rgba(0,0,0,0.45)', background: 'var(--card)', animation: 'fadeUp .6s .1s both', padding: 0, cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font)' }}>
           <VenueIllo venue={venue} />
           <div style={{ padding: '11px 15px', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0 }} />
@@ -159,7 +159,7 @@ function LegalScreen({ go, back = 'cover' }) {
 }
 
 // ── 1. Cover ──────────────────────────────────────────────
-function CoverScreen({ go, account, scanEnabled = true, onStart, companion = false, venue = DEFAULT_VENUE }) {
+function CoverScreen({ go, account, scanEnabled = true, onStart, companion = false, venue = DEFAULT_VENUE, onVenues = null }) {
   const { Screen, Btn, Avatar } = UI;
   return (
     <Screen bg="var(--paper)">
@@ -174,7 +174,7 @@ function CoverScreen({ go, account, scanEnabled = true, onStart, companion = fal
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '0 26px', paddingTop: 96 }}>
         <div style={{ animation: 'fadeUp .5s both' }}><Wordmark size={36} /></div>
         {!scanEnabled && (
-          <button onClick={() => go('venues')} style={{ marginTop: 16, display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '7px 12px 7px 14px', animation: 'fadeUp .5s .03s both', cursor: 'pointer', fontFamily: 'var(--font)' }}>
+          <button onClick={() => (onVenues ? onVenues() : go('venues'))} style={{ marginTop: 16, display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '7px 12px 7px 14px', animation: 'fadeUp .5s .03s both', cursor: 'pointer', fontFamily: 'var(--font)' }}>
             <Ic.pin size={15} color="var(--accent)" /><span style={{ fontSize: 13.5, fontWeight: 600 }}>{venue.name} · {venue.holes} Bahnen</span><Ic.chevR size={15} color="var(--ink-3)" />
           </button>
         )}
@@ -389,12 +389,21 @@ function ScanScreen({ go, express, venue = DEFAULT_VENUE }) {
 }
 
 // ── 3. Welcome / role A vs B ──────────────────────────────
-function RoleScreen({ go, role, setRole, back = 'scan' }) {
+function RoleScreen({ go, role, setRole, back = 'scan', venue = DEFAULT_VENUE, onVenues = null }) {
   const { Screen, AppHeader, Body, Footer, Btn, Steps } = UI;
   return (
     <Screen>
       <AppHeader title="Wer trägt ein?" sub="Session einrichten" onBack={() => go(back)} />
       <Body>
+        {/* aktive Anlage — antippen zum Wechseln (Konto-Besitzer sehen die Landing sonst kaum) */}
+        {onVenues && (
+          <button onClick={onVenues} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '7px 12px 7px 14px', marginBottom: 14, cursor: 'pointer', fontFamily: 'var(--font)' }}>
+            <Ic.pin size={15} color="var(--accent)" />
+            <span style={{ fontSize: 13.5, fontWeight: 600 }}>{venue.name} · {venue.holes} Bahnen</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>wechseln</span>
+            <Ic.chevR size={15} color="var(--ink-3)" />
+          </button>
+        )}
         <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45, marginBottom: 18 }}>
           Spielt ihr zusammen, reicht ein Handy. Oder jeder tippt selbst — wie ihr wollt.
         </div>
