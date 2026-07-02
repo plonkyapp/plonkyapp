@@ -83,6 +83,8 @@ function LandingScreen({ go, openLegal, openFaq, venue = DEFAULT_VENUE, onVenues
           <button onClick={() => (openFaq ? openFaq() : go('faq'))} style={{ border: 'none', background: 'transparent', color: 'var(--ink-3)', textDecoration: 'underline', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font)', padding: 4 }}>Häufige Fragen</button>
           <span style={{ color: 'var(--ink-3)', fontSize: 11.5 }}>·</span>
           <button onClick={() => (openLegal ? openLegal() : go('legal'))} style={{ border: 'none', background: 'transparent', color: 'var(--ink-3)', textDecoration: 'underline', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font)', padding: 4 }}>Hinweise &amp; Datenschutz</button>
+          <span style={{ color: 'var(--ink-3)', fontSize: 11.5 }}>·</span>
+          <a href="https://plonky.ch" target="_blank" rel="noopener" style={{ color: 'var(--ink-3)', textDecoration: 'underline', fontSize: 11.5, fontWeight: 600, fontFamily: 'var(--font)', padding: 4 }}>plonky.ch</a>
         </div>
       </div>
     </Screen>
@@ -125,7 +127,7 @@ function FaqScreen({ go, back = 'home', openLegal }) {
         <A>Gib dir und deiner Crew in den Einstellungen ein Foto — es erscheint überall: im Spiel, im Endstand und im Verlauf.</A>
 
         <div style={{ marginTop: 24, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-          Noch eine Frage? Schreib uns über „Feedback geben". Zu Daten &amp; Beta: <button onClick={() => (openLegal ? openLegal() : go('legal'))} style={{ border: 'none', background: 'transparent', color: 'var(--accent)', fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font)', padding: 0 }}>Hinweise &amp; Datenschutz</button>.
+          Noch eine Frage? Schreib uns über „Feedback geben". Zu Daten &amp; Beta: <button onClick={() => (openLegal ? openLegal() : go('legal'))} style={{ border: 'none', background: 'transparent', color: 'var(--accent)', fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font)', padding: 0 }}>Hinweise &amp; Datenschutz</button>. Mehr über plonky, Anlagen &amp; News: <a href="https://plonky.ch" target="_blank" rel="noopener" style={{ color: 'var(--accent)', fontWeight: 600 }}>plonky.ch</a>.
         </div>
       </Body>
     </Screen>

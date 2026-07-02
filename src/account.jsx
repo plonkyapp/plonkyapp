@@ -582,6 +582,13 @@ function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto,
           <Ic.chevR size={18} color="var(--ink-3)" />
         </button>
 
+        {/* Verweis zurück auf die Website — öffnet extern, App bleibt offen */}
+        <a href="https://plonky.ch" target="_blank" rel="noopener" style={{ width: '100%', marginTop: 10, display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '14px 16px', cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font)', textDecoration: 'none', color: 'inherit', boxSizing: 'border-box' }}>
+          <div style={{ color: 'var(--accent)' }}><Ic.link size={20} /></div>
+          <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 700 }}>plonky.ch</div><div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>Mehr über plonky — Idee, Anlagen & News</div></div>
+          <Ic.chevR size={18} color="var(--ink-3)" />
+        </a>
+
         <button onClick={logout} style={{ width: '100%', marginTop: 16, height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'transparent', color: 'var(--bad)', fontFamily: 'var(--font)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Konto abmelden</button>
         <button onClick={() => (openLegal ? openLegal() : go('legal'))} style={{ width: '100%', marginTop: 10, marginBottom: 10, height: 44, borderRadius: 14, border: 'none', background: 'transparent', color: 'var(--ink-3)', fontFamily: 'var(--font)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Hinweise &amp; Datenschutz</button>
       </Body>
