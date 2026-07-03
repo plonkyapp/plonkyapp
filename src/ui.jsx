@@ -40,28 +40,16 @@ function pickPhoto(onResult) {
 function resolvePhoto(person, account, family, avatars) {
   if (!person) return '';
   const explicitAid = person.account_id || person.accountId || null;
-  const nm = (person.name || '').trim().toLowerCase();
   // 1) Echte user_id an der Person → die ist die Wahrheit (Konto-Foto, Cache, dann Schnappschuss)
   if (explicitAid) {
     if (account && explicitAid === account.id) return account.avatar || '';   // me → always current
     if (avatars && Object.prototype.hasOwnProperty.call(avatars, explicitAid)) return avatars[explicitAid] || '';
     return person.avatar || ''; // id bekannt, Foto noch nicht geladen → Schnappschuss
   }
-  // 2) KEINE user_id (Gast): das mitgereiste Foto der Person zählt — Namens-Raten
-  //    darf es nie überstimmen (Name ist nur ein Etikett; Gleichnamige sind verschiedene User)
-  if (person.avatar) return person.avatar;
-  // 3) Nur wenn die Person selbst gar kein Foto hat: Namens-Fallback für Alt-Daten
-  let aid = null;
-  if (nm) {
-    if (account && (account.name || '').trim().toLowerCase() === nm) aid = account.id;
-    else { const m = (family || []).find(x => x && x.accountId && (x.name || '').trim().toLowerCase() === nm); if (m) aid = m.accountId; }
-  }
-  if (aid && account && aid === account.id) return account.avatar || '';
-  if (aid && avatars && Object.prototype.hasOwnProperty.call(avatars, aid)) return avatars[aid] || '';
-  if (account && account.avatar && (account.name || '').trim().toLowerCase() === nm) return account.avatar;
-  const fm = (family || []).find(x => x && x.avatar && (x.name || '').trim().toLowerCase() === nm);
-  if (fm) return fm.avatar;
-  return '';
+  // 2) KEINE user_id (Gast): NUR das mitgereiste Foto der Person — Identität wird
+  //    NIE über den Namen geraten (Name ist ein Etikett; Gleichnamige sind
+  //    verschiedene User). Ohne ID und ohne Foto gibt's die Initiale.
+  return person.avatar || '';
 }
 // Context carries a bound resolver `(person) => photo` so every <Avatar> resolves
 // by id without threading account/family/avatars through every component.
