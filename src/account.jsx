@@ -480,6 +480,7 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
 function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto, go, logout, defaultMode, setDefaultMode, autoCrew, setAutoCrew, companion = false, openLegal, openFeedback, openFaq }) {
   const { Screen, AppHeader, Body, Avatar, AV_COLORS } = UI;
   const [editId, setEditId] = useAcS(null);
+  const [confirmDel, setConfirmDel] = useAcS(null); // Mitglied-ID, für die die Lösch-Abfrage offen ist
   const [newName, setNewName] = useAcS('');
   const [copied, setCopied] = useAcS(false);
   const fullLink = account.id ? accountLink(account.id) : '';
@@ -491,7 +492,7 @@ function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto,
   const addMember = () => { const n = newName.trim(); if (!n) return; setFamily(f => [...f, { id: Date.now(), name: n, color: AV_COLORS[f.length % AV_COLORS.length] }]); setNewName(''); };
   const recolor = (id) => setFamily(f => f.map(m => m.id === id ? { ...m, color: AV_COLORS[(AV_COLORS.indexOf(m.color) + 1) % AV_COLORS.length] } : m));
   const rename = (id, name) => setFamily(f => f.map(m => m.id === id ? { ...m, name } : m));
-  const removeM = (id) => setFamily(f => f.filter(m => m.id !== id));
+  const removeM = (id) => { setFamily(f => f.filter(m => m.id !== id)); setConfirmDel(null); };
   const setMemberPhoto = (member, src) => (onMemberPhoto ? onMemberPhoto(member, src) : setFamily(f => f.map(m => m.id === member.id ? { ...m, avatar: src } : m)));
 
   return (
@@ -544,8 +545,22 @@ function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto,
                   : <div style={{ flex: 1, fontSize: 15.5, fontWeight: 600 }}>{m.name}</div>}
                 <button onClick={() => UI.pickPhoto(src => setMemberPhoto(m, src))} title="Foto" style={iconBtn}><Ic.camera size={17} color={(m.avatar || m.accountId) ? 'var(--accent)' : 'var(--ink-3)'} /></button>
                 <button onClick={() => setEditId(editId === m.id ? null : m.id)} style={iconBtn}>{editId === m.id ? <Ic.check size={18} color="var(--accent)" /> : <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-3)' }}>Bearb.</span>}</button>
-                <button onClick={() => removeM(m.id)} style={iconBtn}><Ic.x size={17} color="var(--ink-3)" /></button>
+                <button onClick={() => setConfirmDel(confirmDel === m.id ? null : m.id)} style={iconBtn}><Ic.x size={17} color="var(--ink-3)" /></button>
               </div>
+              {confirmDel === m.id && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--line)', animation: 'fadeUp .2s both' }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{m.name} {m.accountId ? 'aus deiner Crew entfernen?' : 'aus der Crew löschen?'}</div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 3, lineHeight: 1.45 }}>
+                    {m.accountId
+                      ? 'Das eigene Mitspieler-Konto bleibt bestehen — nur der Schnellzugriff verschwindet.'
+                      : 'Foto und Eintrag gehen verloren. Frühere Spiele bleiben unverändert — ein neu angelegtes Mitglied ist ein neuer Spieler.'}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 9 }}>
+                    <button onClick={() => removeM(m.id)} style={{ flex: 1, height: 40, borderRadius: 11, border: 'none', background: 'var(--bad)', color: '#fff', fontFamily: 'var(--font)', fontSize: 13.5, fontWeight: 700, cursor: 'pointer' }}>{m.accountId ? 'Entfernen' : 'Löschen'}</button>
+                    <button onClick={() => setConfirmDel(null)} style={{ flex: 1, height: 40, borderRadius: 11, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontFamily: 'var(--font)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Abbrechen</button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
           <div style={{ display: 'flex', gap: 9 }}>

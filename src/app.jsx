@@ -140,10 +140,11 @@ function App() {
     if (linkMatch) {
       const token = decodeURIComponent(linkMatch[1]);
       if (window.history && window.history.replaceState) window.history.replaceState({}, '', '/');
-      if (d.family) setFamily(healFam(d.family));
+      // Kontowechsel = Rucksack ausräumen: Crew/Verlauf kommen NUR vom Server des
+      // neuen Kontos; das Runden-Lesezeichen nur, wenn es DIESEM Konto gehört.
       if (d.defaultMode) setDefaultMode(d.defaultMode);
       if (d.autoCrew != null) setAutoCrew(d.autoCrew);
-      if (d.activeSession) setActiveSession(d.activeSession);
+      if (d.activeSession && String(d.activeSession.accountId || '') === String(token)) setActiveSession(d.activeSession);
       ACC.API.getAccount(token)
         .then(acc => {
           setAccount(acc && acc.id
@@ -191,7 +192,13 @@ function App() {
     // adopt this account's photo from the server (the shared source), so a change
     // made on another device — e.g. the master setting your crew photo — shows here
     if (acc && acc.id) ACC.API.getAccount(acc.id)
-      .then(server => { if (server && server.avatar !== undefined) setAccount(a => (a && String(a.id) === String(acc.id) && a.avatar !== server.avatar) ? { ...a, avatar: server.avatar } : a); })
+      .then(server => {
+        if (!server) return;
+        if (server.avatar !== undefined) setAccount(a => (a && String(a.id) === String(acc.id) && a.avatar !== server.avatar) ? { ...a, avatar: server.avatar } : a);
+        // Crew: der Server ist die eine Quelle — Löschen/Neuanlegen auf Gerät A
+        // kommt so beim nächsten Öffnen auch auf Gerät B an (statt wiederbelebt zu werden)
+        if (Array.isArray(server.crew)) { const fam = healFam(server.crew); setFamily(fam); refreshLinkedCrew(fam); }
+      })
       .catch(() => {});
   }, []);
   // persist
@@ -222,8 +229,8 @@ function App() {
   // remember the live round you're in, so "Mein plonky" can dive back into it
   // (the bookmark survives going home; it's cleared on finish/save or delete)
   useAE(() => {
-    if (hydrated && sessionCode) setActiveSession({ code: sessionCode, role, me, mode: mode || 'sequential', venue: venue.name });
-  }, [hydrated, sessionCode, role, me, mode]);
+    if (hydrated && sessionCode) setActiveSession({ code: sessionCode, role, me, mode: mode || 'sequential', venue: venue.name, accountId: (account && account.id) || null });
+  }, [hydrated, sessionCode, role, me, mode, account]);
 
   // accounts from the start: a fresh host (or a joiner) gets a real account from
   // their name/slot the moment they enter a round — no end-of-game "save your account"
@@ -500,8 +507,9 @@ function App() {
     return ACC.API.getAccount(token).then(acc => {
       if (!acc || !acc.id) throw new Error('not found');
       setAccount({ id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', avatar: acc.avatar || '', created: acc.created || Date.now() });
-      if (Array.isArray(acc.crew)) setFamily(healFam(acc.crew));
-      ACC.API.listGames(acc.id).then(server => setHistory(local => ACC.mergeGames(local, server || []))).catch(() => {});
+      setFamily(healFam(Array.isArray(acc.crew) ? acc.crew : []));
+      setActiveSession(as => (as && String(as.accountId || '') === String(acc.id)) ? as : null); // fremdes Lesezeichen verwerfen
+      ACC.API.listGames(acc.id).then(server => setHistory(server || [])).catch(() => {});
       go('home');
       return acc;
     });
