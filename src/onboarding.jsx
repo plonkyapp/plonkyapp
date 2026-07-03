@@ -507,7 +507,7 @@ function InviteScreen({ go, players, mode, sessionCode, setSessionCode, venueNam
     creatingRef.current = true;
     ACC.API.createSession({
       mode: mode || 'sequential', venue: venueName,
-      players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '' })),
+      players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '', account_id: p.account_id || null })),
     }).then(sess => { setCode(sess.code); setSessionCode && setSessionCode(sess.code); })
       .catch(() => setErr(true));
   }, []);

@@ -41,7 +41,7 @@ const navBtn = dis => ({
 });
 
 // ── Player score row ──────────────────────────────────────
-function ScoreRow({ p, hole, focused, onFocus, onSet, showTotals, editable = true, isMe = false, account = null, family = [] }) {
+function ScoreRow({ p, hole, focused, onFocus, onSet, showTotals, editable = true, isMe = false, account = null, family = [], nameOf = (x) => x.name }) {
   const v = p.scores[hole] || 0;
   const t = totals(p);
   return (
@@ -52,10 +52,10 @@ function ScoreRow({ p, hole, focused, onFocus, onSet, showTotals, editable = tru
       opacity: editable ? 1 : 0.92,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <UI.Avatar name={p.name} color={p.color} size={40} accountId={p.account_id} src={p.avatar} />
+        <UI.Avatar name={nameOf(p)} color={p.color} size={40} accountId={p.account_id} src={p.avatar} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 7 }}>
-            {p.name}
+            {nameOf(p)}
             {isMe && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 14%, transparent)', borderRadius: 999, padding: '2px 7px', letterSpacing: 0.3 }}>DU</span>}
           </div>
           {showTotals && (
@@ -309,7 +309,7 @@ function EndConfirmSheet({ miss, onBack, onEnd }) {
   );
 }
 
-function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults, sessionCode, me, onHome, account = null, family = [], venueName = OB.VENUE }) {
+function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults, sessionCode, me, onHome, account = null, family = [], venueName = OB.VENUE, nameOf = (x) => x.name }) {
   const [hole, setHole] = useS(1);
   const [focus, setFocus] = useS(null);
   const [voice, setVoice] = useS(false);
@@ -407,7 +407,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
       <UI.Body pad={16} style={{ paddingTop: 6 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {ordered.map(p => (
-            <ScoreRow key={p.id} p={p} hole={hole} focused={focus === p.id} onFocus={setFocus} onSet={set} showTotals={showTotals}
+            <ScoreRow key={p.id} p={p} hole={hole} focused={focus === p.id} onFocus={setFocus} onSet={set} showTotals={showTotals} nameOf={nameOf}
               editable={canEdit(p.id)} isMe={me != null && String(p.id) === String(me)} account={account} family={family} />
           ))}
         </div>
@@ -450,7 +450,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
 }
 
 // ── Results / standings ───────────────────────────────────
-function ResultsScreen({ players, go, restart, account, family = [], onSave, onCompanionSave, final = true, onFinish, joined = false, sessionCode, me = null, onLeaveJoined, venueName = OB.VENUE }) {
+function ResultsScreen({ players, go, restart, account, family = [], onSave, onCompanionSave, final = true, onFinish, joined = false, sessionCode, me = null, onLeaveJoined, venueName = OB.VENUE, nameOf = (x) => x.name }) {
   // joined players watch the live session so the standings converge to the real endstand
   const [rows, setRows] = useS(players);
   const [srvDone, setSrvDone] = useS(false); // host pressed "Spiel beenden" (from the live session)
@@ -513,7 +513,7 @@ function ResultsScreen({ players, go, restart, account, family = [], onSave, onC
   const topScore = leader ? leader.t.strokes : null;            // best (lowest) strokes
   const winners = topScore != null ? ranked.filter(r => r.t.played > 0 && r.t.strokes === topScore) : [];
   const tie = winners.length > 1;
-  const winnerText = tie ? (winners.length === 2 ? `${winners[0].p.name} & ${winners[1].p.name} gewinnen 🤝` : 'Unentschieden 🤝') : (leader ? `${leader.p.name} gewinnt! 🎉` : '');
+  const winnerText = tie ? (winners.length === 2 ? `${nameOf(winners[0].p)} & ${nameOf(winners[1].p)} gewinnen 🤝` : 'Unentschieden 🤝') : (leader ? `${nameOf(leader.p)} gewinnt! 🎉` : '');
   return (
     <UI.Screen>
       <div style={{ paddingTop: 56, padding: '56px 18px 8px', flexShrink: 0 }}>
@@ -568,10 +568,10 @@ function ResultsScreen({ players, go, restart, account, family = [], onSave, onC
                 border: hl ? '2px solid var(--accent)' : '1px solid var(--line)',
               }}>
                 <div style={{ width: 22, textAlign: 'center', fontSize: ended && i < 3 ? 20 : 14, fontWeight: 700, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{t.played > 0 ? (ended ? (t.strokes === topScore ? '🥇' : (medal[i] || i + 1)) : i + 1) : '·'}</div>
-                <UI.Avatar name={p.name} color={p.color} size={34} accountId={p.account_id} src={p.avatar} />
+                <UI.Avatar name={nameOf(p)} color={p.color} size={34} accountId={p.account_id} src={p.avatar} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {p.name}
+                    {nameOf(p)}
                     {isMine && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 14%, transparent)', borderRadius: 999, padding: '2px 6px', letterSpacing: 0.3, flexShrink: 0 }}>DU</span>}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{t.played}/{HOLES} Bahnen</div>

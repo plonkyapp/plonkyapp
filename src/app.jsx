@@ -49,17 +49,45 @@ function App() {
   const [autoCrew, setAutoCrew] = useAS(true);
   const [activeSession, setActiveSession] = useAS(null); // bookmark to a live round you can dive back into
   const [avatars, setAvatars] = useAS({}); // account id -> current photo (the one source, fetched in batch)
+  const [liveNames, setLiveNames] = useAS({}); // account id -> current name (same batch; Namen lösen wie Fotos live über die ID auf)
   const gameSavedRef = useAR(false);
   const soloSessionRef = useAR(false); // guards one-time session creation for a solo "ich tippe für alle" game
   const pendingAvatarRef = useAR(new Set()); // account ids whose photo is being saved — a fetch must not overwrite them
   const firstAccountSyncRef = useAR(true); // skip the first server-push after load so stale local doesn't clobber a remote change
 
+  // Doppelte Crew-IDs heilen (Altlast des 'fme'-Bugs): gleiche ID = geteilte Scores
+  // im Spiel. Duplikate bekommen beim Laden eine frische ID; Einträge bleiben erhalten.
+  const healFam = (fam) => {
+    const seen = new Set();
+    return (fam || []).map((m, i) => {
+      let id = m && m.id;
+      if (id == null || seen.has(String(id))) id = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + i;
+      seen.add(String(id));
+      return String(id) === String(m.id) ? m : { ...m, id };
+    });
+  };
+
+  // Eigener Slot in einer geladenen Runde: immer Name/Foto des AKTUELLEN Kontos —
+  // der Session-Schnappschuss darf eine Umbenennung (z. B. während Pause) nicht überleben.
+  const overlaySelf = (ps, acc) => (acc && acc.id)
+    ? ps.map(p => String(p.account_id) === String(acc.id) ? { ...p, name: acc.name || p.name, avatar: acc.avatar || p.avatar } : p)
+    : ps;
+
+  // Name wie Fotos live über die user_id (account.id) auflösen; Schnappschuss nur Fallback
+  const nameOf = (p) => {
+    if (!p) return '';
+    const aid = p.account_id || p.accountId || null;
+    if (aid && account && String(aid) === String(account.id)) return account.name || p.name;
+    if (aid && liveNames[aid]) return liveNames[aid];
+    return p.name;
+  };
+
   // For crew members linked to a Mitspieler-Konto, pull that account's current
-  // photo so the master always shows the person's up-to-date picture.
+  // photo AND name so the master always shows the person's up-to-date identity.
   const refreshLinkedCrew = (fam) => {
     (fam || []).forEach(m => {
       if (m && m.accountId) ACC.API.getAccount(m.accountId)
-        .then(a => { if (a) setFamily(cur => cur.map(x => x.id === m.id ? { ...x, avatar: a.avatar || x.avatar } : x)); })
+        .then(a => { if (a) setFamily(cur => cur.map(x => x.id === m.id ? { ...x, avatar: a.avatar || x.avatar, name: a.name || x.name } : x)); })
         .catch(() => {});
     });
   };
@@ -90,7 +118,7 @@ function App() {
       let acc = d.account || null;
       if (acc && !acc.id) acc = { ...acc, id: ACC.newAccountId() };
       if (acc) setAccount(acc);
-      if (d.family) setFamily(d.family);
+      if (d.family) setFamily(healFam(d.family));
       if (d.defaultMode) setDefaultMode(d.defaultMode);
       if (d.autoCrew != null) setAutoCrew(d.autoCrew);
       ACC.API.getSession(code, true)
@@ -99,7 +127,7 @@ function App() {
           setSessionCode(sess.code);
           setMode(sess.mode || 'sequential');
           const sv = OB.venueByName(sess.venue); if (sv) { setVenue(sv); GAME.setHoles(sv.holes); } // join the round's venue
-          setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })));
+          setPlayers(overlaySelf((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })), acc));
           setRole('others');
           setScreen('join');
         })
@@ -112,7 +140,7 @@ function App() {
     if (linkMatch) {
       const token = decodeURIComponent(linkMatch[1]);
       if (window.history && window.history.replaceState) window.history.replaceState({}, '', '/');
-      if (d.family) setFamily(d.family);
+      if (d.family) setFamily(healFam(d.family));
       if (d.defaultMode) setDefaultMode(d.defaultMode);
       if (d.autoCrew != null) setAutoCrew(d.autoCrew);
       if (d.activeSession) setActiveSession(d.activeSession);
@@ -121,7 +149,7 @@ function App() {
           setAccount(acc && acc.id
             ? { id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', avatar: acc.avatar || '', created: acc.created || Date.now() }
             : { id: token, name: 'Spieler', color: AV[0], kind: 'master', avatar: '', created: Date.now() });
-          if (acc && Array.isArray(acc.crew)) { setFamily(acc.crew); refreshLinkedCrew(acc.crew); } // server crew wins on a fresh device
+          if (acc && Array.isArray(acc.crew)) { const fam = healFam(acc.crew); setFamily(fam); refreshLinkedCrew(fam); } // server crew wins on a fresh device
           setScreen('home');
           return ACC.API.listGames(token);
         })
@@ -151,7 +179,7 @@ function App() {
     else if (pickedVenue) setScreen('landing');
     else setScreen('venues');
 
-    if (d.family) { setFamily(d.family); refreshLinkedCrew(d.family); }
+    if (d.family) { const fam = healFam(d.family); setFamily(fam); refreshLinkedCrew(fam); }
     if (d.history) setHistory(d.history);
     if (d.activeSession) setActiveSession(d.activeSession);
     if (d.defaultMode) setDefaultMode(d.defaultMode);
@@ -216,7 +244,7 @@ function App() {
   useAE(() => {
     if (!hydrated || sessionCode || screen !== 'game' || me != null || !account || !players.length || soloSessionRef.current) return;
     soloSessionRef.current = true;
-    ACC.API.createSession({ mode: mode || 'sequential', venue: venue.name, players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '' })) })
+    ACC.API.createSession({ mode: mode || 'sequential', venue: venue.name, players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '', account_id: p.account_id || null })) })
       .then(sess => setSessionCode(sess.code))
       .catch(() => {})
       .finally(() => { soloSessionRef.current = false; });
@@ -245,13 +273,17 @@ function App() {
     const ids = new Set();
     (family || []).forEach(m => { if (m && m.accountId) ids.add(m.accountId); });
     (history || []).forEach(g => (g.players || []).forEach(p => { if (p && p.account_id) ids.add(p.account_id); }));
+    (players || []).forEach(p => { if (p && p.account_id) ids.add(p.account_id); }); // auch Mitspieler der LIVE-Runde
     if (account && account.id) ids.delete(account.id);
     const list = [...ids];
     if (!list.length) return;
     ACC.API.getAccounts(list)
-      .then(accs => setAvatars(prev => { const next = { ...prev }; (accs || []).forEach(a => { if (!pendingAvatarRef.current.has(a.id)) next[a.id] = a.avatar || ''; }); return next; }))
+      .then(accs => {
+        setAvatars(prev => { const next = { ...prev }; (accs || []).forEach(a => { if (!pendingAvatarRef.current.has(a.id)) next[a.id] = a.avatar || ''; }); return next; });
+        setLiveNames(prev => { const next = { ...prev }; (accs || []).forEach(a => { if (a.name) next[a.id] = a.name; }); return next; });
+      })
       .catch(() => {});
-  }, [hydrated, screen, family.length, history.length]);
+  }, [hydrated, screen, family.length, history.length, players.length]);
 
   useAE(() => { document.documentElement.style.setProperty('--accent', t.accent); }, [t.accent]);
   // Bahnenzahl im Spiel folgt der aktiven Anlage (Backstop; Spielstart-Pfade setzen es zusätzlich synchron)
@@ -278,8 +310,10 @@ function App() {
       const names = new Set(fam.map(m => m.name.toLowerCase()));
       // never add the host to their OWN crew (by account id, not name) — otherwise
       // renaming the account leaves a stale, unmatched self-entry → a duplicate
+      // frische, garantiert einzigartige Crew-IDs — 'f'+p.id kollidierte, weil jeder
+      // unverknüpfte Host-Slot 'me' heißt → alle bekamen 'fme' und teilten Scores
       const add = pls.filter(p => !(owner && p.account_id === owner) && !names.has(p.name.toLowerCase()))
-        .map(p => ({ id: 'f' + p.id, name: p.name, color: p.color, accountId: p.account_id || undefined }));
+        .map((p, i) => ({ id: 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + i, name: p.name, color: p.color, accountId: p.account_id || undefined }));
       return [...fam, ...add];
     });
     if (owner) ACC.API.saveGame(owner, game).catch(() => {}); // best-effort; local copy already saved
@@ -349,7 +383,7 @@ function App() {
       setSessionCode(sess.code);
       setMode(sess.mode || 'sequential');
       const sv = OB.venueByName(sess.venue); if (sv) setVenue(sv); GAME.setHoles((sv || venue).holes); // resume into the round's venue
-      setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })));
+      setPlayers(overlaySelf((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })), account));
       const b = activeSession || {};
       setRole(b.role || (b.me != null ? 'others' : 'me'));
       setMe(b.me != null ? b.me : null);
@@ -450,7 +484,7 @@ function App() {
     setSessionCode(sess.code);
     setMode(sess.mode || 'sequential');
     const sv = OB.venueByName(sess.venue); if (sv) setVenue(sv); GAME.setHoles((sv || venue).holes); // adopt the round's venue + hole count
-    setPlayers((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })));
+    setPlayers(overlaySelf((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })), account));
     setRole('others');
     setMe(null);
     go('join');
@@ -466,7 +500,7 @@ function App() {
     return ACC.API.getAccount(token).then(acc => {
       if (!acc || !acc.id) throw new Error('not found');
       setAccount({ id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', avatar: acc.avatar || '', created: acc.created || Date.now() });
-      if (Array.isArray(acc.crew)) setFamily(acc.crew);
+      if (Array.isArray(acc.crew)) setFamily(healFam(acc.crew));
       ACC.API.listGames(acc.id).then(server => setHistory(local => ACC.mergeGames(local, server || []))).catch(() => {});
       go('home');
       return acc;
@@ -502,15 +536,15 @@ function App() {
     case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} onMemberPhoto={setCrewPhoto} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} openLegal={openLegal} openFeedback={openFeedback} openFaq={openFaq} />; break;
     case 'joinCode': view = <OB.JoinCodeScreen go={go} onJoined={enterSession} back={account ? 'home' : 'cover'} />; break;
     case 'history': view = <ACC.HistoryScreen history={history} go={go} openGame={openGame} account={account} family={family} />; break;
-    case 'historyDetail': view = <ACC.HistoryDetailScreen game={history.find(g => g.id === histId)} go={go} from={histFrom} onSave={isCompanion ? undefined : saveEditedGame} account={account} family={family} />; break;
+    case 'historyDetail': view = <ACC.HistoryDetailScreen game={history.find(g => g.id === histId)} go={go} from={histFrom} onSave={isCompanion ? undefined : saveEditedGame} account={account} family={family} nameOf={nameOf} />; break;
     case 'scan': view = <OB.ScanScreen go={go} express={t.onboardingFlow === 'express'} venue={venue} />; break;
     case 'welcome': view = <OB.RoleScreen go={go} role={role} setRole={setRole} back={scanEnabled ? 'scan' : 'cover'} venue={venue} onVenues={openVenues} />; break;
     case 'players': view = <OB.PlayersScreen go={go} players={players} setPlayers={setPlayers} role={role} family={family} />; break;
     case 'invite': view = <OB.InviteScreen go={go} players={players} mode={mode} sessionCode={sessionCode} setSessionCode={setSessionCode} venueName={venue.name} />; break;
     case 'join': view = <OB.JoinScreen go={go} players={players} setMe={setMe} sessionCode={sessionCode} account={account} />; break;
     case 'express': view = <GAME.ExpressSetup go={go} role={role} setRole={setRole} mode={mode} setMode={setMode} players={players} setPlayers={setPlayers} family={family} />; break;
-    case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} onHome={account && sessionCode ? restart : null} account={account} family={family} venueName={venue.name} />; break;
-    case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} family={family} onSave={saveGame} onCompanionSave={saveCompanionGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} me={me} onLeaveJoined={leaveJoined} venueName={venue.name} />; break;
+    case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} onHome={account && sessionCode ? restart : null} account={account} family={family} venueName={venue.name} nameOf={nameOf} />; break;
+    case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} family={family} onSave={saveGame} onCompanionSave={saveCompanionGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} me={me} onLeaveJoined={leaveJoined} venueName={venue.name} nameOf={nameOf} />; break;
     default: view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} venue={venue} onVenues={openVenues} />;
   }
 

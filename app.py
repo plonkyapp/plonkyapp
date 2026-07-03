@@ -314,6 +314,8 @@ def create_session():
             "claimed": bool(p.get("claimed")),
             "host": (i == 0),  # the lead device that created the round
             "avatar": p.get("avatar") or "",
+            # identity travels with the round: names/photos resolve live by account id
+            "account_id": p.get("account_id"),
         }
         for i, p in enumerate(data.get("players") or [])
     ]
@@ -393,6 +395,8 @@ def session_players(code):
         })
         if old.get("account_id"):  # keep the slot↔account link across roster syncs
             merged[-1]["account_id"] = old.get("account_id")
+        elif p.get("account_id"):  # host roster carries identities too (e.g. the host's own slot)
+            merged[-1]["account_id"] = p.get("account_id")
     payload["players"] = merged
     s.data = json.dumps(payload)
     s.rev = (s.rev or 0) + 1

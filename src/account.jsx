@@ -122,7 +122,7 @@ const API = {
     const r = await fetch('/api/session/' + encodeURIComponent(code) + '/players', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ players: (players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '' })) }),
+      body: JSON.stringify({ players: (players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '', account_id: p.account_id || null })) }),
     });
     if (!r.ok) throw new Error('sessionPlayers ' + r.status);
     return r.json();
@@ -363,7 +363,7 @@ function HistoryScreen({ history, go, openGame, account = null, family = [] }) {
 }
 
 // ── History detail (scorecard, editable) ──────────────────
-function HistoryDetailScreen({ game, go, from, onSave, account = null, family = [] }) {
+function HistoryDetailScreen({ game, go, from, onSave, account = null, family = [], nameOf = (x) => x.name }) {
   const { Screen, AppHeader, Body, Avatar } = UI;
   const [editing, setEditing] = useAcS(false);
   const [draft, setDraft] = useAcS({});   // { [pid]: { [hole]: strokes } } while editing
@@ -406,7 +406,7 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
   const selName = sel ? (game.players.find(p => p.id === sel.pid) || {}).name : '';
   const top = ranked[0] && ranked[0].t.played > 0 ? ranked[0].t.strokes : null;
   const winners = top != null ? ranked.filter(r => r.t.played > 0 && r.t.strokes === top) : [];
-  const winText = winners.length > 1 ? (winners.length === 2 ? `${winners[0].p.name} & ${winners[1].p.name} gewinnen` : 'Unentschieden') : (ranked[0] ? `${ranked[0].p.name} gewinnt` : '');
+  const winText = winners.length > 1 ? (winners.length === 2 ? `${nameOf(winners[0].p)} & ${nameOf(winners[1].p)} gewinnen` : 'Unentschieden') : (ranked[0] ? `${nameOf(ranked[0].p)} gewinnt` : '');
   return (
     <Screen>
       <AppHeader title={game.venue} sub={fmtDate(game.date) + (game.code ? ' · ' + game.code : '')} onBack={() => editing ? finishEdit() : go(from)} />
@@ -438,8 +438,8 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
             <div key={p.id} style={{ background: 'var(--card)', border: !editing && i === 0 ? '1.5px solid var(--accent)' : '1px solid var(--line)', borderRadius: 16, padding: '12px 13px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                 <div style={{ width: 16, textAlign: 'center', fontSize: 13, fontWeight: 800, color: 'var(--ink-3)', fontFamily: 'var(--num)' }}>{editing ? '' : i + 1}</div>
-                <Avatar name={p.name} color={p.color} size={26} accountId={p.account_id} src={p.avatar} />
-                <span style={{ flex: 1, fontSize: 14.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
+                <Avatar name={nameOf(p)} color={p.color} size={26} accountId={p.account_id} src={p.avatar} />
+                <span style={{ flex: 1, fontSize: 14.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nameOf(p)}</span>
                 <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <span style={{ fontFamily: 'var(--num)', fontSize: 21, fontWeight: 800 }}>{t.strokes}</span>
                   <span style={{ fontSize: 11, color: 'var(--ink-3)', fontWeight: 600 }}> · {t.played}/{holes.length}</span>
