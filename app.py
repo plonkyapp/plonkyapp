@@ -184,7 +184,7 @@ def game_to_dict(game):
 
 @app.route("/api/health")
 def health():
-    return jsonify({"ok": True, "build": "analytics+tg-ping"})
+    return jsonify({"ok": True, "build": "analytics+tg+konten-log"})
 
 
 @app.route("/api/games", methods=["GET"])
@@ -604,6 +604,15 @@ ADMIN_CSS = """
   .nchip{display:inline-flex;align-items:center;gap:7px;background:var(--ground);border:1px solid var(--line);border-radius:100px;padding:4px 11px 4px 4px;font-size:13px;font-weight:600;}
   .caption{font-size:12px;color:var(--ink-3);margin-top:12px;}
   .empty{color:var(--ink-3);font-size:13px;padding:14px 2px;}
+  .acct-log{display:flex;flex-direction:column;max-height:430px;overflow-y:auto;}
+  .acct{padding:10px 2px;border-bottom:1px solid var(--line-2);}
+  .acct:last-child{border-bottom:0;}
+  .acct .ahead{display:flex;align-items:center;gap:9px;}
+  .acct .nm{font-weight:700;font-size:14px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .acct .dt{font-size:11px;color:var(--ink-3);white-space:nowrap;flex:none;}
+  .acct .crew{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 0 33px;}
+  .acct .cchip{font-size:11.5px;color:var(--ink-2);background:var(--ground);border:1px solid var(--line);border-radius:100px;padding:2px 8px;}
+  .acct .nocrew{font-size:11.5px;color:var(--ink-3);font-style:italic;margin:6px 0 0 33px;}
   footer{margin-top:26px;font-size:12px;color:var(--ink-3);text-align:center;}
   @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr);}.col7,.col5{grid-column:span 12;}}
   @media(max-width:460px){.kpis{grid-template-columns:1fr;}}
@@ -622,6 +631,25 @@ def _col(c, fb="#15A35A"):
 def _initial(name):
     name = (name or "").strip()
     return html.escape(name[0].upper()) if name else "?"
+
+
+def _tz():
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo("Europe/Zurich")
+    except Exception:
+        return None
+
+
+_MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni",
+           "Juli", "August", "September", "Oktober", "November", "Dezember"]
+
+
+def _fmt_dt(ms, tz):
+    if not ms:
+        return "—"
+    dt = datetime.datetime.fromtimestamp(ms / 1000, tz) if tz else datetime.datetime.utcfromtimestamp(ms / 1000)
+    return "%d. %s %d, %02d:%02d" % (dt.day, _MONTHS[dt.month - 1], dt.year, dt.hour, dt.minute)
 
 
 def _admin_stats():
@@ -676,11 +704,7 @@ def _admin_stats():
     )
 
     # Heatmap: Wochentag × Tageszeit (lokale Zeit CH, sonst UTC)
-    try:
-        from zoneinfo import ZoneInfo
-        tz = ZoneInfo("Europe/Zurich")
-    except Exception:
-        tz = None
+    tz = _tz()
     heat = [[0] * 7 for _ in range(4)]
     for g in games:
         if not g.created_at:
@@ -722,10 +746,20 @@ def _admin_stats():
                 seen.add(nm.lower())
                 names.append((nm, _col(c.get("color"), "#8A968F")))
 
+    # Neue Konten (Haupt-Konten, neueste zuerst) mit Crew-Namen
+    new_accounts = []
+    for a in sorted(masters, key=lambda x: -(x.created_at or 0))[:30]:
+        try:
+            crew = json.loads(a.crew or "[]")
+        except Exception:
+            crew = []
+        crew_names = [(c.get("name") or "").strip() for c in crew if (c.get("name") or "").strip()]
+        new_accounts.append((a.name or "ohne Name", _fmt_dt(a.created_at, tz), _col(a.color), crew_names))
+
     return dict(total=total, n_master=n_master, n_comp=n_comp, total_crew=total_crew,
                 dist=dist, signups=signups, venues=venues, multi=multi, heat=heat,
                 heat_max=heat_max, peak=peak, n_games=len(games), n_fb=len(fbs),
-                rate=rate, recent_fb=fbs[:8], names=names)
+                rate=rate, recent_fb=fbs[:8], names=names, new_accounts=new_accounts)
 
 
 def color_by(accounts, aid):
@@ -820,6 +854,17 @@ def _admin_html(s):
     else:
         names_html = '<div class="empty">Noch keine Namen.</div>'
 
+    # Neue Konten (Log, neueste zuerst)
+    if s["new_accounts"]:
+        def _acct(nm, dt, col, cns):
+            crew = ('<div class="crew">' + "".join('<span class="cchip">%s</span>' % E(cn) for cn in cns) + "</div>") if cns \
+                else '<div class="nocrew">keine Crew</div>'
+            return ('<div class="acct"><div class="ahead"><span class="avatar" style="background:%s">%s</span>'
+                    '<span class="nm">%s</span><span class="dt">%s</span></div>%s</div>') % (col, _initial(nm), E(nm), E(dt), crew)
+        acct_rows = "".join(_acct(nm, dt, col, cns) for nm, dt, col, cns in s["new_accounts"])
+    else:
+        acct_rows = '<div class="empty">Noch keine Konten.</div>'
+
     return f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>plonky · Analytics</title>
@@ -847,8 +892,9 @@ def _admin_html(s):
   <section class="card col7"><h2>Feedback <span class="tag">neueste zuerst</span></h2><div class="fb">{fb_html}</div></section>
   <section class="card col5"><h2>Konten mit &gt;1 Anlage <span class="tag">Reisende</span></h2>
     <table><thead><tr><th>Konto</th><th class="r">Anlagen</th></tr></thead><tbody>{mrows}</tbody></table></section>
-  <section class="card col12"><h2>Namensliste <span class="tag">Konten &amp; Crew</span></h2><div class="names">{names_html}</div>
+  <section class="card col7"><h2>Namensliste <span class="tag">Konten &amp; Crew</span></h2><div class="names">{names_html}</div>
     <p class="caption">Geschlecht wird bewusst nicht erfasst — bei Interesse m/w am Namen ablesen.</p></section>
+  <section class="card col5"><h2>Neue Konten <span class="tag">neueste zuerst</span></h2><div class="acct-log">{acct_rows}</div></section>
 </div>
 <footer>plonky Analytics · nur über den geheimen /admin-Schlüssel erreichbar</footer>
 </div></body></html>"""
