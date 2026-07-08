@@ -1,3 +1,5 @@
+import datetime
+import html
 import json
 import os
 import random
@@ -496,6 +498,360 @@ def list_feedback():
         {"id": f.id, "rating": f.rating, "message": f.message, "contact": f.contact, "name": f.name, "created": f.created_at}
         for f in items
     ])
+
+
+# ── Analytics-Dashboard (privat, nur mit ADMIN_KEY) ──────────────────────────
+# Server-gerenderte Seite unter /admin/<ADMIN_KEY>. Alle Kennzahlen aus den
+# vorhandenen Tabellen; Berechnung in Python (portabel: SQLite lokal wie PG live).
+
+ADMIN_CSS = """
+  :root{--accent:#15A35A;--accent-deep:#0E7C43;--accent-soft:#E4F3EA;--ground:#F5F8F4;--card:#FFF;--ink:#152019;--ink-2:#53605A;--ink-3:#8A968F;--line:#E5EAE5;--line-2:#EEF2ED;--r:18px;--r-sm:11px;--font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:var(--font);color:var(--ink);background:var(--ground);-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1120px;margin:0 auto;padding:22px 20px 40px;}
+  .num{font-variant-numeric:tabular-nums;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:18px;}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:20px;letter-spacing:-.5px;}
+  .brand .dot{width:16px;height:16px;border-radius:50%;background:var(--accent);position:relative;flex:none;}
+  .brand .dot::after{content:"";position:absolute;inset:0;margin:auto;width:5px;height:5px;border-radius:50%;background:#fff;}
+  .brand span{color:var(--ink-3);font-weight:700;}
+  .live{background:var(--accent-soft);color:var(--accent-deep);font-weight:700;font-size:12px;letter-spacing:.3px;padding:5px 11px;border-radius:100px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px;}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 17px;}
+  .kpi .lbl{font-size:11.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--ink-3);font-weight:700;}
+  .kpi .big{font-size:34px;font-weight:800;letter-spacing:-1px;line-height:1.05;margin-top:6px;}
+  .kpi .sub{font-size:12.5px;color:var(--ink-2);margin-top:5px;}
+  .stack{display:flex;height:8px;border-radius:100px;overflow:hidden;margin-top:11px;background:var(--line-2);}
+  .stack i{display:block;height:100%;}
+  .legend{display:flex;gap:14px;margin-top:9px;font-size:12px;color:var(--ink-2);}
+  .swatch{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px;vertical-align:middle;}
+  .ratings{display:flex;gap:7px;margin-top:12px;flex-wrap:wrap;}
+  .rchip{display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:700;padding:4px 9px;border-radius:100px;background:var(--line-2);}
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;margin-top:14px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px 18px 18px;}
+  .col7{grid-column:span 7;}.col5{grid-column:span 5;}.col12{grid-column:span 12;}
+  .card h2{font-size:14px;font-weight:800;letter-spacing:-.2px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}
+  .card h2 .tag{font-size:11px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.5px;}
+  table{width:100%;border-collapse:collapse;font-size:14px;}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-3);font-weight:700;padding:10px 8px 8px;border-bottom:1px solid var(--line);}
+  td{padding:11px 8px;border-bottom:1px solid var(--line-2);}
+  tr:last-child td{border-bottom:0;}
+  tbody tr:hover{background:var(--accent-soft);}
+  .r{text-align:right;}
+  .rankbar{position:relative;min-width:52px;height:7px;border-radius:100px;background:var(--line-2);overflow:hidden;display:block;}
+  .rankbar i{position:absolute;inset:0;background:var(--accent);border-radius:100px;}
+  .selfmade{font-size:10.5px;font-weight:700;color:#C9922A;background:#F7EFDD;padding:2px 7px;border-radius:100px;white-space:nowrap;}
+  .cnt{font-weight:800;font-variant-numeric:tabular-nums;}
+  .avatar{width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;flex:none;}
+  .venue{display:flex;align-items:center;gap:9px;}
+  .chart{display:flex;align-items:flex-end;gap:8px;height:150px;padding:14px 4px 0;border-bottom:1px solid var(--line);}
+  .chart .bar{flex:1;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;}
+  .chart .bar i{width:100%;max-width:34px;background:var(--accent-soft);border-radius:6px 6px 0 0;}
+  .chart .bar.last i{background:var(--accent);}
+  .chart .bar .v{font-size:11px;color:var(--ink-2);font-weight:700;margin-bottom:5px;font-variant-numeric:tabular-nums;}
+  .xaxis{display:flex;gap:8px;padding:7px 4px 4px;}
+  .xaxis span{flex:1;text-align:center;font-size:10.5px;color:var(--ink-3);}
+  .dist{display:flex;flex-direction:column;gap:9px;padding-top:2px;}
+  .dist .row{display:grid;grid-template-columns:74px 1fr 30px;align-items:center;gap:11px;}
+  .dist .rl{font-size:12.5px;color:var(--ink-2);font-weight:600;}
+  .dist .rb{height:15px;border-radius:5px;background:var(--line-2);overflow:hidden;}
+  .dist .rb i{display:block;height:100%;background:var(--accent);border-radius:5px;}
+  .dist .row.fam .rb i{background:var(--accent-deep);}
+  .dist .rc{font-size:13px;font-weight:800;text-align:right;font-variant-numeric:tabular-nums;}
+  .pill-note{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px;}
+  .pnote{font-size:12px;font-weight:700;padding:5px 11px;border-radius:100px;background:var(--accent-soft);color:var(--accent-deep);}
+  .pnote.b{background:#EEF3EF;color:var(--ink-2);}
+  .heat{display:grid;grid-template-columns:52px repeat(7,1fr);gap:5px;padding-top:2px;}
+  .heat .hhead{font-size:11px;color:var(--ink-3);text-align:center;font-weight:700;}
+  .heat .hlabel{font-size:11px;color:var(--ink-3);display:flex;align-items:center;font-weight:600;}
+  .heat .hcell{height:26px;border-radius:5px;background:var(--line-2);}
+  .heatfoot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;font-size:12px;color:var(--ink-2);flex-wrap:wrap;}
+  .heatfoot .peak{font-weight:700;color:var(--ink);}
+  .heatscale{display:inline-flex;align-items:center;gap:5px;color:var(--ink-3);font-size:11px;}
+  .heatscale i{width:15px;height:11px;border-radius:2px;}
+  .fb{display:flex;flex-direction:column;}
+  .fbitem{display:flex;gap:11px;padding:12px 2px;border-bottom:1px solid var(--line-2);}
+  .fbitem:last-child{border-bottom:0;}
+  .fbitem .face{font-size:19px;flex:none;}
+  .fbitem .msg{font-size:13.5px;line-height:1.45;}
+  .fbitem .fmeta{font-size:11.5px;color:var(--ink-3);margin-top:3px;}
+  .names{display:flex;flex-wrap:wrap;gap:7px;}
+  .nchip{display:inline-flex;align-items:center;gap:7px;background:var(--ground);border:1px solid var(--line);border-radius:100px;padding:4px 11px 4px 4px;font-size:13px;font-weight:600;}
+  .caption{font-size:12px;color:var(--ink-3);margin-top:12px;}
+  .empty{color:var(--ink-3);font-size:13px;padding:14px 2px;}
+  footer{margin-top:26px;font-size:12px;color:var(--ink-3);text-align:center;}
+  @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr);}.col7,.col5{grid-column:span 12;}}
+  @media(max-width:460px){.kpis{grid-template-columns:1fr;}}
+"""
+
+_HEX = set("0123456789abcdefABCDEF")
+
+
+def _col(c, fb="#15A35A"):
+    c = (c or "").strip()
+    if len(c) in (4, 7) and c[0] == "#" and all(ch in _HEX for ch in c[1:]):
+        return c
+    return fb
+
+
+def _initial(name):
+    name = (name or "").strip()
+    return html.escape(name[0].upper()) if name else "?"
+
+
+def _admin_stats():
+    accounts = Account.query.all()
+    games = Game.query.all()
+    now = int(time.time() * 1000)
+
+    masters = [a for a in accounts if (a.kind or "master") == "master"]
+    n_master = len(masters)
+    n_comp = sum(1 for a in accounts if a.kind == "companion")
+    total = len(accounts)
+
+    def crew_len(a):
+        try:
+            return len(json.loads(a.crew or "[]"))
+        except Exception:
+            return 0
+
+    total_crew = sum(crew_len(a) for a in accounts)
+
+    # Haushaltsgröße = 1 (Konto-Inhaber) + Crew, nur über Haupt-Konten
+    dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
+    for a in masters:
+        s = 1 + crew_len(a)
+        dist[6 if s >= 6 else max(s, 1)] += 1
+
+    # Anmeldungen letzte 8 Wochen
+    week = 7 * 24 * 3600 * 1000
+    signups = [0] * 8
+    for a in accounts:
+        if not a.created_at:
+            continue
+        wk = int((now - a.created_at) // week)
+        if 0 <= wk <= 7:
+            signups[7 - wk] += 1
+
+    # Anlagen nach Häufigkeit + Konten mit >1 Anlage
+    venue_counts = {}
+    acc_venues = {}
+    for g in games:
+        v = (g.venue or "").strip()
+        if not v:
+            continue
+        venue_counts[v] = venue_counts.get(v, 0) + 1
+        if g.account_id:
+            acc_venues.setdefault(g.account_id, set()).add(v)
+    venues = sorted(venue_counts.items(), key=lambda x: -x[1])
+    name_by_id = {a.id: (a.name or "—") for a in accounts}
+    multi = sorted(
+        ((name_by_id.get(aid, aid), len(vs), color_by(accounts, aid)) for aid, vs in acc_venues.items() if len(vs) > 1),
+        key=lambda x: -x[1],
+    )
+
+    # Heatmap: Wochentag × Tageszeit (lokale Zeit CH, sonst UTC)
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Europe/Zurich")
+    except Exception:
+        tz = None
+    heat = [[0] * 7 for _ in range(4)]
+    for g in games:
+        if not g.created_at:
+            continue
+        ts = g.created_at / 1000
+        dt = datetime.datetime.fromtimestamp(ts, tz) if tz else datetime.datetime.utcfromtimestamp(ts)
+        dp = 0 if dt.hour < 11 else 1 if dt.hour < 14 else 2 if dt.hour < 18 else 3
+        heat[dp][dt.weekday()] += 1
+    heat_max = max((max(r) for r in heat), default=0)
+    peak = None
+    if heat_max > 0:
+        for dp in range(4):
+            for wd in range(7):
+                if heat[dp][wd] == heat_max:
+                    peak = (dp, wd)
+
+    # Feedback
+    fbs = Feedback.query.order_by(Feedback.created_at.desc()).all()
+    rate = {1: 0, 2: 0, 3: 0}
+    for f in fbs:
+        if f.rating in rate:
+            rate[f.rating] += 1
+
+    # Namensliste (Konten + Crew, dedupliziert)
+    names, seen = [], set()
+    for a in accounts:
+        nm = (a.name or "").strip()
+        if nm and nm.lower() not in seen:
+            seen.add(nm.lower())
+            names.append((nm, _col(a.color)))
+    for a in accounts:
+        try:
+            crew = json.loads(a.crew or "[]")
+        except Exception:
+            crew = []
+        for c in crew:
+            nm = (c.get("name") or "").strip()
+            if nm and nm.lower() not in seen:
+                seen.add(nm.lower())
+                names.append((nm, _col(c.get("color"), "#8A968F")))
+
+    return dict(total=total, n_master=n_master, n_comp=n_comp, total_crew=total_crew,
+                dist=dist, signups=signups, venues=venues, multi=multi, heat=heat,
+                heat_max=heat_max, peak=peak, n_games=len(games), n_fb=len(fbs),
+                rate=rate, recent_fb=fbs[:8], names=names)
+
+
+def color_by(accounts, aid):
+    for a in accounts:
+        if a.id == aid:
+            return _col(a.color)
+    return "#15A35A"
+
+
+def _admin_html(s):
+    E = html.escape
+    DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+    PARTS = ["Morgen", "Mittag", "Nachm.", "Abend"]
+    FACE = {1: "😞", 2: "😐", 3: "😍"}
+
+    def pct(a, b):
+        return f"{round(100 * a / b)}%" if b else "0%"
+
+    # KPIs
+    mw = pct(s["n_master"], s["total"])
+    cw = pct(s["n_comp"], s["total"])
+    kpi_konten = (f'<div class="stack"><i style="width:{mw};background:var(--accent-deep)"></i>'
+                  f'<i style="width:{cw};background:var(--accent)"></i></div>'
+                  f'<div class="legend"><span><span class="swatch" style="background:var(--accent-deep)"></span>{s["n_master"]} Haupt</span>'
+                  f'<span><span class="swatch" style="background:var(--accent)"></span>{s["n_comp"]} Mitspieler</span></div>')
+    avg_crew = f'{s["total_crew"]/s["total"]:.1f}'.replace(".", ",") if s["total"] else "0"
+    rating_chips = "".join(f'<span class="rchip">{FACE[k]} <span class="num">{s["rate"][k]}</span></span>' for k in (3, 2, 1))
+
+    # Anlagen
+    vmax = s["venues"][0][1] if s["venues"] else 1
+    if s["venues"]:
+        vrows = "".join(
+            f'<tr><td>{E(v)}</td><td style="width:40%"><span class="rankbar"><i style="width:{round(100*c/vmax)}%"></i></span></td><td class="r cnt">{c}</td></tr>'
+            for v, c in s["venues"][:10])
+    else:
+        vrows = '<tr><td colspan="3" class="empty">Noch keine Runden gespielt.</td></tr>'
+
+    # Anmeldungen
+    smax = max(s["signups"]) or 1
+    labels = ["–7", "–6", "–5", "–4", "–3", "–2", "–1", "jetzt"]
+    bars = "".join(
+        f'<div class="bar{" last" if i==7 else ""}"><span class="v num">{v}</span><i style="height:{max(round(90*v/smax),2) if v else 0}%"></i></div>'
+        for i, v in enumerate(s["signups"]))
+    xaxis = "".join(f"<span>{l}</span>" for l in labels)
+
+    # Spieler pro Konto
+    d = s["dist"]
+    dmax = max(d.values()) or 1
+    dlabels = {1: "1 Spieler", 2: "2 Spieler", 3: "3 Spieler", 4: "4 Spieler", 5: "5 Spieler", 6: "6+ Spieler"}
+    drows = "".join(
+        f'<div class="row{" fam" if k>=4 else ""}"><span class="rl num">{dlabels[k]}</span>'
+        f'<span class="rb"><i style="width:{round(100*d[k]/dmax)}%"></i></span><span class="rc">{d[k]}</span></div>'
+        for k in (1, 2, 3, 4, 5, 6))
+    couples = pct(d[2], s["n_master"])
+    families = pct(d[4] + d[5] + d[6], s["n_master"])
+
+    # Heatmap
+    def cell(v):
+        if s["heat_max"] <= 0 or v <= 0:
+            return "background:var(--line-2)"
+        return f"background:rgba(21,163,90,{0.08 + 0.92 * v / s['heat_max']:.2f})"
+    heat_html = "<span></span>" + "".join(f'<span class="hhead">{d}</span>' for d in DAYS)
+    for dp in range(4):
+        heat_html += f'<span class="hlabel">{PARTS[dp]}</span>'
+        heat_html += "".join(f'<span class="hcell" style="{cell(s["heat"][dp][wd])}"></span>' for wd in range(7))
+    peak_txt = f'{PARTS[s["peak"][0]]} · {DAYS[s["peak"][1]]}' if s["peak"] else "—"
+
+    # Konten >1 Anlage
+    if s["multi"]:
+        mrows = "".join(
+            f'<tr><td><span class="venue"><span class="avatar" style="background:{col}">{_initial(nm)}</span>{E(nm)}</span></td><td class="r cnt">{n}</td></tr>'
+            for nm, n, col in s["multi"][:12])
+    else:
+        mrows = '<tr><td colspan="2" class="empty">Noch niemand auf mehreren Anlagen.</td></tr>'
+
+    # Feedback
+    if s["recent_fb"]:
+        fb_html = "".join(
+            f'<div class="fbitem"><span class="face">{FACE.get(f.rating,"·")}</span><div>'
+            f'<div class="msg">{E(f.message) or "<i>(nur Bewertung)</i>"}</div>'
+            f'<div class="fmeta num">{_ago(now_ms - f.created_at)}{" · "+E(f.contact) if f.contact else " · kein Kontakt"}{" · Konto: "+E(f.name) if f.name else ""}</div>'
+            f"</div></div>"
+            for f in s["recent_fb"])
+    else:
+        fb_html = '<div class="empty">Noch kein Feedback.</div>'
+
+    # Namen
+    if s["names"]:
+        names_html = "".join(f'<span class="nchip"><span class="avatar" style="background:{col}">{_initial(nm)}</span>{E(nm)}</span>' for nm, col in s["names"][:60])
+        if len(s["names"]) > 60:
+            names_html += f'<span class="nchip">…und {len(s["names"])-60} weitere</span>'
+    else:
+        names_html = '<div class="empty">Noch keine Namen.</div>'
+
+    return f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><title>plonky · Analytics</title>
+<style>{ADMIN_CSS}</style></head><body><div class="wrap">
+<header class="topbar"><div class="brand"><span class="dot"></span>plonky <span>Analytics</span></div>
+<span class="live">LIVE · {s["n_games"]} Runden</span></header>
+<section class="kpis">
+  <div class="kpi"><div class="lbl">Konten</div><div class="big num">{s["total"]}</div>{kpi_konten}</div>
+  <div class="kpi"><div class="lbl">Sub-Account-Nutzung</div><div class="big num">{cw}</div><div class="sub">{s["n_comp"]} von {s["total"]} Konten sind Mitspieler-Konten.</div></div>
+  <div class="kpi"><div class="lbl">Crew-Mitglieder</div><div class="big num">{s["total_crew"]}</div><div class="sub">gespeicherte Spieler über alle Konten (Ø {avg_crew} pro Konto).</div></div>
+  <div class="kpi"><div class="lbl">Feedback</div><div class="big num">{s["n_fb"]}</div><div class="ratings">{rating_chips}</div></div>
+</section>
+<div class="grid">
+  <section class="card col7"><h2>Anlagen nach Häufigkeit <span class="tag">gespielte Runden</span></h2>
+    <table><thead><tr><th>Anlage</th><th style="width:40%">&nbsp;</th><th class="r">Runden</th></tr></thead><tbody>{vrows}</tbody></table></section>
+  <section class="card col5"><h2>Anmeldungen <span class="tag">letzte 8 Wochen</span></h2>
+    <div class="chart">{bars}</div><div class="xaxis">{xaxis}</div></section>
+  <section class="card col5"><h2>Spieler pro Konto <span class="tag">Paar oder Familie?</span></h2>
+    <div class="dist">{drows}</div>
+    <div class="pill-note"><span class="pnote">Paare (2): {couples}</span><span class="pnote b">Familien (4+): {families}</span></div></section>
+  <section class="card col7"><h2>Wann gespielt wird <span class="tag">Wochentag × Tageszeit</span></h2>
+    <div class="heat">{heat_html}</div>
+    <div class="heatfoot"><span>Peak: <span class="peak">{peak_txt}</span></span>
+    <span class="heatscale">weniger <i style="background:rgba(21,163,90,.12)"></i><i style="background:rgba(21,163,90,.4)"></i><i style="background:rgba(21,163,90,.7)"></i><i style="background:rgba(21,163,90,1)"></i> mehr</span></div></section>
+  <section class="card col7"><h2>Feedback <span class="tag">neueste zuerst</span></h2><div class="fb">{fb_html}</div></section>
+  <section class="card col5"><h2>Konten mit &gt;1 Anlage <span class="tag">Reisende</span></h2>
+    <table><thead><tr><th>Konto</th><th class="r">Anlagen</th></tr></thead><tbody>{mrows}</tbody></table></section>
+  <section class="card col12"><h2>Namensliste <span class="tag">Konten &amp; Crew</span></h2><div class="names">{names_html}</div>
+    <p class="caption">Geschlecht wird bewusst nicht erfasst — bei Interesse m/w am Namen ablesen.</p></section>
+</div>
+<footer>plonky Analytics · nur über den geheimen /admin-Schlüssel erreichbar</footer>
+</div></body></html>"""
+
+
+now_ms = 0  # gesetzt pro Request in admin_dashboard()
+
+
+def _ago(ms):
+    m = ms // 60000
+    if m < 1:
+        return "gerade eben"
+    if m < 60:
+        return f"vor {m} Min"
+    h = m // 60
+    if h < 24:
+        return f"vor {h} Std"
+    return f"vor {h//24} Tg"
+
+
+@app.route("/admin/<key>")
+def admin_dashboard(key):
+    admin = os.environ.get("ADMIN_KEY")
+    if not admin or key != admin:
+        abort(403)
+    global now_ms
+    now_ms = int(time.time() * 1000)
+    return _admin_html(_admin_stats())
 
 
 @app.route("/")
