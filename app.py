@@ -3,7 +3,10 @@ import html
 import json
 import os
 import random
+import threading
 import time
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from flask import Flask, abort, jsonify, request, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
@@ -181,7 +184,7 @@ def game_to_dict(game):
 
 @app.route("/api/health")
 def health():
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "build": "analytics+tg-ping"})
 
 
 @app.route("/api/games", methods=["GET"])
@@ -280,6 +283,25 @@ def get_accounts():
     return jsonify([{"id": a.id, "name": a.name, "color": a.color, "avatar": a.avatar or ""} for a in accs])
 
 
+def notify(text):
+    """Fire-and-forget Telegram-Nachricht (z. B. neues Konto). Blockiert NIE den
+    Request und wirft NIE: läuft im Daemon-Thread, alle Fehler werden geschluckt.
+    No-op, solange TELEGRAM_TOKEN + TELEGRAM_CHAT_ID nicht gesetzt sind."""
+    token = os.environ.get("TELEGRAM_TOKEN")
+    chat = os.environ.get("TELEGRAM_CHAT_ID")
+    if not token or not chat:
+        return
+
+    def _send():
+        try:
+            body = urlencode({"chat_id": chat, "text": text}).encode()
+            urlopen(Request("https://api.telegram.org/bot%s/sendMessage" % token, data=body), timeout=8)
+        except Exception:
+            pass
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
 @app.route("/api/account", methods=["POST"])
 def upsert_account():
     data = request.get_json(silent=True) or {}
@@ -287,7 +309,8 @@ def upsert_account():
     if not account_id:
         abort(400, "missing account id")
     acc = db.session.get(Account, account_id)
-    if acc is None:
+    is_new = acc is None
+    if is_new:
         acc = Account(id=account_id)
         db.session.add(acc)
     if data.get("name") is not None:
@@ -301,6 +324,8 @@ def upsert_account():
     if data.get("avatar") is not None:
         acc.avatar = data.get("avatar")
     db.session.commit()
+    if is_new and (acc.kind or "master") == "master":
+        notify("🆕 Neues plonky-Konto: " + (acc.name or "ohne Name"))
     return jsonify(account_to_dict(acc))
 
 
