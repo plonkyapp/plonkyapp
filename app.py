@@ -184,7 +184,7 @@ def game_to_dict(game):
 
 @app.route("/api/health")
 def health():
-    return jsonify({"ok": True, "build": "analytics+tg+konten-mitspieler"})
+    return jsonify({"ok": True, "build": "analytics+konten-anlage-layout"})
 
 
 @app.route("/api/games", methods=["GET"])
@@ -613,8 +613,15 @@ ADMIN_CSS = """
   .acct .crew{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 0 33px;}
   .acct .cchip{font-size:11.5px;color:var(--ink-2);background:var(--ground);border:1px solid var(--line);border-radius:100px;padding:2px 8px;}
   .acct .nocrew{font-size:11.5px;color:var(--ink-3);font-style:italic;margin:6px 0 0 33px;}
+  .acct .aloc{margin:5px 0 0 33px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:11.5px;color:var(--accent-deep);font-weight:600;}
+  .acct .vtag{white-space:nowrap;}
+  .toprow{display:flex;gap:14px;margin-top:14px;align-items:flex-start;}
+  .toprow-left{flex:7;min-width:0;display:flex;flex-direction:column;gap:14px;}
+  .toprow-right{flex:5;min-width:0;}
+  .nchip2{display:inline-flex;background:var(--ground);border:1px solid var(--line);border-radius:100px;padding:3px 10px;font-size:12.5px;color:var(--ink-2);}
+  .nchip2.more{color:var(--ink-3);}
   footer{margin-top:26px;font-size:12px;color:var(--ink-3);text-align:center;}
-  @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr);}.col7,.col5{grid-column:span 12;}}
+  @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr);}.col7,.col5{grid-column:span 12;}.toprow{flex-direction:column;}}
   @media(max-width:460px){.kpis{grid-template-columns:1fr;}}
 """
 
@@ -750,7 +757,12 @@ def _admin_stats():
     # (Session), nicht nur aus dem gespeicherten Crew-Feld — so tauchen auch die
     # Leute auf, mit denen man gerade spielt (z. B. TELE-FRAU bei TELE-MAN).
     coplayers = {}
+    account_venues = {}
     host_by_game = {g.id: g.account_id for g in games}
+    for g in games:
+        v = (g.venue or "").strip()
+        if g.account_id and v:
+            account_venues.setdefault(g.account_id, set()).add(v)
     for p in Player.query.all():
         host = host_by_game.get(p.game_id)
         if not host or p.account_id == host:
@@ -769,6 +781,9 @@ def _admin_stats():
         host = host_p.get("account_id")
         if not host:
             continue
+        v = (sess.venue or "").strip()
+        if v:
+            account_venues.setdefault(host, set()).add(v)
         for x in pl:
             if x is host_p:
                 continue
@@ -785,7 +800,8 @@ def _admin_stats():
             crew = []
         saved = {(c.get("name") or "").strip() for c in crew if (c.get("name") or "").strip()}
         allnames = sorted(saved | coplayers.get(a.id, set()), key=str.lower)
-        new_accounts.append((a.name or "ohne Name", _fmt_dt(a.created_at, tz), _col(a.color), allnames))
+        venues_here = sorted(account_venues.get(a.id, set()), key=str.lower)
+        new_accounts.append((a.name or "ohne Name", _fmt_dt(a.created_at, tz), _col(a.color), allnames, venues_here))
 
     return dict(total=total, n_master=n_master, n_comp=n_comp, total_crew=total_crew,
                 dist=dist, signups=signups, venues=venues, multi=multi, heat=heat,
@@ -879,20 +895,21 @@ def _admin_html(s):
 
     # Namen
     if s["names"]:
-        names_html = "".join(f'<span class="nchip"><span class="avatar" style="background:{col}">{_initial(nm)}</span>{E(nm)}</span>' for nm, col in s["names"][:60])
-        if len(s["names"]) > 60:
-            names_html += f'<span class="nchip">…und {len(s["names"])-60} weitere</span>'
+        names_html = "".join(f'<span class="nchip2">{E(nm)}</span>' for nm, col in s["names"][:120])
+        if len(s["names"]) > 120:
+            names_html += f'<span class="nchip2 more">…und {len(s["names"])-120} weitere</span>'
     else:
         names_html = '<div class="empty">Noch keine Namen.</div>'
 
     # Neue Konten (Log, neueste zuerst)
     if s["new_accounts"]:
-        def _acct(nm, dt, col, cns):
+        def _acct(nm, dt, col, cns, vns):
+            loc = ('<div class="aloc">📍 ' + " · ".join('<span class="vtag">%s</span>' % E(v) for v in vns) + "</div>") if vns else ""
             crew = ('<div class="crew">' + "".join('<span class="cchip">%s</span>' % E(cn) for cn in cns) + "</div>") if cns \
-                else '<div class="nocrew">keine Crew</div>'
+                else '<div class="nocrew">keine Mitspieler</div>'
             return ('<div class="acct"><div class="ahead"><span class="avatar" style="background:%s">%s</span>'
-                    '<span class="nm">%s</span><span class="dt">%s</span></div>%s</div>') % (col, _initial(nm), E(nm), E(dt), crew)
-        acct_rows = "".join(_acct(nm, dt, col, cns) for nm, dt, col, cns in s["new_accounts"])
+                    '<span class="nm">%s</span><span class="dt">%s</span></div>%s%s</div>') % (col, _initial(nm), E(nm), E(dt), loc, crew)
+        acct_rows = "".join(_acct(nm, dt, col, cns, vns) for nm, dt, col, cns, vns in s["new_accounts"])
     else:
         acct_rows = '<div class="empty">Noch keine Konten.</div>'
 
@@ -908,12 +925,16 @@ def _admin_html(s):
   <div class="kpi"><div class="lbl">Crew-Mitglieder</div><div class="big num">{s["total_crew"]}</div><div class="sub">gespeicherte Spieler über alle Konten (Ø {avg_crew} pro Konto).</div></div>
   <div class="kpi"><div class="lbl">Feedback</div><div class="big num">{s["n_fb"]}</div><div class="ratings">{rating_chips}</div></div>
 </section>
+<div class="toprow">
+  <div class="toprow-left">
+    <section class="card"><h2>Anlagen nach Häufigkeit <span class="tag">gespielte Runden</span></h2>
+      <table><thead><tr><th>Anlage</th><th style="width:40%">&nbsp;</th><th class="r">Runden</th></tr></thead><tbody>{vrows}</tbody></table></section>
+    <section class="card"><h2>Anmeldungen <span class="tag">letzte 8 Wochen</span></h2>
+      <div class="chart">{bars}</div><div class="xaxis">{xaxis}</div></section>
+  </div>
+  <section class="card toprow-right"><h2>Neue Konten <span class="tag">Konto + Mitspieler</span></h2><div class="acct-log">{acct_rows}</div></section>
+</div>
 <div class="grid">
-  <section class="card col12"><h2>Neue Konten <span class="tag">neueste zuerst · Konto + Mitspieler</span></h2><div class="acct-log">{acct_rows}</div></section>
-  <section class="card col7"><h2>Anlagen nach Häufigkeit <span class="tag">gespielte Runden</span></h2>
-    <table><thead><tr><th>Anlage</th><th style="width:40%">&nbsp;</th><th class="r">Runden</th></tr></thead><tbody>{vrows}</tbody></table></section>
-  <section class="card col5"><h2>Anmeldungen <span class="tag">letzte 8 Wochen</span></h2>
-    <div class="chart">{bars}</div><div class="xaxis">{xaxis}</div></section>
   <section class="card col5"><h2>Spieler pro Konto <span class="tag">Paar oder Familie?</span></h2>
     <div class="dist">{drows}</div>
     <div class="pill-note"><span class="pnote">Paare (2): {couples}</span><span class="pnote b">Familien (4+): {families}</span></div></section>
