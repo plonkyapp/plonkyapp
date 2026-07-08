@@ -184,7 +184,7 @@ def game_to_dict(game):
 
 @app.route("/api/health")
 def health():
-    return jsonify({"ok": True, "build": "analytics+tg+konten-log"})
+    return jsonify({"ok": True, "build": "analytics+tg+konten-mitspieler"})
 
 
 @app.route("/api/games", methods=["GET"])
@@ -746,15 +746,46 @@ def _admin_stats():
                 seen.add(nm.lower())
                 names.append((nm, _col(c.get("color"), "#8A968F")))
 
-    # Neue Konten (Haupt-Konten, neueste zuerst) mit Crew-Namen
+    # Mitspieler pro Konto: aus gespeicherten Spielen (Player) UND Live-Runden
+    # (Session), nicht nur aus dem gespeicherten Crew-Feld — so tauchen auch die
+    # Leute auf, mit denen man gerade spielt (z. B. TELE-FRAU bei TELE-MAN).
+    coplayers = {}
+    host_by_game = {g.id: g.account_id for g in games}
+    for p in Player.query.all():
+        host = host_by_game.get(p.game_id)
+        if not host or p.account_id == host:
+            continue
+        nm = (p.name or "").strip()
+        if nm and nm.lower() != (name_by_id.get(host) or "").strip().lower():
+            coplayers.setdefault(host, set()).add(nm)
+    for sess in Session.query.all():
+        try:
+            pl = (json.loads(sess.data or "{}") or {}).get("players") or []
+        except Exception:
+            pl = []
+        if not pl:
+            continue
+        host_p = next((x for x in pl if x.get("host")), pl[0])
+        host = host_p.get("account_id")
+        if not host:
+            continue
+        for x in pl:
+            if x is host_p:
+                continue
+            nm = (x.get("name") or "").strip()
+            if nm:
+                coplayers.setdefault(host, set()).add(nm)
+
+    # Neue Konten (Haupt-Konten, neueste zuerst) mit Crew/Mitspieler-Namen
     new_accounts = []
     for a in sorted(masters, key=lambda x: -(x.created_at or 0))[:30]:
         try:
             crew = json.loads(a.crew or "[]")
         except Exception:
             crew = []
-        crew_names = [(c.get("name") or "").strip() for c in crew if (c.get("name") or "").strip()]
-        new_accounts.append((a.name or "ohne Name", _fmt_dt(a.created_at, tz), _col(a.color), crew_names))
+        saved = {(c.get("name") or "").strip() for c in crew if (c.get("name") or "").strip()}
+        allnames = sorted(saved | coplayers.get(a.id, set()), key=str.lower)
+        new_accounts.append((a.name or "ohne Name", _fmt_dt(a.created_at, tz), _col(a.color), allnames))
 
     return dict(total=total, n_master=n_master, n_comp=n_comp, total_crew=total_crew,
                 dist=dist, signups=signups, venues=venues, multi=multi, heat=heat,
@@ -878,6 +909,7 @@ def _admin_html(s):
   <div class="kpi"><div class="lbl">Feedback</div><div class="big num">{s["n_fb"]}</div><div class="ratings">{rating_chips}</div></div>
 </section>
 <div class="grid">
+  <section class="card col12"><h2>Neue Konten <span class="tag">neueste zuerst · Konto + Mitspieler</span></h2><div class="acct-log">{acct_rows}</div></section>
   <section class="card col7"><h2>Anlagen nach Häufigkeit <span class="tag">gespielte Runden</span></h2>
     <table><thead><tr><th>Anlage</th><th style="width:40%">&nbsp;</th><th class="r">Runden</th></tr></thead><tbody>{vrows}</tbody></table></section>
   <section class="card col5"><h2>Anmeldungen <span class="tag">letzte 8 Wochen</span></h2>
@@ -892,9 +924,8 @@ def _admin_html(s):
   <section class="card col7"><h2>Feedback <span class="tag">neueste zuerst</span></h2><div class="fb">{fb_html}</div></section>
   <section class="card col5"><h2>Konten mit &gt;1 Anlage <span class="tag">Reisende</span></h2>
     <table><thead><tr><th>Konto</th><th class="r">Anlagen</th></tr></thead><tbody>{mrows}</tbody></table></section>
-  <section class="card col7"><h2>Namensliste <span class="tag">Konten &amp; Crew</span></h2><div class="names">{names_html}</div>
+  <section class="card col12"><h2>Namensliste <span class="tag">Konten &amp; Crew</span></h2><div class="names">{names_html}</div>
     <p class="caption">Geschlecht wird bewusst nicht erfasst — bei Interesse m/w am Namen ablesen.</p></section>
-  <section class="card col5"><h2>Neue Konten <span class="tag">neueste zuerst</span></h2><div class="acct-log">{acct_rows}</div></section>
 </div>
 <footer>plonky Analytics · nur über den geheimen /admin-Schlüssel erreichbar</footer>
 </div></body></html>"""
