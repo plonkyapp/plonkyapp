@@ -64,13 +64,14 @@ function Wordmark({ size = 34, color = 'var(--ink)' }) {
 }
 
 // ── 0. Landing / Begrüßung ────────────────────────────────
-function LandingScreen({ go, openLegal, openFaq, venue = DEFAULT_VENUE, onVenues = null, viaQr = false }) {
+function LandingScreen({ go, openLegal, openFaq, venue = DEFAULT_VENUE, onVenues = null, viaQr = false, onStart = null }) {
   const { Screen, Btn } = UI;
   // Marke immer oben (CI-konsistent bei jedem Einstieg); die Anlage steht in der größeren Zeile darunter.
   // Nur der QR-Einstieg nennt die Anlage ("in Seebach"), der direkte Weg nicht.
+  const v = venue || DEFAULT_VENUE; // Landing zeigt immer eine Anlage (QR-Weg); Fallback schützt vor null
   const hi = 'Willkommen auf plonky';
   const hiSub = viaQr
-    ? `Schön, dass du in ${venueShort(venue)} spielst — trag deine Runde ein, ganz ohne Zettel.`
+    ? `Schön, dass du in ${venueShort(v)} spielst — trag deine Runde ein, ganz ohne Zettel.`
     : 'Trag deine Runde ein — ganz ohne Zettel. Wir sind im Beta-Test, schön dass du dabei bist!';
   return (
     <Screen bg="var(--paper)">
@@ -83,16 +84,16 @@ function LandingScreen({ go, openLegal, openFaq, venue = DEFAULT_VENUE, onVenues
         </div>
         {/* venue hero — tap to switch venue */}
         <button onClick={() => (onVenues ? onVenues() : go('venues'))} style={{ width: '100%', maxWidth: 320, marginTop: 22, borderRadius: 22, overflow: 'hidden', border: '1px solid var(--line)', boxShadow: '0 16px 40px -22px rgba(0,0,0,0.45)', background: 'var(--card)', animation: 'fadeUp .6s .2s both', padding: 0, cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font)' }}>
-          <VenueIllo venue={venue} />
+          <VenueIllo venue={v} />
           <div style={{ padding: '11px 15px', display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0 }} />
-            <span style={{ flex: 1 }}>{venue.name} · {venue.holes} Bahnen</span>
+            <span style={{ flex: 1 }}>{v.name} · {v.holes} Bahnen</span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>wechseln <Ic.chevR size={15} /></span>
           </div>
         </button>
       </div>
       <div style={{ padding: '0 22px 30px', animation: 'fadeUp .5s .25s both' }}>
-        <Btn kind="primary" iconR={<Ic.arrowR size={20} />} onClick={() => go('cover')}>Los geht's</Btn>
+        <Btn kind="primary" iconR={<Ic.arrowR size={20} />} onClick={() => (onStart ? onStart() : go('cover'))}>Los geht's</Btn>
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 11.5, lineHeight: 1.45, color: 'var(--ink-3)', textAlign: 'left' }}>
           <span style={{ flexShrink: 0 }}>ℹ️</span>
           <span><b>Beta-Version.</b> Diese App wird gerade getestet — keine Gewähr auf Verfügbarkeit oder Richtigkeit der Resultate. Alles dient nur dem Ausprobieren. Viel Spaß!</span>
@@ -193,7 +194,7 @@ function CoverScreen({ go, account, scanEnabled = true, onStart, companion = fal
       )}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '0 26px', paddingTop: 96 }}>
         <div style={{ animation: 'fadeUp .5s both' }}><Wordmark size={36} /></div>
-        {!scanEnabled && (
+        {!scanEnabled && venue && (
           <button onClick={() => (onVenues ? onVenues() : go('venues'))} style={{ marginTop: 16, display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '7px 12px 7px 14px', animation: 'fadeUp .5s .03s both', cursor: 'pointer', fontFamily: 'var(--font)' }}>
             <Ic.pin size={15} color="var(--accent)" /><span style={{ fontSize: 13.5, fontWeight: 600 }}>{venue.name} · {venue.holes} Bahnen</span><Ic.chevR size={15} color="var(--ink-3)" />
           </button>
@@ -805,11 +806,52 @@ function JoinCodeScreen({ go, onJoined, back = 'home' }) {
   );
 }
 
+// ── Such-Dropdown (Kanton/Anlage): tippen filtert, Klick wählt ─────────────
+// options = [{ key, label, sub, raw? }]. valueLabel = aktuell gewählter Text.
+function Combobox({ placeholder, options, onSelect, valueLabel = '', icon = null }) {
+  const [q, setQ] = useStateOB('');
+  const [open, setOpen] = useStateOB(false);
+  const needle = q.trim().toLowerCase();
+  // Anfangs-Treffer zuerst ("z" → Zürich, Zug vor Luzern/Schwyz), dann sonstige Treffer.
+  // Innerhalb gleicher Priorität bleibt die (alphabetische) Reihenfolge erhalten (stable sort).
+  const list = !needle ? options : options
+    .map(o => { const l = o.label.toLowerCase(); return l.startsWith(needle) ? { o, s: 2 } : (l.includes(needle) || (o.sub || '').toLowerCase().includes(needle)) ? { o, s: 1 } : null; })
+    .filter(Boolean).sort((a, b) => b.s - a.s).map(x => x.o);
+  const shown = list.slice(0, 60);
+  return (
+    <div style={{ position: 'relative' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, background: 'var(--paper)', border: open ? '2px solid var(--accent)' : '1px solid var(--line)', borderRadius: 14, padding: '0 13px' }}>
+        {icon && <span style={{ flexShrink: 0, display: 'inline-flex' }}>{icon}</span>}
+        <input
+          value={open ? q : valueLabel}
+          onChange={e => { setQ(e.target.value); setOpen(true); }}
+          onFocus={() => { setQ(''); setOpen(true); }}
+          onBlur={() => setTimeout(() => setOpen(false), 130)}
+          placeholder={placeholder}
+          style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 15.5, fontFamily: 'var(--font)', color: 'var(--ink)', padding: '13px 0', minWidth: 0 }} />
+        <Ic.chevR size={16} color="var(--ink-3)" style={{ transform: open ? 'rotate(-90deg)' : 'rotate(90deg)', transition: 'transform .15s', flexShrink: 0 }} />
+      </div>
+      {open && shown.length > 0 && (
+        <div className="noscroll" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 30, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: '0 18px 44px -18px rgba(0,0,0,0.45)', maxHeight: 240, overflowY: 'auto' }}>
+          {shown.map(o => (
+            <button key={o.key} onMouseDown={e => { e.preventDefault(); onSelect(o); setQ(''); setOpen(false); }} style={{ display: 'flex', alignItems: 'center', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderBottom: '1px solid var(--line-2)', padding: '11px 13px', cursor: 'pointer', fontFamily: 'var(--font)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.label}</div>
+                {o.sub && <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.sub}</div>}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Anlagen-Auswahl ───────────────────────────────────────
-function VenuesScreen({ go, onPick, active = null, back = null, directory = [] }) {
+function VenuesScreen({ go, onPick, back = null, directory = [] }) {
   const { Screen } = UI;
-  // Kanton-Browsing: das Verzeichnis (venues.json, aus bahnen.json der Website) nach Kanton gruppiert.
-  const [sel, setSel] = useStateOB(null); // gewählter Kanton
+  const [selCanton, setSelCanton] = useStateOB(null);
+  const [chosen, setChosen] = useStateOB(null); // im Dropdown gewählte Anlage (roh) — erst "Weiter" bestätigt, so kann man einen Fehlklick korrigieren
   // "Andere Anlage": Spieler tippt Namen + Bahnenzahl selbst — daraus wird eine
   // Anlage {slug:null, name, holes, illu:'generic'}, die überall wie eine echte läuft.
   const [adding, setAdding] = useStateOB(false);
@@ -818,108 +860,85 @@ function VenuesScreen({ go, onPick, active = null, back = null, directory = [] }
   const canSave = name.trim().length > 0 && holes >= 1 && holes <= 36;
   const saveCustom = () => { if (!canSave) return; onPick({ slug: null, name: name.trim(), holes, illu: 'generic' }); };
 
-  // Kantone nach Anzahl Anlagen (größte zuerst) — so stehen die vollen Kantone vorn
   const counts = {};
   directory.forEach(v => { counts[v.canton] = (counts[v.canton] || 0) + 1; });
-  const cantons = Object.keys(counts).sort((a, b) => counts[b] - counts[a] || cantonName(a).localeCompare(cantonName(b)));
-  // Startkanton setzen, sobald das Verzeichnis da ist: der der aktiven Anlage, sonst der größte
-  useEffectOB(() => {
-    if (sel || !cantons.length) return;
-    const act = active && directory.find(v => v.slug === active);
-    setSel(act ? act.canton : cantons[0]);
-  }, [directory]);
-  const courses = directory.filter(v => v.canton === sel).sort((a, b) => a.name.localeCompare(b.name));
-  const pickCourse = (v) => onPick({ slug: v.slug, name: v.name, holes: v.holes || 18, illu: v.slug === 'seebach' ? 'seebach' : 'generic' });
+  const cantonOpts = Object.keys(counts)
+    .sort((a, b) => cantonName(a).localeCompare(cantonName(b)))
+    .map(c => ({ key: c, label: cantonName(c), sub: counts[c] + (counts[c] === 1 ? ' Anlage' : ' Anlagen') }));
+  // Anlage-Optionen: im gewählten Kanton, sonst über alle (so findet "uster" auch ohne Kanton)
+  const pool = selCanton ? directory.filter(v => v.canton === selCanton) : directory;
+  const venueOpts = pool.slice().sort((a, b) => a.name.localeCompare(b.name))
+    .map(v => ({ key: v.slug, label: v.name, sub: (v.city || cantonName(v.canton)) + (v.holes ? ' · ' + v.holes + ' Bahnen' : ''), raw: v }));
+  const toVenue = (v) => ({ slug: v.slug, name: v.name, holes: v.holes || 18, illu: v.slug === 'seebach' ? 'seebach' : 'generic' });
 
   return (
     <Screen bg="var(--paper)">
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '0 22px', paddingTop: 64, overflowY: 'auto' }} className="noscroll">
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}><Wordmark size={26} /></div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '0 22px', paddingTop: 60 }}>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}><Wordmark size={26} /></div>
         <div style={{ fontSize: 25, fontWeight: 800, letterSpacing: -0.6, textAlign: 'center' }}>Wo spielst du?</div>
-        <div style={{ fontSize: 14, color: 'var(--ink-2)', textAlign: 'center', marginTop: 6, marginBottom: 18, lineHeight: 1.45 }}>Wähle deinen Kanton und die Anlage — oder scanne den QR-Code am Platz.</div>
+        <div style={{ fontSize: 14, color: 'var(--ink-2)', textAlign: 'center', marginTop: 6, marginBottom: 24, lineHeight: 1.45 }}>Kanton und Anlage wählen — oder deine Bahn selbst eintragen.</div>
 
-        {/* Kanton-Chips */}
-        {cantons.length > 0 && (
-          <div className="noscroll" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, marginBottom: 14 }}>
-            {cantons.map(c => (
-              <button key={c} onClick={() => setSel(c)} style={{
-                flex: '0 0 auto', padding: '8px 14px', borderRadius: 999, cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap',
-                border: sel === c ? '2px solid var(--accent)' : '1px solid var(--line)',
-                background: sel === c ? 'rgba(21,163,90,0.08)' : 'var(--card)', color: sel === c ? 'var(--ink)' : 'var(--ink-2)',
-              }}>{cantonName(c)} <span style={{ color: 'var(--ink-3)', fontWeight: 600 }}>{counts[c]}</span></button>
-            ))}
-          </div>
-        )}
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-3)', marginBottom: 7, letterSpacing: 0.4 }}>KANTON</div>
+        <Combobox placeholder="Kanton suchen …" options={cantonOpts} valueLabel={selCanton ? cantonName(selCanton) : ''}
+          icon={<Ic.pin size={17} color="var(--accent)" />}
+          onSelect={o => { setSelCanton(o.key); setChosen(null); }} />
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-          {/* Anlagen im gewählten Kanton */}
-          {courses.map(v => (
-            <button key={v.slug} onClick={() => pickCourse(v)} style={{
-              display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left',
-              background: 'var(--card)', border: (active === v.slug ? '2px solid var(--accent)' : '1px solid var(--line)'),
-              borderRadius: 16, padding: '11px 13px', cursor: 'pointer', fontFamily: 'var(--font)',
-            }}>
-              <div style={{ width: 40, height: 40, borderRadius: 11, flexShrink: 0, background: 'var(--line-2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Ic.pin size={18} color="var(--accent)" />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15.5, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.name}</div>
-                <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.city}{v.holes ? ' · ' + v.holes + ' Bahnen' : ''}</div>
-              </div>
-              <Ic.chevR size={18} color="var(--ink-3)" />
-            </button>
-          ))}
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-3)', margin: '18px 0 7px', letterSpacing: 0.4 }}>ANLAGE</div>
+        <Combobox key={selCanton || 'all'} placeholder={selCanton ? 'Anlage in ' + cantonName(selCanton) + ' …' : 'Anlage suchen …'} options={venueOpts}
+          valueLabel={chosen ? chosen.name : ''}
+          icon={<Ic.flag size={16} color="var(--accent)" />}
+          onSelect={o => setChosen(o.raw)} />
 
-          {/* Eigene Anlage eintragen — jede Bahn ist sofort dabei, auch wenn sie (noch) nicht im Verzeichnis steht */}
-          {!adding ? (
-            <button onClick={() => setAdding(true)} style={{
-              display: 'flex', alignItems: 'center', gap: 13, width: '100%', textAlign: 'left',
-              background: 'transparent', border: '1px dashed var(--line)', borderRadius: 18, padding: '13px', cursor: 'pointer', fontFamily: 'var(--font)',
-            }}>
-              <div style={{ width: 56, height: 56, borderRadius: 13, flexShrink: 0, background: 'var(--line-2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Ic.pin size={24} color="var(--accent)" />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>Andere Anlage</div>
-                <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 2 }}>Deine Bahn ist nicht dabei? Trag sie ein.</div>
-              </div>
-              <Ic.chevR size={19} color="var(--ink-3)" />
-            </button>
-          ) : (
-            <div style={{ background: 'var(--card)', border: '2px solid var(--accent)', borderRadius: 18, padding: '15px 14px' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 8 }}>Name der Anlage</div>
-              <input value={name} onChange={e => setName(e.target.value)} autoFocus placeholder="z. B. Minigolf Basel" maxLength={40}
-                onKeyDown={e => { if (e.key === 'Enter') saveCustom(); }}
-                style={{ width: '100%', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 13px', fontSize: 15.5, fontFamily: 'var(--font)', color: 'var(--ink)', outline: 'none', background: 'var(--paper)' }} />
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', margin: '14px 0 8px' }}>Wie viele Bahnen?</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {[9, 18].map(n => (
-                  <button key={n} onClick={() => setHoles(n)} style={{
-                    padding: '9px 18px', borderRadius: 12, cursor: 'pointer', fontFamily: 'var(--num)', fontSize: 15, fontWeight: 700,
-                    border: holes === n ? '2px solid var(--accent)' : '1px solid var(--line)',
-                    background: holes === n ? 'rgba(21,163,90,0.08)' : 'var(--paper)', color: 'var(--ink)',
-                  }}>{n}</button>
-                ))}
-                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 12, padding: '4px 8px', background: 'var(--paper)' }}>
-                  <button onClick={() => setHoles(h => Math.max(1, h - 1))} style={{ border: 'none', background: 'transparent', fontSize: 20, fontWeight: 700, color: 'var(--ink-2)', cursor: 'pointer', width: 26, lineHeight: 1 }}>−</button>
-                  <span style={{ fontSize: 15, fontWeight: 800, minWidth: 22, textAlign: 'center', fontFamily: 'var(--num)' }}>{holes}</span>
-                  <button onClick={() => setHoles(h => Math.min(36, h + 1))} style={{ border: 'none', background: 'transparent', fontSize: 20, fontWeight: 700, color: 'var(--ink-2)', cursor: 'pointer', width: 26, lineHeight: 1 }}>+</button>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 9, marginTop: 16 }}>
-                <UI.Btn kind="secondary" style={{ flex: 1 }} onClick={() => { setAdding(false); setName(''); }}>Abbrechen</UI.Btn>
-                <UI.Btn kind="primary" style={{ flex: 1 }} disabled={!canSave} onClick={saveCustom}>Los geht's</UI.Btn>
+        {/* "oder" — Andere Anlage prominent, ohne Scrollen */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '24px 0 14px' }}>
+          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} /><span style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 600 }}>oder</span><div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+        </div>
+        {!adding ? (
+          <button onClick={() => setAdding(true)} style={{
+            display: 'flex', alignItems: 'center', gap: 13, width: '100%', textAlign: 'left',
+            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '13px', cursor: 'pointer', fontFamily: 'var(--font)',
+          }}>
+            <div style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0, background: 'rgba(21,163,90,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Ic.plus size={22} color="var(--accent)" />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>Andere Anlage</div>
+              <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 2 }}>Nicht dabei? Trag deine Bahn selbst ein.</div>
+            </div>
+            <Ic.chevR size={19} color="var(--ink-3)" />
+          </button>
+        ) : (
+          <div style={{ background: 'var(--card)', border: '2px solid var(--accent)', borderRadius: 18, padding: '15px 14px' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 8 }}>Name der Anlage</div>
+            <input value={name} onChange={e => setName(e.target.value)} autoFocus placeholder="z. B. Minigolf Basel" maxLength={40}
+              onKeyDown={e => { if (e.key === 'Enter') saveCustom(); }}
+              style={{ width: '100%', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 13px', fontSize: 15.5, fontFamily: 'var(--font)', color: 'var(--ink)', outline: 'none', background: 'var(--paper)' }} />
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', margin: '14px 0 8px' }}>Wie viele Bahnen?</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {[9, 18].map(n => (
+                <button key={n} onClick={() => setHoles(n)} style={{
+                  padding: '9px 18px', borderRadius: 12, cursor: 'pointer', fontFamily: 'var(--num)', fontSize: 15, fontWeight: 700,
+                  border: holes === n ? '2px solid var(--accent)' : '1px solid var(--line)',
+                  background: holes === n ? 'rgba(21,163,90,0.08)' : 'var(--paper)', color: 'var(--ink)',
+                }}>{n}</button>
+              ))}
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 12, padding: '4px 8px', background: 'var(--paper)' }}>
+                <button onClick={() => setHoles(h => Math.max(1, h - 1))} style={{ border: 'none', background: 'transparent', fontSize: 20, fontWeight: 700, color: 'var(--ink-2)', cursor: 'pointer', width: 26, lineHeight: 1 }}>−</button>
+                <span style={{ fontSize: 15, fontWeight: 800, minWidth: 22, textAlign: 'center', fontFamily: 'var(--num)' }}>{holes}</span>
+                <button onClick={() => setHoles(h => Math.min(36, h + 1))} style={{ border: 'none', background: 'transparent', fontSize: 20, fontWeight: 700, color: 'var(--ink-2)', cursor: 'pointer', width: 26, lineHeight: 1 }}>+</button>
               </div>
             </div>
-          )}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 16, fontSize: 12.5, color: 'var(--ink-3)' }}>
-          <Ic.scan size={16} color="var(--ink-3)" /> Am Platz kommst du per QR-Code direkt rein.
-        </div>
+            <div style={{ display: 'flex', gap: 9, marginTop: 16 }}>
+              <UI.Btn kind="secondary" style={{ flex: 1 }} onClick={() => { setAdding(false); setName(''); }}>Abbrechen</UI.Btn>
+              <UI.Btn kind="primary" style={{ flex: 1 }} disabled={!canSave} onClick={saveCustom}>Los geht's</UI.Btn>
+            </div>
+          </div>
+        )}
       </div>
-      {back && (
-        <div style={{ padding: '0 22px 26px' }}>
-          <UI.Btn kind="secondary" onClick={() => go(back)}>Zurück</UI.Btn>
+      {((chosen && !adding) || back) && (
+        <div style={{ padding: '0 22px 26px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {chosen && !adding && <UI.Btn kind="primary" iconR={<Ic.arrowR size={20} />} onClick={() => onPick(toVenue(chosen))}>Weiter</UI.Btn>}
+          {back && <UI.Btn kind="secondary" onClick={() => go(back)}>Zurück</UI.Btn>}
         </div>
       )}
     </Screen>
