@@ -39,7 +39,8 @@
 "name":"Minigolf Windisch",
 "canton":"AG",
 "city":"Windisch",
-"holes":18
+"holes":18,
+"region":"Brugg-Windisch"
 },
 {
 "slug":"wohlen",
@@ -67,7 +68,8 @@
 "name":"Minigolf Bern",
 "canton":"BE",
 "city":"Bern",
-"holes":18
+"holes":18,
+"region":"Waldau"
 },
 {
 "slug":"burgdorf",
@@ -151,7 +153,8 @@
 "name":"Minigolf Studen",
 "canton":"BE",
 "city":"Studen",
-"holes":18
+"holes":18,
+"region":"Seeland"
 },
 {
 "slug":"unterseen",
@@ -326,7 +329,8 @@
 "name":"Minigolf Rapperswil",
 "canton":"SG",
 "city":"Rapperswil",
-"holes":18
+"holes":18,
+"region":"Lido, Zürichsee"
 },
 {
 "slug":"rheineck",
@@ -438,7 +442,8 @@
 "name":"Minigolf Ascona",
 "canton":"TI",
 "city":"Ascona",
-"holes":18
+"holes":18,
+"region":"Lago Maggiore"
 },
 {
 "slug":"capriasca",
@@ -459,7 +464,8 @@
 "name":"Minigolf Locarno",
 "canton":"TI",
 "city":"Locarno",
-"holes":18
+"holes":18,
+"region":"Lago Maggiore"
 },
 {
 "slug":"tenero",
@@ -529,7 +535,8 @@
 "name":"Minigolf Bülach",
 "canton":"ZH",
 "city":"Bülach",
-"holes":18
+"holes":18,
+"region":"Zürcher Unterland"
 },
 {
 "slug":"dietikon",
@@ -543,14 +550,16 @@
 "name":"Minigolf Dolder",
 "canton":"ZH",
 "city":"Zürich",
-"holes":null
+"holes":null,
+"region":"Adlisberg"
 },
 {
 "slug":"duebendorf",
 "name":"Minigolf Dübendorf",
 "canton":"ZH",
 "city":"Dübendorf",
-"holes":18
+"holes":18,
+"region":"Glattal"
 },
 {
 "slug":"greifensee",
@@ -571,14 +580,16 @@
 "name":"Minigolf Seebach",
 "canton":"ZH",
 "city":"Zürich",
-"holes":18
+"holes":18,
+"region":"Seebach"
 },
 {
 "slug":"winterthur-toessrain",
 "name":"Minigolf Tössrain",
 "canton":"ZH",
 "city":"Winterthur",
-"holes":12
+"holes":12,
+"region":"Tössrain"
 },
 {
 "slug":"uster",
@@ -592,7 +603,8 @@
 "name":"Minigolf Wallisellen",
 "canton":"ZH",
 "city":"Wallisellen",
-"holes":18
+"holes":18,
+"region":"Glattal"
 },
 {
 "slug":"wetzikon",
@@ -606,7 +618,8 @@
 "name":"Minigolf Winterthur",
 "canton":"ZH",
 "city":"Winterthur",
-"holes":18
+"holes":18,
+"region":"beim Breiteplatz"
 },
 {
 "slug":"winterthur-schuetzenhaus",
@@ -620,6 +633,7 @@
 "name":"Minigolf Wädenswil",
 "canton":"ZH",
 "city":"Wädenswil",
-"holes":18
+"holes":18,
+"region":"Zürichsee"
 }
 ]

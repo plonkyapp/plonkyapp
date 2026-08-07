@@ -867,8 +867,14 @@ function VenuesScreen({ go, onPick, back = null, directory = [] }) {
     .map(c => ({ key: c, label: cantonName(c), sub: counts[c] + (counts[c] === 1 ? ' Anlage' : ' Anlagen') }));
   // Anlage-Optionen: im gewählten Kanton, sonst über alle (so findet "uster" auch ohne Kanton)
   const pool = selCanton ? directory.filter(v => v.canton === selCanton) : directory;
-  const venueOpts = pool.slice().sort((a, b) => a.name.localeCompare(b.name))
-    .map(v => ({ key: v.slug, label: v.name, sub: (v.city || cantonName(v.canton)) + (v.holes ? ' · ' + v.holes + ' Bahnen' : ''), raw: v }));
+  // sub = Ort · Quartier · Bahnen. Das Quartier (region, z. B. "Waldau") macht die Anlage
+  // auch über den lokalen Namen auffindbar — die Combobox durchsucht Label UND sub.
+  const venueOpts = pool.slice().sort((a, b) => a.name.localeCompare(b.name)).map(v => {
+    const parts = [v.city || cantonName(v.canton)];
+    if (v.region) parts.push(v.region);
+    if (v.holes) parts.push(v.holes + ' Bahnen');
+    return { key: v.slug, label: v.name, sub: parts.join(' · '), raw: v };
+  });
   const toVenue = (v) => ({ slug: v.slug, name: v.name, holes: v.holes || 18, illu: v.slug === 'seebach' ? 'seebach' : 'generic' });
 
   return (

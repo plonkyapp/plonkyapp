@@ -27,14 +27,23 @@ def main():
         canton = (b.get("canton") or "").strip().upper()
         if not (slug and name and canton):
             continue  # a venue without these can't live in the picker
-        venues.append({
+        city = (b.get("city") or b.get("region") or "").strip()
+        # region = Quartier/Gegend (z. B. "Waldau" für Minigolf Bern). Nur wenn es echte
+        # Zusatz-Info ist (≠ Ort) — damit man die Anlage auch nach dem Quartiernamen findet.
+        region = (b.get("region") or "").strip()
+        if region.lower() == city.lower():
+            region = ""
+        entry = {
             "slug": slug,
             "name": name,
             "canton": canton,
-            "city": (b.get("city") or b.get("region") or "").strip(),
+            "city": city,
             # holes may be missing on the website — keep null, the app defaults to 18
             "holes": b.get("holes") if isinstance(b.get("holes"), int) else None,
-        })
+        }
+        if region:
+            entry["region"] = region
+        venues.append(entry)
 
     # tidy order: by canton, then by name — the frontend groups/sorts anyway
     venues.sort(key=lambda v: (v["canton"], v["name"].lower()))
