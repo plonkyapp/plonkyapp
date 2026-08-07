@@ -43,6 +43,7 @@ function App() {
   const [histId, setHistId] = useAS(null);
   const [histFrom, setHistFrom] = useAS('home');
   const [legalFrom, setLegalFrom] = useAS('cover');
+  const [restoreErr, setRestoreErr] = useAS(''); // Meldung, wenn ein /m/-Link ins Leere zeigt
   const [venuesFrom, setVenuesFrom] = useAS(null); // von wo die Anlagen-Auswahl geöffnet wurde (null = Erststart, kein Zurück)
   const [faqFrom, setFaqFrom] = useAS('home');
   const [feedbackFrom, setFeedbackFrom] = useAS('home');
@@ -95,12 +96,25 @@ function App() {
     });
   };
 
+  // the venue this device last played on, as stored
+  const storedVenue = (d) => {
+    if (d.venueSlug) return OB.venueBySlug(d.venueSlug);
+    if (d.venueCustom && d.venueCustom.name) return { slug: null, illu: 'generic', name: d.venueCustom.name, holes: d.venueCustom.holes || 18 };
+    return null;
+  };
+
   // load once
   useAE(() => {
     const d = ACC.STORE.load();
     const linkMatch = typeof location !== 'undefined' && location.pathname.match(/^\/m\/([^\/?#]+)/);
     const joinMatch = typeof location !== 'undefined' && location.pathname.match(/^\/j\/([^\/?#]+)/);
     const fbMatch = typeof location !== 'undefined' && location.pathname.match(/^\/fb\/([^\/?#]+)/);
+
+    // The remembered venue has to be restored on EVERY entry path. The link
+    // branches below return early, so without this a device opened via /m/ keeps
+    // venue = null and the game start has no venue to show.
+    const remembered = storedVenue(d);
+    if (remembered) { setVenue(remembered); GAME.setHoles(remembered.holes); }
 
     // opened via the private feedback inbox link (/fb/<key>)
     if (fbMatch) {
@@ -150,14 +164,16 @@ function App() {
       if (d.activeSession && String(d.activeSession.accountId || '') === String(token)) setActiveSession(d.activeSession);
       ACC.API.getAccount(token)
         .then(acc => {
-          setAccount(acc && acc.id
-            ? { id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', avatar: acc.avatar || '', created: acc.created || Date.now() }
-            : { id: token, name: 'Spieler', color: AV[0], kind: 'master', avatar: '', created: Date.now() });
-          if (acc && Array.isArray(acc.crew)) { const fam = healFam(acc.crew); setFamily(fam); refreshLinkedCrew(fam); } // server crew wins on a fresh device
+          // A 404 is a definite answer: this account does not exist. Inventing one
+          // from the token would show a stranger an empty "logged in" account under
+          // an id nobody owns — say so instead, like the paste-a-link flow does.
+          if (!acc || !acc.id) { setRestoreErr('Kein Konto gefunden. Prüfe deinen Link und versuch es nochmal.'); setScreen('restore'); return null; }
+          setAccount({ id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', avatar: acc.avatar || '', created: acc.created || Date.now() });
+          if (Array.isArray(acc.crew)) { const fam = healFam(acc.crew); setFamily(fam); refreshLinkedCrew(fam); } // server crew wins on a fresh device
           setScreen('home');
-          return ACC.API.listGames(token);
+          return ACC.API.listGames(acc.id);
         })
-        .then(server => setHistory(server || []))
+        .then(server => { if (server) setHistory(server); })
         .catch(() => {}) // link unreachable: stay on cover, nothing lost
         .finally(() => setHydrated(true));
       return;
@@ -173,9 +189,7 @@ function App() {
       if (window.history && window.history.replaceState) window.history.replaceState({}, '', '/');
       pickedVenue = OB.venueBySlug(decodeURIComponent(pMatch[1]));
     }
-    if (!pickedVenue && d.venueSlug) pickedVenue = OB.venueBySlug(d.venueSlug);
-    // gemerkte eigene Anlage (getippt, ohne slug) — läuft wie eine kuratierte
-    if (!pickedVenue && d.venueCustom && d.venueCustom.name) pickedVenue = { slug: null, illu: 'generic', name: d.venueCustom.name, holes: d.venueCustom.holes || 18 };
+    if (!pickedVenue) pickedVenue = remembered; // sonst die gemerkte (auch die getippte ohne slug)
     if (pickedVenue) { setVenue(pickedVenue); GAME.setHoles(pickedVenue.holes); }
     setEntryViaQr(!!(pMatch && pickedVenue)); // nur ein frischer QR-Aufruf gilt als "am Platz"
 
@@ -553,7 +567,7 @@ function App() {
     case 'venues': view = <OB.VenuesScreen go={go} onPick={pickVenue} active={venue && venue.slug} back={venuesFrom} directory={directory} />; break;
     case 'legal': view = <OB.LegalScreen go={go} back={legalFrom} />; break;
     case 'faq': view = <OB.FaqScreen go={go} back={faqFrom} openLegal={openLegal} />; break;
-    case 'restore': view = <OB.RestoreScreen go={go} onRestore={restoreAccount} back={account ? 'home' : 'cover'} />; break;
+    case 'restore': view = <OB.RestoreScreen go={go} onRestore={restoreAccount} back={account ? 'home' : 'cover'} initialErr={restoreErr} />; break;
     case 'feedback': view = <ACC.FeedbackScreen go={go} account={account} back={feedbackFrom} />; break;
     case 'feedbackInbox': view = <ACC.FeedbackInbox items={feedbackItems} go={go} />; break;
     case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={startGame} companion={isCompanion} venue={venue} onVenues={openVenues} viaQr={entryViaQr} />; break;

@@ -314,11 +314,12 @@ function AccountScreen({ go, onCreate, companion = false, presetName = '', back 
 }
 
 // ── Konto wiederherstellen (Link einfügen → Konto in diese „Schublade" holen) ──
-function RestoreScreen({ go, onRestore, back = 'cover' }) {
+// initialErr: gesetzt, wenn man über einen /m/-Link hier landet, der ins Leere zeigt
+function RestoreScreen({ go, onRestore, back = 'cover', initialErr = '' }) {
   const { Screen, AppHeader, Body, Footer, Btn } = UI;
   const [val, setVal] = useStateOB('');
   const [busy, setBusy] = useStateOB(false);
-  const [err, setErr] = useStateOB('');
+  const [err, setErr] = useStateOB(initialErr);
   const submit = () => {
     const v = val.trim();
     if (!v || busy || !onRestore) return;
@@ -352,7 +353,8 @@ function RestoreScreen({ go, onRestore, back = 'cover' }) {
 }
 
 // ── 2. Scan ───────────────────────────────────────────────
-function ScanScreen({ go, express, venue = DEFAULT_VENUE }) {
+function ScanScreen({ go, express, venue: venueIn = null }) {
+  const venue = venueIn || DEFAULT_VENUE;  // s. RoleScreen: null schlaegt die Parameter-Vorgabe
   const [phase, setPhase] = useStateOB('scanning'); // scanning -> found
   useEffectOB(() => {
     const t = setTimeout(() => setPhase('found'), 1700);
@@ -418,7 +420,10 @@ function ScanScreen({ go, express, venue = DEFAULT_VENUE }) {
 }
 
 // ── 3. Welcome / role A vs B ──────────────────────────────
-function RoleScreen({ go, role, setRole, back = 'scan', venue = DEFAULT_VENUE, onVenues = null }) {
+// `venue = DEFAULT_VENUE` als Parameter-Vorgabe reicht nicht: die greift nur bei
+// `undefined`. app.jsx reicht `null` durch, solange keine Anlage gewählt ist.
+function RoleScreen({ go, role, setRole, back = 'scan', venue: venueIn = null, onVenues = null }) {
+  const venue = venueIn || DEFAULT_VENUE;
   const { Screen, AppHeader, Body, Footer, Btn, Steps } = UI;
   return (
     <Screen>
