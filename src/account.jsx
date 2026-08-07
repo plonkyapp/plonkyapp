@@ -8,13 +8,20 @@ const STORE = {
   save(d) { try { localStorage.setItem(this.KEY, JSON.stringify(d)); } catch (e) {} },
 };
 
-// stable, shareable account token (basis for link-based accounts later)
-const newAccountId = () => 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+// Stable, shareable account token. It is the ONLY thing standing between a
+// stranger and this account's data, so it must be unguessable: 128 crypto bits,
+// nothing derived from the clock. The 'a' prefix marks an account id (crew
+// player ids use 'c').
+const newAccountId = () => {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return 'a' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+};
 
 // ── backend API (same-origin; degrades to localStorage-only if unreachable) ──
 const API = {
   async listGames(accountId) {
-    const r = await fetch('/api/games?account_id=' + encodeURIComponent(accountId));
+    const r = await fetch('/api/games', { headers: { 'X-Plonky-Account': accountId } });
     if (!r.ok) throw new Error('list ' + r.status);
     return r.json();
   },

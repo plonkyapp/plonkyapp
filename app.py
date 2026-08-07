@@ -189,10 +189,14 @@ def health():
 
 @app.route("/api/games", methods=["GET"])
 def list_games():
-    account_id = request.args.get("account_id")
+    # Header, not query string: the id is the caller's only secret and query
+    # params end up in access logs. ?account_id= stays for tabs still running
+    # the pre-header frontend and can go once nobody is on that build.
+    account_id = request.headers.get("X-Plonky-Account") or request.args.get("account_id")
     if not account_id:
-        games = Game.query.order_by(Game.date.desc().nullslast()).all()
-        return jsonify([game_to_dict(g) for g in games])
+        # The id both identifies AND authorises the caller — with none there is
+        # nothing to hand out. Never fall back to returning every game.
+        abort(400, "missing account_id")
     # games this account OWNS, plus games it TOOK PART in (one shared record)
     ids = {gid for (gid,) in db.session.query(Game.id).filter_by(account_id=account_id).all()}
     ids |= {gid for (gid,) in db.session.query(GameParticipant.game_id).filter_by(account_id=account_id).all()}
