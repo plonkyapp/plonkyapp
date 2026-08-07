@@ -1,0 +1,625 @@
+[
+{
+"slug":"aarau",
+"name":"Minigolf Aarau",
+"canton":"AG",
+"city":"Aarau",
+"holes":18
+},
+{
+"slug":"bad-zurzach",
+"name":"Minigolf Bad Zurzach",
+"canton":"AG",
+"city":"Bad Zurzach",
+"holes":18
+},
+{
+"slug":"boezberg",
+"name":"Minigolf Bözberg",
+"canton":"AG",
+"city":"Bözberg (Linn)",
+"holes":7
+},
+{
+"slug":"spreitenbach",
+"name":"Minigolf Spreitenbach",
+"canton":"AG",
+"city":"Spreitenbach",
+"holes":null
+},
+{
+"slug":"stein-ag",
+"name":"Minigolf Stein (AG)",
+"canton":"AG",
+"city":"Stein (AG)",
+"holes":18
+},
+{
+"slug":"windisch-daegerli",
+"name":"Minigolf Windisch",
+"canton":"AG",
+"city":"Windisch",
+"holes":18
+},
+{
+"slug":"wohlen",
+"name":"Minigolf Wohlen",
+"canton":"AG",
+"city":"Wohlen",
+"holes":18
+},
+{
+"slug":"herisau",
+"name":"Minigolf Herisau",
+"canton":"AR",
+"city":"Herisau",
+"holes":18
+},
+{
+"slug":"adelboden",
+"name":"Minigolf Adelboden",
+"canton":"BE",
+"city":"Adelboden",
+"holes":18
+},
+{
+"slug":"bern-waldau",
+"name":"Minigolf Bern",
+"canton":"BE",
+"city":"Bern",
+"holes":18
+},
+{
+"slug":"burgdorf",
+"name":"Minigolf Burgdorf",
+"canton":"BE",
+"city":"Burgdorf",
+"holes":18
+},
+{
+"slug":"frutigen",
+"name":"Minigolf Frutigen",
+"canton":"BE",
+"city":"Frutigen",
+"holes":18
+},
+{
+"slug":"grindelwald",
+"name":"Minigolf Grindelwald",
+"canton":"BE",
+"city":"Grindelwald",
+"holes":18
+},
+{
+"slug":"gstaad",
+"name":"Minigolf Gstaad",
+"canton":"BE",
+"city":"Gstaad",
+"holes":18
+},
+{
+"slug":"hasliberg-wasserwendi",
+"name":"Minigolf Hasliberg Wasserwendi",
+"canton":"BE",
+"city":"Hasliberg Wasserwendi",
+"holes":18
+},
+{
+"slug":"heimberg",
+"name":"Minigolf Heimberg",
+"canton":"BE",
+"city":"Heimberg",
+"holes":18
+},
+{
+"slug":"interlaken",
+"name":"Minigolf Interlaken",
+"canton":"BE",
+"city":"Interlaken",
+"holes":36
+},
+{
+"slug":"langnau-i-e",
+"name":"Minigolf Langnau i.E.",
+"canton":"BE",
+"city":"Langnau i.E.",
+"holes":18
+},
+{
+"slug":"oberhofen-a-thunersee",
+"name":"Minigolf Oberhofen a. Thunersee",
+"canton":"BE",
+"city":"Oberhofen a. Thunersee",
+"holes":null
+},
+{
+"slug":"reconvilier",
+"name":"Minigolf Reconvilier",
+"canton":"BE",
+"city":"Reconvilier",
+"holes":18
+},
+{
+"slug":"spiez",
+"name":"Minigolf Spiez",
+"canton":"BE",
+"city":"Spiez",
+"holes":null
+},
+{
+"slug":"studen-florida",
+"name":"Minigolf Studen",
+"canton":"BE",
+"city":"Studen",
+"holes":18
+},
+{
+"slug":"unterseen",
+"name":"Minigolf Unterseen",
+"canton":"BE",
+"city":"Unterseen",
+"holes":18
+},
+{
+"slug":"wengen",
+"name":"Minigolf Wengen",
+"canton":"BE",
+"city":"Wengen",
+"holes":18
+},
+{
+"slug":"aesch-bl",
+"name":"Minigolf Aesch BL",
+"canton":"BL",
+"city":"Aesch BL",
+"holes":null
+},
+{
+"slug":"muenchenstein",
+"name":"Minigolf Münchenstein",
+"canton":"BL",
+"city":"Münchenstein",
+"holes":18
+},
+{
+"slug":"pratteln",
+"name":"Minigolf Pratteln",
+"canton":"BL",
+"city":"Pratteln",
+"holes":null
+},
+{
+"slug":"fribourg",
+"name":"Minigolf Fribourg",
+"canton":"FR",
+"city":"Fribourg",
+"holes":18
+},
+{
+"slug":"le-lignon",
+"name":"Minigolf Le Lignon",
+"canton":"GE",
+"city":"Le Lignon (Vernier)",
+"holes":18
+},
+{
+"slug":"arosa",
+"name":"Minigolf Arosa",
+"canton":"GR",
+"city":"Arosa",
+"holes":null
+},
+{
+"slug":"bad-ragaz",
+"name":"Minigolf Bad Ragaz",
+"canton":"GR",
+"city":"Bad Ragaz",
+"holes":18
+},
+{
+"slug":"breil-brigels",
+"name":"Minigolf Breil/Brigels",
+"canton":"GR",
+"city":"Breil/Brigels",
+"holes":18
+},
+{
+"slug":"flims-waldhaus",
+"name":"Minigolf Flims Waldhaus",
+"canton":"GR",
+"city":"Flims Waldhaus",
+"holes":null
+},
+{
+"slug":"lenzerheide-lai",
+"name":"Minigolf Lenzerheide/Lai",
+"canton":"GR",
+"city":"Lenzerheide/Lai",
+"holes":18
+},
+{
+"slug":"st-moritz",
+"name":"Minigolf St. Moritz",
+"canton":"GR",
+"city":"St. Moritz",
+"holes":18
+},
+{
+"slug":"delemont",
+"name":"Minigolf Delémont",
+"canton":"JU",
+"city":"Delémont",
+"holes":18
+},
+{
+"slug":"aesch-lu",
+"name":"Minigolf Aesch LU",
+"canton":"LU",
+"city":"Aesch LU",
+"holes":18
+},
+{
+"slug":"horw",
+"name":"Minigolf Horw",
+"canton":"LU",
+"city":"Horw",
+"holes":null
+},
+{
+"slug":"kriens",
+"name":"Minigolf Kriens",
+"canton":"LU",
+"city":"Kriens",
+"holes":18
+},
+{
+"slug":"luzern",
+"name":"Minigolf Luzern",
+"canton":"LU",
+"city":"Luzern",
+"holes":18
+},
+{
+"slug":"rigi-kaltbad",
+"name":"Minigolf Rigi Kaltbad",
+"canton":"LU",
+"city":"Rigi Kaltbad",
+"holes":18
+},
+{
+"slug":"sempach-stadt",
+"name":"Minigolf Sempach-Stadt",
+"canton":"LU",
+"city":"Sempach-Stadt",
+"holes":null
+},
+{
+"slug":"soerenberg",
+"name":"Minigolf Sörenberg",
+"canton":"LU",
+"city":"Sörenberg",
+"holes":18
+},
+{
+"slug":"willisau",
+"name":"Minigolf Willisau",
+"canton":"LU",
+"city":"Willisau",
+"holes":null
+},
+{
+"slug":"buchs-sg",
+"name":"Minigolf Buchs SG",
+"canton":"SG",
+"city":"Buchs SG",
+"holes":null
+},
+{
+"slug":"flumserberg-tannenheim",
+"name":"Minigolf Flumserberg Tannenheim",
+"canton":"SG",
+"city":"Flumserberg Tannenheim",
+"holes":12
+},
+{
+"slug":"rapperswil-strandweg",
+"name":"Minigolf Rapperswil",
+"canton":"SG",
+"city":"Rapperswil",
+"holes":18
+},
+{
+"slug":"rheineck",
+"name":"Minigolf Rheineck",
+"canton":"SG",
+"city":"Rheineck",
+"holes":null
+},
+{
+"slug":"wattwil",
+"name":"Minigolf Wattwil",
+"canton":"SG",
+"city":"Wattwil",
+"holes":18
+},
+{
+"slug":"wildhaus",
+"name":"Minigolf Wildhaus",
+"canton":"SG",
+"city":"Wildhaus",
+"holes":null
+},
+{
+"slug":"neuhausen-am-rheinfall",
+"name":"Minigolf Neuhausen am Rheinfall",
+"canton":"SH",
+"city":"Neuhausen am Rheinfall",
+"holes":18
+},
+{
+"slug":"balsthal-moos",
+"name":"Minigolf Balsthal",
+"canton":"SO",
+"city":"Balsthal",
+"holes":18
+},
+{
+"slug":"balsthal-fitnexx",
+"name":"Minigolf Balsthal",
+"canton":"SO",
+"city":"Balsthal",
+"holes":null
+},
+{
+"slug":"grenchen",
+"name":"Minigolf Grenchen",
+"canton":"SO",
+"city":"Grenchen",
+"holes":null
+},
+{
+"slug":"neuendorf",
+"name":"Minigolf Neuendorf",
+"canton":"SO",
+"city":"Neuendorf",
+"holes":18
+},
+{
+"slug":"zuchwil",
+"name":"Minigolf Zuchwil",
+"canton":"SO",
+"city":"Zuchwil",
+"holes":18
+},
+{
+"slug":"morschach",
+"name":"Minigolf Morschach",
+"canton":"SZ",
+"city":"Morschach",
+"holes":18
+},
+{
+"slug":"amriswil",
+"name":"Minigolf Amriswil",
+"canton":"TG",
+"city":"Amriswil",
+"holes":18
+},
+{
+"slug":"frauenfeld",
+"name":"Minigolf Frauenfeld",
+"canton":"TG",
+"city":"Frauenfeld",
+"holes":null
+},
+{
+"slug":"kreuzlingen",
+"name":"Minigolf Kreuzlingen",
+"canton":"TG",
+"city":"Kreuzlingen",
+"holes":18
+},
+{
+"slug":"matzingen",
+"name":"Minigolf Matzingen",
+"canton":"TG",
+"city":"Matzingen",
+"holes":null
+},
+{
+"slug":"muellheim",
+"name":"Minigolf Müllheim",
+"canton":"TG",
+"city":"Müllheim",
+"holes":null
+},
+{
+"slug":"ascona",
+"name":"Minigolf Ascona",
+"canton":"TI",
+"city":"Ascona",
+"holes":18
+},
+{
+"slug":"capriasca",
+"name":"Minigolf Capriasca",
+"canton":"TI",
+"city":"Capriasca (Lopagno)",
+"holes":12
+},
+{
+"slug":"caslano",
+"name":"Minigolf Caslano",
+"canton":"TI",
+"city":"Caslano",
+"holes":18
+},
+{
+"slug":"locarno-bosco-isolino",
+"name":"Minigolf Locarno",
+"canton":"TI",
+"city":"Locarno",
+"holes":18
+},
+{
+"slug":"tenero",
+"name":"Minigolf Tenero",
+"canton":"TI",
+"city":"Tenero",
+"holes":18
+},
+{
+"slug":"vairano",
+"name":"Minigolf Vairano",
+"canton":"TI",
+"city":"Vairano (Gambarogno)",
+"holes":null
+},
+{
+"slug":"montreux",
+"name":"Minigolf Montreux",
+"canton":"VD",
+"city":"Montreux",
+"holes":18
+},
+{
+"slug":"martigny",
+"name":"Minigolf Martigny",
+"canton":"VS",
+"city":"Martigny",
+"holes":18
+},
+{
+"slug":"cham",
+"name":"Minigolf Cham",
+"canton":"ZG",
+"city":"Cham",
+"holes":18
+},
+{
+"slug":"rotkreuz",
+"name":"Minigolf Rotkreuz",
+"canton":"ZG",
+"city":"Rotkreuz",
+"holes":null
+},
+{
+"slug":"unteraegeri",
+"name":"Minigolf Unterägeri",
+"canton":"ZG",
+"city":"Unterägeri",
+"holes":null
+},
+{
+"slug":"zug",
+"name":"Minigolf Zug",
+"canton":"ZG",
+"city":"Zug",
+"holes":18
+},
+{
+"slug":"affoltern-am-albis",
+"name":"Minigolf Affoltern am Albis",
+"canton":"ZH",
+"city":"Affoltern am Albis",
+"holes":null
+},
+{
+"slug":"buelach",
+"name":"Minigolf Bülach",
+"canton":"ZH",
+"city":"Bülach",
+"holes":18
+},
+{
+"slug":"dietikon",
+"name":"Minigolf Dietikon",
+"canton":"ZH",
+"city":"Dietikon",
+"holes":null
+},
+{
+"slug":"zuerich-dolder",
+"name":"Minigolf Dolder",
+"canton":"ZH",
+"city":"Zürich",
+"holes":null
+},
+{
+"slug":"duebendorf",
+"name":"Minigolf Dübendorf",
+"canton":"ZH",
+"city":"Dübendorf",
+"holes":18
+},
+{
+"slug":"greifensee",
+"name":"Minigolf Greifensee",
+"canton":"ZH",
+"city":"Greifensee",
+"holes":18
+},
+{
+"slug":"kloten",
+"name":"Minigolf Kloten",
+"canton":"ZH",
+"city":"Kloten",
+"holes":null
+},
+{
+"slug":"seebach",
+"name":"Minigolf Seebach",
+"canton":"ZH",
+"city":"Zürich",
+"holes":18
+},
+{
+"slug":"winterthur-toessrain",
+"name":"Minigolf Tössrain",
+"canton":"ZH",
+"city":"Winterthur",
+"holes":12
+},
+{
+"slug":"uster",
+"name":"Minigolf Uster",
+"canton":"ZH",
+"city":"Uster",
+"holes":18
+},
+{
+"slug":"wallisellen",
+"name":"Minigolf Wallisellen",
+"canton":"ZH",
+"city":"Wallisellen",
+"holes":18
+},
+{
+"slug":"wetzikon",
+"name":"Minigolf Wetzikon",
+"canton":"ZH",
+"city":"Wetzikon",
+"holes":18
+},
+{
+"slug":"winterthur-breite",
+"name":"Minigolf Winterthur",
+"canton":"ZH",
+"city":"Winterthur",
+"holes":18
+},
+{
+"slug":"winterthur-schuetzenhaus",
+"name":"Minigolf Winterthur",
+"canton":"ZH",
+"city":"Winterthur",
+"holes":18
+},
+{
+"slug":"waedenswil",
+"name":"Minigolf Wädenswil",
+"canton":"ZH",
+"city":"Wädenswil",
+"holes":18
+}
+]

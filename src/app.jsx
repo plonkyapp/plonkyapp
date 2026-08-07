@@ -34,6 +34,8 @@ function App() {
   // persistent
   const [account, setAccount] = useAS(null);
   const [venue, setVenue] = useAS(OB.DEFAULT_VENUE); // aktive Anlage (Name, Bahnenzahl, Illustration)
+  const [entryViaQr, setEntryViaQr] = useAS(false); // kam der Spieler per QR am Platz rein? → Begrüßung "bei Seebach" statt "auf plonky"
+  const [directory, setDirectory] = useAS([]); // volle Anlagen-Liste für Kanton-Browsing, async aus /venues.json (aus bahnen.json der Website)
   const [family, setFamily] = useAS([]);
   const [history, setHistory] = useAS([]);
   const [defaultMode, setDefaultMode] = useAS('sequential');
@@ -171,7 +173,10 @@ function App() {
       pickedVenue = OB.venueBySlug(decodeURIComponent(pMatch[1]));
     }
     if (!pickedVenue && d.venueSlug) pickedVenue = OB.venueBySlug(d.venueSlug);
+    // gemerkte eigene Anlage (getippt, ohne slug) — läuft wie eine kuratierte
+    if (!pickedVenue && d.venueCustom && d.venueCustom.name) pickedVenue = { slug: null, illu: 'generic', name: d.venueCustom.name, holes: d.venueCustom.holes || 18 };
     if (pickedVenue) { setVenue(pickedVenue); GAME.setHoles(pickedVenue.holes); }
+    setEntryViaQr(!!(pMatch && pickedVenue)); // nur ein frischer QR-Aufruf gilt als "am Platz"
 
     if (acc) setAccount(acc);
     // QR-Link → direkt in die Anlage. Sonst: Konto → Home · Anlage bekannt → Willkommen · ganz neu → Anlagen-Auswahl.
@@ -201,8 +206,11 @@ function App() {
       })
       .catch(() => {});
   }, []);
+  // Anlagen-Verzeichnis laden (Kanton-Browsing im "Wo spielst du?"-Screen). Async & unkritisch:
+  // fehlt es (alter Static-Host / offline), bleibt die Auswahl aufs Freitextfeld beschränkt.
+  useAE(() => { fetch('/venues.json').then(r => (r.ok ? r.json() : [])).then(d => { if (Array.isArray(d)) setDirectory(d); }).catch(() => {}); }, []);
   // persist
-  useAE(() => { if (hydrated) ACC.STORE.save({ account, family, history, defaultMode, autoCrew, activeSession, venueSlug: venue && venue.slug }); }, [hydrated, account, family, history, defaultMode, autoCrew, activeSession, venue]);
+  useAE(() => { if (hydrated) ACC.STORE.save({ account, family, history, defaultMode, autoCrew, activeSession, venueSlug: venue && venue.slug, venueCustom: venue && !venue.slug ? { name: venue.name, holes: venue.holes } : null }); }, [hydrated, account, family, history, defaultMode, autoCrew, activeSession, venue]);
   // keep the server copy of the account (name/color/photo) in sync. Skip the very
   // first run after load: otherwise this device's stale localStorage would clobber
   // a change made elsewhere (e.g. the master set your crew photo) before we adopt it.
@@ -405,8 +413,9 @@ function App() {
   };
   const firstStep = () => (t.onboardingFlow === 'express' ? 'express' : 'welcome');
   const newGame = () => { gameSavedRef.current = false; GAME.setHoles(venue.holes); setPlayers(buildInitialPlayers()); setRole(account ? 'me' : null); setMode(defaultMode); setMe(null); setSessionCode(null); go(scanEnabled ? 'scan' : firstStep()); };
-  // pick a venue from the Anlagen screen → remember it, set the hole count, show its welcome
-  const pickVenue = (slug) => { const v = OB.venueBySlug(slug); if (v) { setVenue(v); GAME.setHoles(v.holes); } go(venuesFrom || 'landing'); };
+  // pick a venue from the Anlagen screen → remember it, set the hole count, show its welcome.
+  // v is a full venue object (kuratiert aus VENUES oder selbst getippt {slug:null,name,holes,illu})
+  const pickVenue = (v) => { if (v) { setVenue(v); GAME.setHoles(v.holes); setEntryViaQr(false); } go(venuesFrom || 'landing'); };
   // Anlagen-Auswahl von überall öffnen — zurück geht's dorthin, wo man herkam (Muster wie legalFrom)
   const openVenues = () => { setVenuesFrom(screen); go('venues'); };
   const openResults = (fin) => {
@@ -531,14 +540,14 @@ function App() {
   const isCompanion = !!(account && account.kind === 'companion');
   let view;
   switch (screen) {
-    case 'landing': view = <OB.LandingScreen go={go} openLegal={openLegal} openFaq={openFaq} venue={venue} onVenues={openVenues} />; break;
-    case 'venues': view = <OB.VenuesScreen go={go} onPick={pickVenue} active={venue && venue.slug} back={venuesFrom} />; break;
+    case 'landing': view = <OB.LandingScreen go={go} openLegal={openLegal} openFaq={openFaq} venue={venue} onVenues={openVenues} viaQr={entryViaQr} />; break;
+    case 'venues': view = <OB.VenuesScreen go={go} onPick={pickVenue} active={venue && venue.slug} back={venuesFrom} directory={directory} />; break;
     case 'legal': view = <OB.LegalScreen go={go} back={legalFrom} />; break;
     case 'faq': view = <OB.FaqScreen go={go} back={faqFrom} openLegal={openLegal} />; break;
     case 'restore': view = <OB.RestoreScreen go={go} onRestore={restoreAccount} back={account ? 'home' : 'cover'} />; break;
     case 'feedback': view = <ACC.FeedbackScreen go={go} account={account} back={feedbackFrom} />; break;
     case 'feedbackInbox': view = <ACC.FeedbackInbox items={feedbackItems} go={go} />; break;
-    case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} venue={venue} onVenues={openVenues} />; break;
+    case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} venue={venue} onVenues={openVenues} viaQr={entryViaQr} />; break;
     case 'account': view = <OB.AccountScreen go={go} onCreate={me != null ? createCompanion : createAccount} companion={me != null} presetName={me != null ? ((players.find(p => String(p.id) === String(me)) || {}).name || '') : ''} back={me != null ? 'results' : 'cover'} />; break;
     case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={newGame} scanEnabled={scanEnabled} companion={isCompanion} activeSession={activeSession} onResume={resumeSession} onDiscard={discardActiveSession} openFeedback={openFeedback} />; break;
     case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} onMemberPhoto={setCrewPhoto} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} openLegal={openLegal} openFeedback={openFeedback} openFaq={openFaq} />; break;
@@ -553,7 +562,7 @@ function App() {
     case 'express': view = <GAME.ExpressSetup go={go} role={role} setRole={setRole} mode={mode} setMode={setMode} players={players} setPlayers={setPlayers} family={family} />; break;
     case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} onHome={account && sessionCode ? restart : null} account={account} family={family} venueName={venue.name} nameOf={nameOf} />; break;
     case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} family={family} onSave={saveGame} onCompanionSave={saveCompanionGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} me={me} onLeaveJoined={leaveJoined} venueName={venue.name} nameOf={nameOf} />; break;
-    default: view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} venue={venue} onVenues={openVenues} />;
+    default: view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={newGame} companion={isCompanion} venue={venue} onVenues={openVenues} viaQr={entryViaQr} />;
   }
 
   const panel = ReactDOM.createPortal(
