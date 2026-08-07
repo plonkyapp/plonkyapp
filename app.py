@@ -2,7 +2,7 @@ import datetime
 import html
 import json
 import os
-import random
+import secrets
 import threading
 import time
 from urllib.parse import urlencode
@@ -149,13 +149,17 @@ def snapshot_avatar(account_id, avatar):
     return "" if account_id else (avatar or "")
 
 
-# unambiguous alphabet (no 0/O/1/I) for human-readable join codes
+# Alphabet ohne 0/O/1/I — stammt aus der Zeit, als der Code abgetippt wurde.
+# Beitritt läuft heute nur noch über QR/Link, deshalb darf er lang sein.
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+CODE_LEN = 16  # 32^16 ≈ 80 Bit — Durchprobieren ist damit aussichtslos, nicht bloss mühsam
 
 
 def new_session_code():
+    # secrets statt random: der Code ist der einzige Schutz einer laufenden Runde,
+    # und der Mersenne-Twister ist aus ein paar Ausgaben rekonstruierbar.
     while True:
-        code = "".join(random.choice(CODE_ALPHABET) for _ in range(4))
+        code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LEN))
         if db.session.get(Session, code) is None:
             return code
 

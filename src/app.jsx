@@ -428,8 +428,11 @@ function App() {
   };
   const firstStep = () => (t.onboardingFlow === 'express' ? 'express' : 'welcome');
   const newGame = (v = venue) => { gameSavedRef.current = false; if (v && v.holes) GAME.setHoles(v.holes); setPlayers(buildInitialPlayers()); setRole(account ? 'me' : null); setMode(defaultMode); setMe(null); setSessionCode(null); go(scanEnabled ? 'scan' : firstStep()); };
-  // "Spiel starten": Anlage bekannt (QR / schon gewählt) → direkt ins Spiel; sonst erst Wo-spielst-du.
-  const startGame = () => { if (venue) { newGame(); } else { startAfterVenueRef.current = true; setVenuesFrom('cover'); go('venues'); } };
+  // "Spiel starten": Anlage bekannt (QR / schon gewählt) → direkt ins Spiel; sonst
+  // erst Wo-spielst-du. JEDER Spielstart läuft hier durch — ohne das wird die Runde
+  // mit leerer Anlage gespeichert und fehlt später in der Auswertung.
+  // Nimmt bewusst keine Argumente: hängt teils direkt an onClick (bekäme sonst das Event).
+  const startGame = () => { if (venue) { newGame(); return; } startAfterVenueRef.current = true; setVenuesFrom(screen); go('venues'); };
   // pick a venue from the Anlagen screen → remember it + hole count. Kam man über "Spiel starten"
   // (ohne Anlage), geht's direkt ins Spiel; sonst zurück, wo die Auswahl geöffnet wurde.
   // v is a full venue object (kuratiert aus VENUES oder selbst getippt {slug:null,name,holes,illu})
@@ -563,7 +566,7 @@ function App() {
   const isCompanion = !!(account && account.kind === 'companion');
   let view;
   switch (screen) {
-    case 'landing': view = <OB.LandingScreen go={go} openLegal={openLegal} openFaq={openFaq} venue={venue} onVenues={openVenues} viaQr={entryViaQr} onStart={newGame} />; break;
+    case 'landing': view = <OB.LandingScreen go={go} openLegal={openLegal} openFaq={openFaq} venue={venue} onVenues={openVenues} viaQr={entryViaQr} onStart={startGame} />; break;
     case 'venues': view = <OB.VenuesScreen go={go} onPick={pickVenue} active={venue && venue.slug} back={venuesFrom} directory={directory} />; break;
     case 'legal': view = <OB.LegalScreen go={go} back={legalFrom} />; break;
     case 'faq': view = <OB.FaqScreen go={go} back={faqFrom} openLegal={openLegal} />; break;
@@ -572,7 +575,7 @@ function App() {
     case 'feedbackInbox': view = <ACC.FeedbackInbox items={feedbackItems} go={go} />; break;
     case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={startGame} companion={isCompanion} venue={venue} onVenues={openVenues} viaQr={entryViaQr} />; break;
     case 'account': view = <OB.AccountScreen go={go} onCreate={me != null ? createCompanion : createAccount} companion={me != null} presetName={me != null ? ((players.find(p => String(p.id) === String(me)) || {}).name || '') : ''} back={me != null ? 'results' : 'cover'} />; break;
-    case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={newGame} scanEnabled={scanEnabled} companion={isCompanion} activeSession={activeSession} onResume={resumeSession} onDiscard={discardActiveSession} openFeedback={openFeedback} />; break;
+    case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={startGame} scanEnabled={scanEnabled} companion={isCompanion} activeSession={activeSession} onResume={resumeSession} onDiscard={discardActiveSession} openFeedback={openFeedback} />; break;
     case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} onMemberPhoto={setCrewPhoto} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} openLegal={openLegal} openFeedback={openFeedback} openFaq={openFaq} />; break;
     case 'joinCode': view = <OB.JoinCodeScreen go={go} onJoined={enterSession} back={account ? 'home' : 'cover'} />; break;
     case 'history': view = <ACC.HistoryScreen history={history} go={go} openGame={openGame} account={account} family={family} />; break;

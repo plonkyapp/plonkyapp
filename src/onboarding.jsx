@@ -446,7 +446,7 @@ function RoleScreen({ go, role, setRole, back = 'scan', venue: venueIn = null, o
             desc="Ein Handy führt das Spiel. Am einfachsten."
             selected={role === 'me'} onClick={() => setRole('me')} />
           <UI.ChoiceCard icon={<Ic.users size={26} />} title="Andere tippen mit" badge="B"
-            desc="Jeder scannt den Code und trägt selbst ein."
+            desc="Jeder scannt den QR-Code und trägt selbst ein."
             selected={role === 'others'} onClick={() => setRole('others')} />
         </div>
       </Body>
@@ -577,18 +577,19 @@ function InviteScreen({ go, players, mode, sessionCode, setSessionCode, venueNam
 
   return (
     <Screen>
-      <AppHeader title="Anderen Code geben" sub="Mitspielen" onBack={() => go('players')} />
+      <AppHeader title="Mitspieler einladen" sub="Mitspielen" onBack={() => go('players')} />
       <Body>
         <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45, marginBottom: 16, textAlign: 'center' }}>
-          Lass die anderen <b>diesen QR scannen</b> oder den Code eingeben — dann sind sie in derselben Runde.
+          Lass die anderen <b>diesen QR scannen</b> — dann sind sie in derselben Runde.
         </div>
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
           <div style={{ padding: 16, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 24, boxShadow: '0 12px 30px -18px rgba(0,0,0,0.4)' }}>
             {err
               ? <div style={{ width: 186, height: 186, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontSize: 13, color: 'var(--ink-3)', padding: 16 }}>Offline — Code konnte nicht erstellt werden. Ihr könnt trotzdem auf einem Handy spielen.</div>
               : code ? <QRCode value={link} size={186} fg="var(--ink)" />
-                : <div style={{ width: 186, height: 186, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-3)', fontSize: 13 }}>Code wird erstellt…</div>}
-            <div style={{ textAlign: 'center', fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginTop: 12, fontFamily: 'var(--num)', letterSpacing: 4 }}>{code || '····'}</div>
+                : <div style={{ width: 186, height: 186, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-3)', fontSize: 13 }}>QR wird erstellt…</div>}
+            {/* Der Token selbst wird bewusst NICHT angezeigt — er ist zu lang zum
+                Abtippen und soll gar nicht erst danach aussehen. */}
           </div>
         </div>
         {code && (
@@ -654,7 +655,7 @@ function JoinScreen({ go, players, setMe, sessionCode, account = null }) {
     <Screen>
       <div style={{ paddingTop: 70, padding: '70px 24px 4px', flexShrink: 0 }}>
         <Wordmark size={26} />
-        {sessionCode && <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 16, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 12px', fontSize: 12.5, fontWeight: 700, color: 'var(--ink-2)', fontFamily: 'var(--num)', letterSpacing: 1 }}><Ic.users size={14} color="var(--accent)" /> SESSION {sessionCode}</div>}
+        {sessionCode && <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 16, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 12px', fontSize: 12.5, fontWeight: 700, color: 'var(--ink-2)' }}><Ic.users size={14} color="var(--accent)" /> Gemeinsame Runde</div>}
         <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: -0.4, marginTop: 18 }}>Wer bist du?</div>
         <div style={{ fontSize: 14.5, color: 'var(--ink-2)', marginTop: 6 }}>Tippe deinen Namen an — dann trägst du deine Schläge ein.</div>
       </div>
@@ -688,13 +689,15 @@ function JoinScreen({ go, players, setMe, sessionCode, account = null }) {
   );
 }
 
-// Pull a 4-char join code out of a scanned QR payload (usually a /j/<code> URL).
+// Join-Token aus einem gescannten QR-Inhalt ziehen (meist eine /j/<code>-URL).
+// 4–32 Zeichen: neue Runden haben einen langen Token, aber Runden, die beim
+// Umstieg gerade liefen, tragen noch den alten 4-Zeichen-Code.
 function extractJoinCode(data) {
   if (!data) return null;
-  const m = String(data).match(/\/j\/([A-Za-z0-9]{4})(?:[\/?#]|$)/);
+  const m = String(data).match(/\/j\/([A-Za-z0-9]{4,32})(?:[\/?#]|$)/);
   if (m) return m[1].toUpperCase();
   const raw = String(data).trim().toUpperCase();
-  return /^[A-Z0-9]{4}$/.test(raw) ? raw : null;
+  return /^[A-Z0-9]{4,32}$/.test(raw) ? raw : null;
 }
 
 // ── Live camera QR scanner (getUserMedia + jsQR) ──────────
@@ -765,53 +768,47 @@ function QrScanner({ onCode, onClose }) {
 }
 
 // ── Join by code / scan (companion: join the host's session) ──
+// Beitritt läuft NUR über den QR-Code (bzw. den geteilten Link). Es gibt kein
+// Tippfeld mehr: ein Code, den man abtippen kann, muss kurz sein — und kurz heißt
+// erratbar. Ohne Tippfeld darf der Token beliebig lang sein, damit ist Durchprobieren
+// strukturell erledigt statt nur erschwert.
 function JoinCodeScreen({ go, onJoined, back = 'home' }) {
   const { Screen, AppHeader, Body, Footer, Btn } = UI;
-  const [code, setCode] = useStateOB('');
   const [busy, setBusy] = useStateOB(false);
   const [err, setErr] = useStateOB('');
   const [scanning, setScanning] = useStateOB(false);
-  const clean = code.trim().toUpperCase();
   const join = (codeArg) => {
-    const cc = ((codeArg || clean) + '').trim().toUpperCase();
-    if (cc.length < 4 || busy) return;
+    const cc = (codeArg + '').trim().toUpperCase();
+    if (!cc || busy) return;
     setBusy(true); setErr('');
     ACC.API.getSession(cc, true)
       .then(sess => {
-        if (!sess) { setErr('Diesen Code gibt es nicht (mehr). Prüfe die 4 Zeichen.'); setBusy(false); return; }
+        if (!sess) { setErr('Diese Runde gibt es nicht (mehr). Lass dir den QR-Code nochmal zeigen.'); setBusy(false); return; }
         onJoined && onJoined(sess);
       })
       .catch(() => { setErr('Verbindung fehlgeschlagen. Nochmal versuchen.'); setBusy(false); });
   };
-  if (scanning) return <QrScanner onClose={() => setScanning(false)} onCode={(c) => { setScanning(false); setCode(c); join(c); }} />;
+  if (scanning) return <QrScanner onClose={() => setScanning(false)} onCode={(c) => { setScanning(false); join(c); }} />;
   return (
     <Screen>
       <AppHeader title="Spiel beitreten" onBack={() => go(back)} />
       <Body>
         <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45, marginBottom: 16 }}>
-          Scanne den QR-Code des Gastgebers — oder gib den 4-stelligen Code ein, den er dir zeigt.
+          Scanne den QR-Code, den der Gastgeber dir zeigt — er steht bei ihm unter „Mitspieler einladen".
         </div>
-        <Btn kind="primary" icon={<Ic.camera size={20} />} onClick={() => { setErr(''); setScanning(true); }}>QR-Code scannen</Btn>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0' }}>
-          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-          <span style={{ fontSize: 12.5, color: 'var(--ink-3)', fontWeight: 600 }}>oder Code eingeben</span>
-          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-        </div>
-        <input
-          value={code}
-          onChange={e => { setCode(e.target.value.slice(0, 4)); setErr(''); }}
-          onKeyDown={e => e.key === 'Enter' && join()}
-          placeholder="z.B. H432"
-          autoCapitalize="characters" autoCorrect="off" spellCheck={false}
-          style={{ width: '100%', height: 60, borderRadius: 16, border: err ? '1px solid var(--bad)' : '1px solid var(--line)', background: 'var(--card)', padding: '0 18px', fontSize: 26, fontWeight: 700, letterSpacing: 8, textTransform: 'uppercase', fontFamily: 'var(--num)', outline: 'none' }} />
-        {err && <div style={{ fontSize: 13, color: 'var(--bad)', marginTop: 9, fontWeight: 600 }}>{err}</div>}
+        <Btn kind="primary" icon={<Ic.camera size={20} />} onClick={() => { setErr(''); setScanning(true); }}>{busy ? 'Suche Runde …' : 'QR-Code scannen'}</Btn>
+        {err && <div style={{ fontSize: 13, color: 'var(--bad)', marginTop: 12, fontWeight: 600 }}>{err}</div>}
         <div style={{ display: 'flex', alignItems: 'center', gap: 13, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '14px 16px', marginTop: 22 }}>
           <div style={{ color: 'var(--accent)' }}><Ic.users size={21} /></div>
           <div style={{ fontSize: 13.5, color: 'var(--ink-2)', lineHeight: 1.4 }}>Du steigst als Mitspieler ein und trägst nur deine eigenen Schläge ein.</div>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 13, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '14px 16px', marginTop: 10 }}>
+          <div style={{ color: 'var(--accent)' }}><Ic.link size={21} /></div>
+          <div style={{ fontSize: 13.5, color: 'var(--ink-2)', lineHeight: 1.4 }}>Kein Scannen möglich? Der Gastgeber kann dir den Einladungs-Link auch schicken.</div>
+        </div>
       </Body>
       <Footer>
-        <Btn kind={clean.length >= 4 ? 'primary' : 'secondary'} disabled={clean.length < 4 || busy} onClick={() => join()} iconR={<Ic.arrowR size={20} />}>{busy ? 'Suche Runde …' : 'Mit Code beitreten'}</Btn>
+        <Btn kind="secondary" onClick={() => go(back)}>Abbrechen</Btn>
       </Footer>
     </Screen>
   );

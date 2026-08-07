@@ -223,7 +223,7 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
             <div style={{ width: 50, height: 50, borderRadius: 15, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic.scan size={26} color="#fff" /></div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 18, fontWeight: 700 }}>Spiel beitreten</div>
-              <div style={{ fontSize: 13.5, opacity: 0.85 }}>{activeSession ? 'Erst die laufende Runde beenden' : 'QR des Gastgebers scannen oder Code eingeben'}</div>
+              <div style={{ fontSize: 13.5, opacity: 0.85 }}>{activeSession ? 'Erst die laufende Runde beenden' : 'QR-Code des Gastgebers scannen'}</div>
             </div>
             <Ic.arrowR size={22} color="#fff" />
           </button>
