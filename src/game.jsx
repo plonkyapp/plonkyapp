@@ -450,7 +450,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
 }
 
 // ── Results / standings ───────────────────────────────────
-function ResultsScreen({ players, go, restart, account, family = [], onSave, onCompanionSave, final = true, onFinish, joined = false, sessionCode, me = null, onLeaveJoined, venueName = OB.VENUE, nameOf = (x) => x.name }) {
+function ResultsScreen({ players, go, restart, account, family = [], onSave, onCompanionSave, final = true, onFinish, joined = false, sessionCode, me = null, onLeaveJoined, venueName = OB.VENUE, nameOf = (x) => x.name, onInvite = null }) {
   // joined players watch the live session so the standings converge to the real endstand
   const [rows, setRows] = useS(players);
   const [srvDone, setSrvDone] = useS(false); // host pressed "Spiel beenden" (from the live session)
@@ -607,6 +607,9 @@ function ResultsScreen({ players, go, restart, account, family = [], onSave, onC
         ) : (
           <>
             <UI.Btn kind="primary" onClick={() => go('game')} icon={<Ic.flag size={19} />}>Weiter spielen</UI.Btn>
+            {/* Nur der Gastgeber: den QR nochmal zeigen, damit ein noch offener
+                Platz auch nach dem Start besetzt werden kann. */}
+            {onInvite && <UI.Btn kind="ghost" onClick={onInvite} icon={<Ic.users size={18} />}>Mitspieler einladen</UI.Btn>}
             {account && sessionCode && <UI.Btn kind="ghost" onClick={restart} icon={<Ic.home size={18} />}>Pause · zu meinem plonky</UI.Btn>}
           </>
         )}

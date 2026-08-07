@@ -525,7 +525,10 @@ function PlayersScreen({ go, players, setPlayers, role, family = [] }) {
 }
 
 // ── 6. Invite (role B) — real live session ────────────────
-function InviteScreen({ go, players, mode, sessionCode, setSessionCode, venueName = VENUE }) {
+// back/resume: aus dem Einrichten kommt man von 'players' und geht danach ins Spiel.
+// Aus einer LAUFENDEN Runde (Zwischenstand) will man nur den QR nochmal sehen und
+// dann zurück — deshalb dort kein "Spiel starten" und keine Schritt-Anzeige.
+function InviteScreen({ go, players, mode, sessionCode, setSessionCode, venueName = VENUE, back = 'players', resume = false }) {
   const { Screen, AppHeader, Body, Footer, Btn, Steps, QRCode, Avatar } = UI;
   const [code, setCode] = useStateOB(sessionCode || null);
   const [claimed, setClaimed] = useStateOB({});
@@ -544,9 +547,11 @@ function InviteScreen({ go, players, mode, sessionCode, setSessionCode, venueNam
       .catch(() => setErr(true));
   }, []);
 
-  // keep the server roster in sync while the host edits the line-up
+  // keep the server roster in sync while the host edits the line-up. NICHT bei
+  // resume: dort läuft die Runde schon, und die Aufstellung soll nur angeschaut,
+  // nicht überschrieben werden.
   useEffectOB(() => {
-    if (!code) return;
+    if (!code || resume) return;
     ACC.API.sessionPlayers(code, players).catch(() => {});
   }, [code, players]);
 
@@ -571,13 +576,21 @@ function InviteScreen({ go, players, mode, sessionCode, setSessionCode, venueNam
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done).catch(done);
     else done();
   };
+  // Der Link enthält den langen Token — verschicken ist genauso sicher wie den QR
+  // zeigen und der einzige Weg für jemanden, der gerade nicht scannen kann.
+  const canShare = typeof navigator !== 'undefined' && !!navigator.share;
+  const shareLink = () => {
+    if (!link) return;
+    if (navigator.share) navigator.share({ title: 'plonky — mitspielen', text: 'Mach mit bei unserer plonky-Runde', url: link }).catch(() => {});
+    else copy();
+  };
   // the lead (index 0) is this very device — always counts as "in"
   const isIn = (p, i) => i === 0 || claimed[p.id];
   const joinedCount = players.filter((p, i) => isIn(p, i)).length;
 
   return (
     <Screen>
-      <AppHeader title="Mitspieler einladen" sub="Mitspielen" onBack={() => go('players')} />
+      <AppHeader title="Mitspieler einladen" sub={resume ? 'Laufende Runde' : 'Mitspielen'} onBack={() => go(back)} />
       <Body>
         <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.45, marginBottom: 16, textAlign: 'center' }}>
           Lass die anderen <b>diesen QR scannen</b> — dann sind sie in derselben Runde.
@@ -593,10 +606,15 @@ function InviteScreen({ go, players, mode, sessionCode, setSessionCode, venueNam
           </div>
         </div>
         {code && (
-          <button onClick={copy} style={{ width: '100%', textAlign: 'left', cursor: 'pointer', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 11, fontFamily: 'var(--font)', marginBottom: 18 }}>
+          <button onClick={copy} style={{ width: '100%', textAlign: 'left', cursor: 'pointer', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 11, fontFamily: 'var(--font)', marginBottom: canShare ? 8 : 18 }}>
             <Ic.link size={18} color="var(--accent)" />
             <span style={{ flex: 1, fontSize: 13, color: 'var(--ink-2)', fontFamily: 'var(--num)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{link.replace(/^https?:\/\//, '')}</span>
             <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent)' }}>{copied ? '✓ Kopiert' : 'Kopieren'}</span>
+          </button>
+        )}
+        {code && canShare && (
+          <button onClick={shareLink} style={{ width: '100%', marginBottom: 18, cursor: 'pointer', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 14, padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 700 }}>
+            <Ic.link size={18} color="#fff" /> Link senden
           </button>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -619,8 +637,10 @@ function InviteScreen({ go, players, mode, sessionCode, setSessionCode, venueNam
         </div>
       </Body>
       <Footer>
-        <Steps n={3} i={2} />
-        <Btn kind="primary" onClick={() => go('game')} iconR={<Ic.arrowR size={20} />}>Spiel starten</Btn>
+        {resume
+          ? <Btn kind="primary" onClick={() => go(back)} iconR={<Ic.arrowR size={20} />}>Zurück zum Spiel</Btn>
+          : <><Steps n={3} i={2} />
+            <Btn kind="primary" onClick={() => go('game')} iconR={<Ic.arrowR size={20} />}>Spiel starten</Btn></>}
       </Footer>
     </Screen>
   );

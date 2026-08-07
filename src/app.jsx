@@ -44,6 +44,7 @@ function App() {
   const [histFrom, setHistFrom] = useAS('home');
   const [legalFrom, setLegalFrom] = useAS('cover');
   const [restoreErr, setRestoreErr] = useAS(''); // Meldung, wenn ein /m/-Link ins Leere zeigt
+  const [inviteFrom, setInviteFrom] = useAS('players'); // 'players' = Einrichten, sonst aus laufender Runde
   const [venuesFrom, setVenuesFrom] = useAS(null); // von wo die Anlagen-Auswahl geöffnet wurde (null = Erststart, kein Zurück)
   const [faqFrom, setFaqFrom] = useAS('home');
   const [feedbackFrom, setFeedbackFrom] = useAS('home');
@@ -427,7 +428,7 @@ function App() {
     return list;
   };
   const firstStep = () => (t.onboardingFlow === 'express' ? 'express' : 'welcome');
-  const newGame = (v = venue) => { gameSavedRef.current = false; if (v && v.holes) GAME.setHoles(v.holes); setPlayers(buildInitialPlayers()); setRole(account ? 'me' : null); setMode(defaultMode); setMe(null); setSessionCode(null); go(scanEnabled ? 'scan' : firstStep()); };
+  const newGame = (v = venue) => { gameSavedRef.current = false; if (v && v.holes) GAME.setHoles(v.holes); setPlayers(buildInitialPlayers()); setRole(account ? 'me' : null); setMode(defaultMode); setMe(null); setSessionCode(null); setInviteFrom('players'); go(scanEnabled ? 'scan' : firstStep()); };
   // "Spiel starten": Anlage bekannt (QR / schon gewählt) → direkt ins Spiel; sonst
   // erst Wo-spielst-du. JEDER Spielstart läuft hier durch — ohne das wird die Runde
   // mit leerer Anlage gespeichert und fehlt später in der Auswertung.
@@ -583,11 +584,13 @@ function App() {
     case 'scan': view = <OB.ScanScreen go={go} express={t.onboardingFlow === 'express'} venue={venue} />; break;
     case 'welcome': view = <OB.RoleScreen go={go} role={role} setRole={setRole} back={scanEnabled ? 'scan' : 'cover'} venue={venue} onVenues={openVenues} />; break;
     case 'players': view = <OB.PlayersScreen go={go} players={players} setPlayers={setPlayers} role={role} family={family} />; break;
-    case 'invite': view = <OB.InviteScreen go={go} players={players} mode={mode} sessionCode={sessionCode} setSessionCode={setSessionCode} venueName={venue ? venue.name : ''} />; break;
+    case 'invite': view = <OB.InviteScreen go={go} players={players} mode={mode} sessionCode={sessionCode} setSessionCode={setSessionCode} venueName={venue ? venue.name : ''} back={inviteFrom} resume={inviteFrom !== 'players'} />; break;
     case 'join': view = <OB.JoinScreen go={go} players={players} setMe={setMe} sessionCode={sessionCode} account={account} />; break;
     case 'express': view = <GAME.ExpressSetup go={go} role={role} setRole={setRole} mode={mode} setMode={setMode} players={players} setPlayers={setPlayers} family={family} />; break;
     case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} onHome={account && sessionCode ? restart : null} account={account} family={family} venueName={venue ? venue.name : ''} nameOf={nameOf} />; break;
-    case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} family={family} onSave={saveGame} onCompanionSave={saveCompanionGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} me={me} onLeaveJoined={leaveJoined} venueName={venue ? venue.name : ''} nameOf={nameOf} />; break;
+    case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} family={family} onSave={saveGame} onCompanionSave={saveCompanionGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} me={me} onLeaveJoined={leaveJoined} venueName={venue ? venue.name : ''} nameOf={nameOf}
+      /* Einladen nur für den Gastgeber einer geteilten Runde (me == null) und nur im Zwischenstand */
+      onInvite={sessionCode && me == null && !resultsFinal ? () => { setInviteFrom('results'); go('invite'); } : null} />; break;
     default: view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={startGame} companion={isCompanion} venue={venue} onVenues={openVenues} viaQr={entryViaQr} />;
   }
 
