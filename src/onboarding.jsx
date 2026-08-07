@@ -157,7 +157,7 @@ function FaqScreen({ go, back = 'home', openLegal }) {
 function LegalScreen({ go, back = 'cover' }) {
   const { Screen, AppHeader, Body } = UI;
   const H = ({ children }) => <div style={{ fontSize: 14.5, fontWeight: 700, marginTop: 20, marginBottom: 6 }}>{children}</div>;
-  const P = ({ children }) => <div style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink-2)' }}>{children}</div>;
+  const P = ({ children, style = {} }) => <div style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink-2)', ...style }}>{children}</div>;
   return (
     <Screen>
       <AppHeader title="Hinweise & Datenschutz" sub="Beta" onBack={() => go(back)} />
@@ -168,12 +168,18 @@ function LegalScreen({ go, back = 'cover' }) {
         <H>Welche Daten gespeichert werden</H>
         <P>Dein Name und — wenn du magst — dein Profilfoto, deine Spielergebnisse (Schläge pro Bahn), die Crew-Mitglieder, die du selbst anlegst, sowie optionales Feedback, das du uns schickst. Es gibt kein Passwort: der Zugang läuft allein über deinen persönlichen Link.</P>
         <H>Wo & wie</H>
-        <P>Die Daten liegen in einer Datenbank auf den Servern unseres Hosters (render). Wir machen kein Werbe-Tracking. Profilfotos werden klein gespeichert — bitte lade nur Bilder hoch, zu denen du berechtigt bist.</P>
+        <P>Die Daten liegen in einer Datenbank auf den Servern unseres Hosters (render), Standort Frankfurt — also innerhalb der EU. Wir machen kein Werbe-Tracking.</P>
+        <H>Fotos</H>
+        <P>Ein Profilfoto ist freiwillig. Es wird klein gespeichert und ist nur für die Leute sichtbar, mit denen du spielst — sonst nirgends.</P>
+        <P style={{ marginTop: 8 }}>Das gilt auch für die Fotos, die du deiner <b>Crew</b> gibst: Das sind Bilder anderer Personen. Lade sie nur hoch, wenn die Person einverstanden ist — bei deinen Kindern entscheidest du.</P>
+        <P style={{ marginTop: 8 }}>Dein Foto und das Foto jedes Mitspielers mit eigenem Konto liegen an genau einer Stelle und werden überall von dort geholt. Entfernst du so ein Foto in den Einstellungen, ist es wirklich weg — auch aus früheren Spielen, es bleiben keine Kopien zurück.</P>
+        <P style={{ marginTop: 8 }}>Eine Ausnahme in der Beta: Gibst du einem Crew-Mitglied <b>ohne</b> eigenes Konto ein Foto, bleibt es in bereits gespeicherten Spielen vorerst erhalten. Wir bauen das gerade um — bis dahin genügt eine kurze Mail an <b>delete@plonky.ch</b> und wir entfernen es.</P>
+        <P style={{ marginTop: 8 }}>Du bist auf einem Foto und möchtest es weg haben, hast aber selbst kein Konto? Schreib uns an <b>delete@plonky.ch</b> — mit deinem Namen, wie er in der App steht, und wer dich eingetragen hat. Wir entfernen es.</P>
         <H>Löschen & Auskunft</H>
-        <P>Du möchtest dein Konto oder deine Daten löschen lassen, oder wissen, was gespeichert ist? Eine kurze Mail genügt.</P>
+        <P>Du möchtest dein Konto oder deine Daten löschen lassen, oder wissen, was gespeichert ist? Eine kurze Mail an <b>delete@plonky.ch</b> genügt.</P>
         <H>Kontakt</H>
         <P>plonky.app@gmail.com</P>
-        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 22, lineHeight: 1.45 }}>Stand: Juni 2026 · Dies ist ein Hinweistext für die Testphase, keine Rechtsberatung.</div>
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 22, lineHeight: 1.45 }}>Stand: August 2026 · Dies ist ein Hinweistext für die Testphase, keine Rechtsberatung.</div>
       </Body>
     </Screen>
   );

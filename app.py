@@ -123,6 +123,32 @@ class Feedback(db.Model):
     created_at = db.Column(db.BigInteger, nullable=False, default=lambda: int(time.time() * 1000))
 
 
+def strip_crew_avatars(crew):
+    """A crew entry for someone with their OWN account must not carry a photo.
+
+    Their photo belongs to their account and is resolved from there; a copy in
+    someone else's crew list would survive them deleting it on their own device.
+    A member without an account has no such home, so their entry keeps the photo —
+    that entry IS the one place it lives.
+    """
+    out = []
+    for m in crew or []:
+        if isinstance(m, dict) and (m.get("accountId") or m.get("account_id")) and m.get("avatar"):
+            m = dict(m, avatar="")
+        out.append(m)
+    return out
+
+
+def snapshot_avatar(account_id, avatar):
+    """A person's photo lives in ONE place — Account.avatar, resolved by id.
+
+    A copy stored alongside a game or a round would outlive a delete on the
+    account, so "Foto entfernen" could never be honest. Only a player WITHOUT an
+    account has nowhere else to keep one, so only they get a snapshot.
+    """
+    return "" if account_id else (avatar or "")
+
+
 # unambiguous alphabet (no 0/O/1/I) for human-readable join codes
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -233,12 +259,13 @@ def upsert_game():
     db.session.flush()
 
     for pdata in data.get("players", []):
+        pacc = pdata.get("account_id")
         player = Player(
             ext_id=str(pdata.get("id")) if pdata.get("id") is not None else None,
-            account_id=pdata.get("account_id"),
+            account_id=pacc,
             name=pdata.get("name") or "",
             color=pdata.get("color") or "",
-            avatar=pdata.get("avatar") or "",
+            avatar=snapshot_avatar(pacc, pdata.get("avatar")),
         )
         for hole, strokes in (pdata.get("scores") or {}).items():
             player.scores.append(Score(hole=int(hole), strokes=strokes))
@@ -322,7 +349,7 @@ def upsert_account():
     if data.get("color") is not None:
         acc.color = data.get("color")
     if data.get("crew") is not None:
-        acc.crew = json.dumps(data.get("crew"))
+        acc.crew = json.dumps(strip_crew_avatars(data.get("crew")))
     if data.get("kind") is not None:
         acc.kind = data.get("kind")
     if data.get("avatar") is not None:
@@ -344,7 +371,7 @@ def create_session():
             "scores": p.get("scores") or {},
             "claimed": bool(p.get("claimed")),
             "host": (i == 0),  # the lead device that created the round
-            "avatar": p.get("avatar") or "",
+            "avatar": snapshot_avatar(p.get("account_id"), p.get("avatar")),
             # identity travels with the round: names/photos resolve live by account id
             "account_id": p.get("account_id"),
         }
@@ -415,6 +442,9 @@ def session_players(code):
         # A claimed slot keeps the photo the joiner brought; otherwise take the
         # host's roster photo (falling back to whatever was there).
         avatar = old.get("avatar") if old.get("claimed") else (p.get("avatar") or old.get("avatar") or "")
+        # keep the slot↔account link across roster syncs; the host roster carries
+        # identities too (e.g. the host's own slot)
+        pacc = old.get("account_id") or p.get("account_id")
         merged.append({
             "id": p.get("id"),
             "name": p.get("name"),
@@ -422,12 +452,10 @@ def session_players(code):
             "scores": old.get("scores") or p.get("scores") or {},
             "claimed": bool(old.get("claimed")),
             "host": (i == 0),
-            "avatar": avatar or "",
+            "avatar": snapshot_avatar(pacc, avatar),
         })
-        if old.get("account_id"):  # keep the slot↔account link across roster syncs
-            merged[-1]["account_id"] = old.get("account_id")
-        elif p.get("account_id"):  # host roster carries identities too (e.g. the host's own slot)
-            merged[-1]["account_id"] = p.get("account_id")
+        if pacc:
+            merged[-1]["account_id"] = pacc
     payload["players"] = merged
     s.data = json.dumps(payload)
     s.rev = (s.rev or 0) + 1
@@ -445,10 +473,10 @@ def session_claim(code):
     for p in players:
         if str(p.get("id")) == str(pid):
             p["claimed"] = True
-            if avatar:  # the joining device brings its own photo into the round
-                p["avatar"] = avatar
             if account_id:  # link this slot to the joiner's account (crew photo sync)
                 p["account_id"] = account_id
+            # an account-less joiner has nowhere but the round to keep a photo
+            p["avatar"] = snapshot_avatar(account_id or p.get("account_id"), avatar or p.get("avatar"))
             break
     payload["players"] = players
     s.data = json.dumps(payload)
@@ -1032,9 +1060,57 @@ def ensure_schema():
         db.session.commit()
 
 
+def purge_photo_copies():
+    """Clear photo copies left by earlier builds for players who HAVE an account.
+
+    Those rows are already invisible (the id lookup wins), but they would survive
+    a delete on the account — so "Foto entfernen" would leave the face in the
+    database. See snapshot_avatar().
+    """
+    from sqlalchemy import text
+
+    res = db.session.execute(
+        text("UPDATE player SET avatar='' WHERE avatar<>'' AND account_id IS NOT NULL")
+    )
+    cleared_crew = 0
+    for a in Account.query.all():
+        try:
+            crew = json.loads(a.crew or "[]")
+        except (ValueError, TypeError):
+            continue
+        stripped = strip_crew_avatars(crew)
+        if stripped != crew:
+            a.crew = json.dumps(stripped)
+            cleared_crew += 1
+
+    cleared_rounds = 0
+    for s in Session.query.all():
+        try:
+            payload = json.loads(s.data or "{}")
+        except (ValueError, TypeError):
+            continue
+        players = payload.get("players") or []
+        touched = False
+        for p in players:
+            if p.get("account_id") and p.get("avatar"):
+                p["avatar"] = ""
+                touched = True
+        if touched:
+            payload["players"] = players
+            s.data = json.dumps(payload)
+            cleared_rounds += 1
+    db.session.commit()
+    if res.rowcount or cleared_rounds or cleared_crew:
+        app.logger.info(
+            "purged photo copies: %s players, %s rounds, %s crew lists",
+            res.rowcount, cleared_rounds, cleared_crew,
+        )
+
+
 with app.app_context():
     db.create_all()
     ensure_schema()
+    purge_photo_copies()
 
 
 if __name__ == "__main__":

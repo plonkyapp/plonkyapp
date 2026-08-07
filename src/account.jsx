@@ -8,6 +8,15 @@ const STORE = {
   save(d) { try { localStorage.setItem(this.KEY, JSON.stringify(d)); } catch (e) {} },
 };
 
+// "Show once" markers. They live OUTSIDE the STORE blob on purpose: app.jsx
+// rewrites that one wholesale on every state change and would drop them.
+const SEEN = {
+  KEY: 'plonky.seen.v1',
+  read() { try { return JSON.parse(localStorage.getItem(this.KEY) || '{}') || {}; } catch (e) { return {}; } },
+  has(k) { return !!this.read()[k]; },
+  mark(k) { try { const d = this.read(); d[k] = 1; localStorage.setItem(this.KEY, JSON.stringify(d)); } catch (e) {} },
+};
+
 // Stable, shareable account token. It is the ONLY thing standing between a
 // stranger and this account's data, so it must be unguessable: 128 crypto bits,
 // nothing derived from the clock. The 'a' prefix marks an account id (crew
@@ -502,6 +511,19 @@ function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto,
   const removeM = (id) => { setFamily(f => f.filter(m => m.id !== id)); setConfirmDel(null); };
   const setMemberPhoto = (member, src) => (onMemberPhoto ? onMemberPhoto(member, src) : setFamily(f => f.map(m => m.id === member.id ? { ...m, avatar: src } : m)));
 
+  // Whether a member actually HAS a photo: resolve it the same way <Avatar> does
+  // (by account id), so a linked member's current photo counts, not the local
+  // snapshot — otherwise "Foto entfernen" would hide on the very rows that need it.
+  const resolve = React.useContext(UI.AvatarCtx);
+  const photoOf = (m) => (resolve ? resolve({ account_id: m.accountId, name: m.name, avatar: m.avatar }) : (m.avatar || ''));
+
+  // Uploading someone ELSE's face is the moment that needs a word — once per
+  // device, and only for crew photos (your own is your own decision).
+  const [photoAsk, setPhotoAsk] = useAcS(null);
+  const pickCrewPhoto = (m) => UI.pickPhoto(src => setMemberPhoto(m, src));
+  const onCrewCamera = (m) => (SEEN.has('crewPhoto') ? pickCrewPhoto(m) : setPhotoAsk(m));
+  const acceptPhotoAsk = () => { const m = photoAsk; SEEN.mark('crewPhoto'); setPhotoAsk(null); if (m) pickCrewPhoto(m); };
+
   return (
     <Screen>
       <AppHeader title={companion ? 'Mein Mitspieler-Konto' : 'Mein Konto'} onBack={() => go('home')} />
@@ -522,7 +544,7 @@ function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto,
             </div>
             <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 5 }}>
               {account.avatar
-                ? <>Tippen, um den Namen zu ändern · Foto gesetzt · <button onClick={() => setAccount(a => ({ ...a, avatar: '' }))} style={{ border: 'none', background: 'transparent', color: 'var(--accent)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font)', padding: 0 }}>entfernen</button></>
+                ? <>Foto gesetzt · sichtbar für Mitspieler · <button onClick={() => setAccount(a => ({ ...a, avatar: '' }))} style={{ border: 'none', background: 'transparent', color: 'var(--accent)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font)', padding: 0 }}>entfernen</button></>
                 : 'Tippen, um den Namen zu ändern · Kamera für ein Foto · Avatar für eine Farbe'}
             </div>
           </div>
@@ -550,10 +572,20 @@ function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto,
                   ? <input autoFocus value={m.name} onChange={e => rename(m.id, e.target.value)} onKeyDown={e => e.key === 'Enter' && setEditId(null)}
                       style={{ flex: 1, border: 'none', background: 'transparent', fontFamily: 'var(--font)', fontSize: 15.5, fontWeight: 600, outline: 'none', color: 'var(--ink)' }} />
                   : <div style={{ flex: 1, fontSize: 15.5, fontWeight: 600 }}>{m.name}</div>}
-                <button onClick={() => UI.pickPhoto(src => setMemberPhoto(m, src))} title="Foto" style={iconBtn}><Ic.camera size={17} color={(m.avatar || m.accountId) ? 'var(--accent)' : 'var(--ink-3)'} /></button>
+                <button onClick={() => onCrewCamera(m)} title="Foto" style={iconBtn}><Ic.camera size={17} color={photoOf(m) ? 'var(--accent)' : 'var(--ink-3)'} /></button>
                 <button onClick={() => setEditId(editId === m.id ? null : m.id)} style={iconBtn}>{editId === m.id ? <Ic.check size={18} color="var(--accent)" /> : <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-3)' }}>Bearb.</span>}</button>
                 <button onClick={() => setConfirmDel(confirmDel === m.id ? null : m.id)} style={iconBtn}><Ic.x size={17} color="var(--ink-3)" /></button>
               </div>
+              {editId === m.id && photoOf(m) && (
+                <div style={{ marginTop: 9, paddingTop: 9, borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <span style={{ flex: 1, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.4 }}>
+                    {m.accountId
+                      ? 'Gehört zum Konto von ' + m.name + ' — Entfernen löscht es überall, auch in früheren Spielen.'
+                      : m.name + ' hat kein eigenes Konto: in bereits gespeicherten Spielen bleibt das Foto vorerst erhalten.'}
+                  </span>
+                  <button onClick={() => setMemberPhoto(m, '')} style={{ flexShrink: 0, height: 32, padding: '0 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--bad)', fontFamily: 'var(--font)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Foto entfernen</button>
+                </div>
+              )}
               {confirmDel === m.id && (
                 <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--line)', animation: 'fadeUp .2s both' }}>
                   <div style={{ fontSize: 13.5, fontWeight: 700 }}>{m.name} {m.accountId ? 'aus deiner Crew entfernen?' : 'aus der Crew löschen?'}</div>
@@ -613,6 +645,25 @@ function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto,
 
         <button onClick={logout} style={{ width: '100%', marginTop: 16, height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'transparent', color: 'var(--bad)', fontFamily: 'var(--font)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Konto abmelden</button>
         <button onClick={() => (openLegal ? openLegal() : go('legal'))} style={{ width: '100%', marginTop: 10, marginBottom: 10, height: 44, borderRadius: 14, border: 'none', background: 'transparent', color: 'var(--ink-3)', fontFamily: 'var(--font)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Hinweise &amp; Datenschutz</button>
+
+        {photoAsk && (
+          <div onClick={() => setPhotoAsk(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(21,32,25,0.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 60 }}>
+            <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, background: 'var(--card)', borderRadius: '20px 20px 0 0', padding: '22px 20px 26px', animation: 'fadeUp .2s both' }}>
+              <div style={{ fontSize: 17, fontWeight: 800, letterSpacing: -0.2 }}>Kurz zum Foto</div>
+              <div style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink-2)', marginTop: 9 }}>
+                Du lädst hier das Bild einer anderen Person hoch. Mach das nur, wenn sie einverstanden ist — bei deinen Kindern entscheidest du.
+              </div>
+              <div style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink-2)', marginTop: 9 }}>
+                Das Foto sehen nur Leute, mit denen ihr spielt. Du kannst es jederzeit wieder entfernen.
+              </div>
+              <button onClick={() => { setPhotoAsk(null); (openLegal ? openLegal() : go('legal')); }} style={{ border: 'none', background: 'transparent', color: 'var(--accent)', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font)', padding: '10px 0 0' }}>Wo das Foto gespeichert wird →</button>
+              <div style={{ display: 'flex', gap: 9, marginTop: 16 }}>
+                <button onClick={() => setPhotoAsk(null)} style={{ flex: 1, height: 46, borderRadius: 13, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 600, cursor: 'pointer' }}>Abbrechen</button>
+                <button onClick={acceptPhotoAsk} style={{ flex: 1, height: 46, borderRadius: 13, border: 'none', background: 'var(--accent)', color: '#fff', fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 700, cursor: 'pointer' }}>Passt</button>
+              </div>
+            </div>
+          </div>
+        )}
       </Body>
     </Screen>
   );
