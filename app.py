@@ -39,6 +39,69 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True, "pool_recycle"
 
 db = SQLAlchemy(app)
 
+# ═══════════════════════════════════════════════════════════════════
+# PAUSE-SCHALTER — gesetzt am 09.08.2026
+#
+# Beantwortet JEDE Anfrage mit der Pause-Seite. Es wird nichts gelöscht
+# und nichts an der Datenbank geändert; die App läuft technisch weiter
+# und zeigt nur nichts mehr an.
+#
+# Zurückschalten: diesen Block entfernen (oder PAUSE = False setzen),
+# committen und pushen — Render deployt automatisch.
+# ═══════════════════════════════════════════════════════════════════
+PAUSE = True
+
+PAUSE_HTML = """<!DOCTYPE html>
+<html lang="de"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>plonky</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#15A35A">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--accent:#15A35A;--paper:#F4F4F1;--stone:#E3E3DD;--stone-2:#D6D6CF;--ink:#191A15;
+    --font:'Schibsted Grotesk',system-ui,-apple-system,sans-serif;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:var(--font);background:var(--paper);color:var(--ink);
+    min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;padding:40px 26px;text-align:center;
+    -webkit-font-smoothing:antialiased;}
+  .stone{position:relative;width:190px;height:236px;border-radius:95px 95px 14px 14px;
+    background:linear-gradient(170deg,var(--stone) 0%,var(--stone-2) 100%);
+    box-shadow:0 26px 44px -26px rgba(0,0,0,.45),inset 0 2px 0 rgba(255,255,255,.55);
+    display:flex;align-items:center;justify-content:center;}
+  .ground{width:280px;height:12px;margin-top:-6px;border-radius:50%;
+    background:rgba(25,26,21,.07);filter:blur(1px);}
+  .mark{position:relative;width:72px;height:72px;border-radius:50%;background:var(--accent);
+    opacity:.9;box-shadow:inset 0 2px 5px rgba(0,0,0,.35);}
+  .mark i{position:absolute;left:50%;top:52%;transform:translate(-50%,-50%);
+    width:25px;height:25px;border-radius:50%;background:var(--stone);
+    box-shadow:inset 0 1px 3px rgba(0,0,0,.3);}
+  h1{margin-top:38px;font-size:clamp(26px,5vw,34px);font-weight:800;letter-spacing:-1px;}
+</style></head><body>
+  <div class="stone"><span class="mark"><i></i></span></div>
+  <div class="ground"></div>
+  <h1>plonky hat sich eingelocht \u2026</h1>
+</body></html>"""
+
+
+@app.before_request
+def _pause_gate():
+    if not PAUSE:
+        return None
+    # 503 = vorübergehend nicht verfügbar. Kein 404, kein 200 — ehrlich
+    # gegenüber Browsern und Suchmaschinen, und nichts wird gecacht.
+    return PAUSE_HTML, 503, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Retry-After": "3600",
+    }
+
+
+
 
 class Account(db.Model):
     __tablename__ = "account"
