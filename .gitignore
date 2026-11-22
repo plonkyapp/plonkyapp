@@ -11,3 +11,12 @@ __pycache__/
 *.db
 instance/
 .env
+
+# Claude-Code-Sitzungsdaten
+.claude/
+
+# Lokale Datenbank-Werkzeuge: verweisen auf den privaten Schlüssel-Tresor
+# auf Michaels Mac. Das Repo ist öffentlich — die bleiben lokal.
+tools/db-lib.sh
+tools/db-report.sh
+tools/db-reset.sh
