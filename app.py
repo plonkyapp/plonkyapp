@@ -324,6 +324,27 @@ def security_headers(resp):
     # sonst der Schlüssel in der Adresszeile mitgeschickt.
     resp.headers.setdefault("Referrer-Policy", "no-referrer")
 
+    # HSTS: der Browser merkt sich, dass es diese Adresse NUR verschluesselt
+    # gibt — und ruft sie kuenftig gar nicht erst unverschluesselt auf. Das
+    # schliesst die Luecke beim allerersten Klick, bevor die Weiterleitung
+    # greift.
+    #
+    # Das ist eine EINBAHNSTRASSE: Browser merken sich das ein Jahr lang.
+    # Faellt das Zertifikat je aus, ist die App fuer jeden, der sie in diesem
+    # Jahr schon besucht hat, nicht mehr erreichbar — ohne Klickmoeglichkeit
+    # vorbei. Zuruecknehmen geht nur, indem man max-age=0 ausliefert und so
+    # lange wartet, bis alle Besucher einmal vorbeigekommen sind.
+    #
+    # Bewusst OHNE includeSubDomains: unter plonky.ch haengen mail, webmail,
+    # cpanel und ftp. ftp.plonky.ch spricht kein HTTPS — eine solche Regel
+    # wuerde sie im Browser unerreichbar machen. Auch ohne preload: in die
+    # Browser-Liste aufgenommen zu werden ist praktisch endgueltig.
+    #
+    # Nur auf verschluesselten Antworten. Ueber HTTP waere der Header
+    # wirkungslos und eine Einladung fuer einen Angreifer in der Mitte.
+    if request.headers.get("X-Forwarded-Proto", request.scheme) == "https":
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+
     path = request.path
     if path.startswith("/admin") or path == "/fb" or path.startswith("/fb/"):
         # Nur hier, nicht für die ganze App: über das Indexieren von
