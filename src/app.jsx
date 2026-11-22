@@ -33,6 +33,12 @@ function App() {
   const [sessionCode, setSessionCode] = useAS(null);
   // persistent
   const [account, setAccount] = useAS(null);
+  // Der Zugang zum Konto. Bewusst NEBEN dem Konto-Objekt: das wird an
+  // mehreren Stellen neu aufgebaut, dabei ginge das Geheimnis verloren.
+  const [secret, setSecretState] = useAS(null);
+  // Immer beides setzen: der Zustand fuer den Speicher, die Modulvariable
+  // fuer den naechsten Aufruf — der kommt frueher als der naechste Speichervorgang.
+  const useSecret = (v) => { ACC.setSecret(v); setSecretState(v || null); };
   const [venue, setVenue] = useAS(null); // aktive Anlage (Name, Bahnenzahl, Illustration) — null = noch keine gewählt (frischer Start zeigt keine Anlage)
   const [entryViaQr, setEntryViaQr] = useAS(false); // kam der Spieler per QR am Platz rein? → Begrüßung "bei Seebach" statt "auf plonky"
   const [directory, setDirectory] = useAS([]); // volle Anlagen-Liste für Kanton-Browsing, async aus /venues.json (aus bahnen.json der Website)
@@ -107,7 +113,16 @@ function App() {
   // load once
   useAE(() => {
     const d = ACC.STORE.load();
-    const linkMatch = typeof location !== 'undefined' && location.pathname.match(/^\/m\/([^\/?#]+)/);
+    // Gleich zu Beginn, damit schon der erste Server-Aufruf das Geheimnis traegt.
+    if (d.secret) { ACC.setSecret(d.secret); setSecretState(d.secret); }
+    // Neuer persoenlicher Link: /m/#<geheimnis>. Alles ab '#' bleibt im
+    // Browser und erreicht den Server nie — der Link steht also in keinem
+    // Zugriffsprotokoll. Alte Links tragen die Konto-Nummer noch im Pfad;
+    // die funktionieren weiter, solange das Konto noch kein Geheimnis hat.
+    const onM = typeof location !== 'undefined' && /^\/m(\/|$)/.test(location.pathname);
+    const mHash = typeof location !== 'undefined' ? (location.hash || '').replace(/^#/, '') : '';
+    const mPath = typeof location !== 'undefined' ? ((location.pathname.match(/^\/m\/([^\/?#]+)/) || [])[1] || '') : '';
+    const linkMatch = onM && (mHash || mPath);
     const joinMatch = typeof location !== 'undefined' && location.pathname.match(/^\/j\/([^\/?#]+)/);
     // Nur noch /fb — der Schluessel wird serverseitig von /fb/<key> gegen eine
     // Cookie-Sitzung getauscht und erreicht das Frontend nie.
@@ -158,21 +173,28 @@ function App() {
 
     // opened via a personal link (/m/<code>): adopt that account on this device
     if (linkMatch) {
-      const token = decodeURIComponent(linkMatch[1]);
+      const token = decodeURIComponent(mHash || mPath);
       if (window.history && window.history.replaceState) window.history.replaceState({}, '', '/');
       // Kontowechsel = Rucksack ausräumen: Crew/Verlauf kommen NUR vom Server des
       // neuen Kontos; das Runden-Lesezeichen nur, wenn es DIESEM Konto gehört.
       if (d.defaultMode) setDefaultMode(d.defaultMode);
       if (d.autoCrew != null) setAutoCrew(d.autoCrew);
-      if (d.activeSession && String(d.activeSession.accountId || '') === String(token)) setActiveSession(d.activeSession);
-      ACC.API.getAccount(token)
+      // Das Lesezeichen gehoert erst dann wieder uns, wenn das Konto da ist —
+      // der Link traegt jetzt das Geheimnis, nicht mehr die Konto-Nummer.
+      const altesLesezeichen = d.activeSession || null;
+      ACC.API.resolveAccount(token)
         .then(acc => {
           // A 404 is a definite answer: this account does not exist. Inventing one
           // from the token would show a stranger an empty "logged in" account under
           // an id nobody owns — say so instead, like the paste-a-link flow does.
           if (!acc || !acc.id) { setRestoreErr('Kein Konto gefunden. Prüfe deinen Link und versuch es nochmal.'); setScreen('restore'); return null; }
+          // Das Geheimnis aus dem Link ist ab jetzt der Zugang dieses Geraets.
+          // Kam der Link noch aus der alten Zeit (Nummer im Pfad), erzeugen wir
+          // ein frisches — der Server bindet es beim naechsten Speichern.
+          useSecret(token === acc.id ? ACC.newAccountSecret() : token);
           setAccount({ id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', avatar: acc.avatar || '', created: acc.created || Date.now() });
           if (Array.isArray(acc.crew)) { const fam = healFam(acc.crew); setFamily(fam); refreshLinkedCrew(fam); } // server crew wins on a fresh device
+          if (altesLesezeichen && String(altesLesezeichen.accountId || '') === String(acc.id)) setActiveSession(altesLesezeichen);
           setScreen('home');
           return ACC.API.listGames(acc.id);
         })
@@ -196,6 +218,10 @@ function App() {
     if (pickedVenue) { setVenue(pickedVenue); GAME.setHoles(pickedVenue.holes); }
     setEntryViaQr(!!(pMatch && pickedVenue)); // nur ein frischer QR-Aufruf gilt als "am Platz"
 
+    // Geraet aus der Zeit vor der Trennung: es hat ein Konto, aber kein
+    // Geheimnis. Jetzt eines erzeugen — der Server bindet es beim naechsten
+    // Speichern an das Konto und schliesst die Tuer hinter uns zu.
+    if (acc && !d.secret) { const sc = ACC.newAccountSecret(); ACC.setSecret(sc); setSecretState(sc); }
     if (acc) setAccount(acc);
     // QR-Link → Willkommen mit Anlage. Konto → Home. Sonst (frisch/Website) → Cover ohne Anlage;
     // die Anlage wird erst beim "Spiel starten" gewählt (Wo spielst du?).
@@ -228,7 +254,7 @@ function App() {
   // fehlt es (alter Static-Host / offline), bleibt die Auswahl aufs Freitextfeld beschränkt.
   useAE(() => { fetch('/venues.json').then(r => (r.ok ? r.json() : [])).then(d => { if (Array.isArray(d)) setDirectory(d); }).catch(() => {}); }, []);
   // persist
-  useAE(() => { if (hydrated) ACC.STORE.save({ account, family, history, defaultMode, autoCrew, activeSession, venueSlug: venue && venue.slug, venueCustom: venue && !venue.slug ? { name: venue.name, holes: venue.holes } : null }); }, [hydrated, account, family, history, defaultMode, autoCrew, activeSession, venue]);
+  useAE(() => { if (hydrated) ACC.STORE.save({ account, secret, family, history, defaultMode, autoCrew, activeSession, venueSlug: venue && venue.slug, venueCustom: venue && !venue.slug ? { name: venue.name, holes: venue.holes } : null }); }, [hydrated, account, secret, family, history, defaultMode, autoCrew, activeSession, venue]);
   // keep the server copy of the account (name/color/photo) in sync. Skip the very
   // first run after load: otherwise this device's stale localStorage would clobber
   // a change made elsewhere (e.g. the master set your crew photo) before we adopt it.
@@ -264,6 +290,7 @@ function App() {
     if (!hydrated || account || screen !== 'game' || !players.length) return;
     const src = me != null ? (players.find(p => String(p.id) === String(me)) || {}) : (players[0] || {});
     const acc = { id: ACC.newAccountId(), name: src.name || 'Spieler', color: src.color || AV[0], avatar: src.avatar || '', kind: me != null ? 'companion' : 'master', created: Date.now() };
+    useSecret(ACC.newAccountSecret());  // Zugang erzeugen, BEVOR das Konto zum Server geht
     setAccount(acc);
     // den eigenen Spieler-Slot ans neue Konto knüpfen — sonst erkennt der
     // "Host nie in der eigenen Crew"-Filter (der über account_id geht) den Host nicht
@@ -477,6 +504,7 @@ function App() {
   };
   const createAccount = (name) => {
     const acc = { id: ACC.newAccountId(), name, color: AV[0], created: Date.now() };
+    useSecret(ACC.newAccountSecret());
     setAccount(acc);
     ACC.API.saveAccount(acc).catch(() => {});
     saveGame(players, acc);
@@ -497,6 +525,7 @@ function App() {
       kind: 'companion',
       created: Date.now(),
     };
+    useSecret(ACC.newAccountSecret());
     setAccount(acc);
     ACC.API.saveAccount(acc, family).catch(() => {});
     // tell the session this slot now belongs to a real account (host can link it
@@ -539,11 +568,13 @@ function App() {
   // app) by pasting its personal link — bridges Safari ↔ installed app, which
   // keep separate storage on iOS. Accepts a full /m/<id> link or just the id.
   const restoreAccount = (raw) => {
-    const m = String(raw || '').match(/\/m\/([^\/?#\s]+)/);
+    // Akzeptiert /m/#<geheimnis>, den alten /m/<nummer> und beides blank getippt.
+    const m = String(raw || '').match(/\/m\/#?([^\/?#\s]+)/) || String(raw || '').match(/#([^\s]+)$/);
     const token = m ? decodeURIComponent(m[1]) : String(raw || '').trim();
     if (!token) return Promise.reject(new Error('empty'));
-    return ACC.API.getAccount(token).then(acc => {
+    return ACC.API.resolveAccount(token).then(acc => {
       if (!acc || !acc.id) throw new Error('not found');
+      useSecret(token === acc.id ? ACC.newAccountSecret() : token);
       setAccount({ id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', avatar: acc.avatar || '', created: acc.created || Date.now() });
       setFamily(healFam(Array.isArray(acc.crew) ? acc.crew : []));
       setActiveSession(as => (as && String(as.accountId || '') === String(acc.id)) ? as : null); // fremdes Lesezeichen verwerfen

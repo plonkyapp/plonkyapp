@@ -248,7 +248,7 @@ function AccountScreen({ go, onCreate, companion = false, presetName = '', back 
   const [saved, setSaved] = useStateOB(false);
   const [created, setCreated] = useStateOB(null);
   const [copied, setCopied] = useStateOB(false);
-  const link = created ? ACC.accountLink(created.id) : '';
+  const link = created ? ACC.accountLink() : '';
   const copyLink = () => {
     const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1800); };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done).catch(done);

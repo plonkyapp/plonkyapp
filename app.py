@@ -63,6 +63,15 @@ class Account(db.Model):
     crew = db.Column(db.Text, nullable=False, default="[]")  # JSON: [{id,name,color,avatar}]
     kind = db.Column(db.String, nullable=False, default="master")  # "master" | "companion"
     avatar = db.Column(db.Text, nullable=False, default="")  # small base64 photo (data URL) or ""
+    # Der Zugang, getrennt vom Ausweis. Bis 22.11.2026 war die Konto-Nummer
+    # beides zugleich — und sie wird im Mehrspieler-Betrieb an alle Mitspieler
+    # verteilt, damit Fotos live aufgeloest werden koennen. Damit konnte jeder
+    # Mitspieler das Profil lesen UND ueberschreiben.
+    #
+    # Gespeichert wird nur der SHA-256-Abdruck: wer die Datenbank in die Haende
+    # bekommt, hat damit noch keine Konten. NULL heisst "Konto aus der Zeit
+    # davor" — der erste Schreibzugriff mit einem Geheimnis uebernimmt es.
+    secret_hash = db.Column(db.String, nullable=True, index=True)
     created_at = db.Column(db.BigInteger, nullable=False, default=lambda: int(time.time() * 1000))
 
 
@@ -178,6 +187,57 @@ def new_session_code():
         code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LEN))
         if db.session.get(Session, code) is None:
             return code
+
+
+# ── Ausweis und Zugang: die Trennung ───────────────────────────────────────
+# Konto-Nummer (acc.id)  = AUSWEIS. Darf an Mitspieler gehen; sie loesen damit
+#                          Fotos auf. Oeffnet nichts.
+# Geheimnis (X-Plonky-Secret) = ZUGANG. Bleibt auf dem Geraet, wandert nur ueber
+#                          den persoenlichen Link, und der traegt es im
+#                          Adress-Anker (#) — der wird nie an den Server
+#                          geschickt und steht deshalb in keinem Protokoll.
+SECRET_HEADER = "X-Plonky-Secret"
+
+
+def _hash_secret(secret):
+    return hashlib.sha256(str(secret).encode()).hexdigest() if secret else None
+
+
+def _given_secret():
+    return request.headers.get(SECRET_HEADER) or ""
+
+
+def _account_allows(acc, secret=None):
+    """Darf der Aufrufer dieses Konto benutzen?
+
+    Ein Konto OHNE Abdruck stammt aus der Zeit vor der Trennung: der erste
+    Zugriff mit einem Geheimnis uebernimmt es (und schliesst die Tuer hinter
+    sich zu). Ohne diese Regel waeren alte Geraete ausgesperrt.
+    """
+    if acc is None:
+        return False
+    if not acc.secret_hash:
+        return True
+    given = _hash_secret(secret if secret is not None else _given_secret())
+    return bool(given) and hmac.compare_digest(acc.secret_hash, given)
+
+
+def _require_account(account_id):
+    """Konto laden und den Zugang pruefen — 403, wenn das Geheimnis fehlt."""
+    acc = db.session.get(Account, account_id) if account_id else None
+    if acc is not None and not _account_allows(acc):
+        abort(403)
+    return acc
+
+
+def account_public(acc):
+    """Was Mitspieler sehen duerfen: genug fuer Name, Farbe und Foto.
+
+    Bewusst OHNE crew — die Liste der eigenen Leute geht niemanden sonst etwas
+    an — und ohne alles, was nach Zugang aussieht.
+    """
+    return {"id": acc.id, "name": acc.name, "color": acc.color,
+            "avatar": acc.avatar or "", "kind": acc.kind or "master"}
 
 
 def account_to_dict(acc):
@@ -312,14 +372,16 @@ def health():
 
 @app.route("/api/games", methods=["GET"])
 def list_games():
-    # Header, not query string: the id is the caller's only secret and query
-    # params end up in access logs. ?account_id= stays for tabs still running
-    # the pre-header frontend and can go once nobody is on that build.
+    # Header statt Query: Query-Parameter landen in den Zugriffsprotokollen.
+    # ?account_id= bleibt fuer Tabs auf einem aelteren Frontend-Stand.
     account_id = request.headers.get("X-Plonky-Account") or request.args.get("account_id")
     if not account_id:
-        # The id both identifies AND authorises the caller — with none there is
-        # nothing to hand out. Never fall back to returning every game.
+        # Ohne Nummer gibt es nichts herauszugeben. Niemals auf "alle Spiele"
+        # zurueckfallen.
         abort(400, "missing account_id")
+    # Die Nummer allein genuegt NICHT mehr: sie steht in jeder Runde, in der man
+    # mitgespielt hat. Den Verlauf oeffnet nur das Geheimnis.
+    _require_account(account_id)
     # games this account OWNS, plus games it TOOK PART in (one shared record)
     ids = {gid for (gid,) in db.session.query(Game.id).filter_by(account_id=account_id).all()}
     ids |= {gid for (gid,) in db.session.query(GameParticipant.game_id).filter_by(account_id=account_id).all()}
@@ -337,8 +399,16 @@ def upsert_game():
         abort(400, "missing game id")
 
     account_id = data.get("account_id")
-    if account_id and db.session.get(Account, account_id) is None:
-        db.session.add(Account(id=account_id))
+    if account_id:
+        bestehend = db.session.get(Account, account_id)
+        if bestehend is None:
+            # Konto noch nie gesehen: anlegen und das Geheimnis gleich binden.
+            neu = Account(id=account_id)
+            neu.secret_hash = _hash_secret(_given_secret())
+            db.session.add(neu)
+        elif not _account_allows(bestehend):
+            # Man darf nur unter dem eigenen Konto speichern.
+            abort(403)
 
     game = db.session.get(Game, game_id)
     if game is None:
@@ -405,7 +475,36 @@ def upsert_game():
 
 @app.route("/api/account/<account_id>", methods=["GET"])
 def get_account(account_id):
+    """Mit gueltigem Geheimnis das ganze Konto, sonst nur das Oeffentliche.
+
+    Die Nummer steht in jeder Runde, in der man mitgespielt hat. Sie darf
+    deshalb Name, Farbe und Foto hergeben — aber nicht die Crew.
+    """
     acc = db.session.get(Account, account_id)
+    if acc is None:
+        abort(404)
+    if _given_secret() and _account_allows(acc):
+        return jsonify(account_to_dict(acc))
+    return jsonify(account_public(acc))
+
+
+@app.route("/api/account/resolve", methods=["POST"])
+def resolve_account():
+    """Persoenlicher Link: Geheimnis -> Konto. POST, damit das Geheimnis im
+    Rumpf reist und nicht im Pfad — Pfade landen in den Zugriffsprotokollen."""
+    data = request.get_json(silent=True) or {}
+    token = (data.get("secret") or "").strip()
+    if not token:
+        abort(400, "missing secret")
+
+    acc = Account.query.filter_by(secret_hash=_hash_secret(token)).first()
+    if acc is None:
+        # Alter Link aus der Zeit, als die Nummer selbst der Zugang war. Nur
+        # erlaubt, solange das Konto noch kein Geheimnis hat — sobald eines
+        # gesetzt ist, faellt dieser Weg fuer dieses Konto weg.
+        legacy = db.session.get(Account, token)
+        if legacy is not None and not legacy.secret_hash:
+            acc = legacy
     if acc is None:
         abort(404)
     return jsonify(account_to_dict(acc))
@@ -450,9 +549,19 @@ def upsert_account():
         abort(400, "missing account id")
     acc = db.session.get(Account, account_id)
     is_new = acc is None
+    secret = _given_secret()
     if is_new:
         acc = Account(id=account_id)
+        acc.secret_hash = _hash_secret(secret)
         db.session.add(acc)
+    else:
+        # Bis 22.11.2026 durfte hier JEDER schreiben, der die Nummer kannte —
+        # und die kennt jeder Mitspieler. Nachgewiesen: Profil umbenannt, Foto
+        # geloescht, ohne jeden Nachweis.
+        if not _account_allows(acc):
+            abort(403)
+        if not acc.secret_hash and secret:
+            acc.secret_hash = _hash_secret(secret)  # altes Konto uebernimmt sein Geheimnis
     if data.get("name") is not None:
         acc.name = data.get("name")
     if data.get("color") is not None:
@@ -1213,7 +1322,8 @@ def admin_dashboard():
 
 
 @app.route("/")
-@app.route("/m/<token>")
+@app.route("/m", strict_slashes=False)  # neuer persoenlicher Link: /m/#<geheimnis>
+@app.route("/m/<token>")                # alter Link, Nummer im Pfad
 @app.route("/j/<token>")
 @app.route("/fb", strict_slashes=False)  # Posteingang OHNE Schlüssel, auch /fb/ ; /fb/<key> ist die Anmeldung oben
 @app.route("/p/<token>")  # per-venue QR link: /p/<venue-slug> — frontend reads it, sets the active venue
@@ -1249,6 +1359,9 @@ def ensure_schema():
         db.session.commit()
     if "avatar" not in cols:
         db.session.execute(text("ALTER TABLE account ADD COLUMN avatar TEXT NOT NULL DEFAULT ''"))
+        db.session.commit()
+    if "secret_hash" not in cols:
+        db.session.execute(text("ALTER TABLE account ADD COLUMN secret_hash VARCHAR"))
         db.session.commit()
 
     player_cols = {c["name"] for c in inspector.get_columns("player")}

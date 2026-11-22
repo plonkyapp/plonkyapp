@@ -17,10 +17,11 @@ const SEEN = {
   mark(k) { try { const d = this.read(); d[k] = 1; localStorage.setItem(this.KEY, JSON.stringify(d)); } catch (e) {} },
 };
 
-// Stable, shareable account token. It is the ONLY thing standing between a
-// stranger and this account's data, so it must be unguessable: 128 crypto bits,
-// nothing derived from the clock. The 'a' prefix marks an account id (crew
-// player ids use 'c').
+// Die Konto-Nummer ist der AUSWEIS: sie steht in jeder Runde, in der man
+// mitgespielt hat, damit alle Geraete Fotos live aufloesen koennen. Sie oeffnet
+// nichts — dafuer gibt es seit 22.11.2026 das Geheimnis weiter unten.
+// 128 Zufallsbits, nichts aus der Uhr abgeleitet. 'a' markiert eine Konto-Nummer
+// (Crew-Spieler benutzen 'c').
 const newAccountId = () => {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -38,24 +39,54 @@ const newGameId = () => {
   return 'g' + Date.now() + '-' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 };
 
+// ── Das Geheimnis: der ZUGANG zum Konto ──────────────────────────────────────
+// Bleibt auf diesem Geraet. Geht NIE an Mitspieler, steht in keiner Runde und
+// in keinem Spielstand. Es wandert nur ueber den persoenlichen Link — und der
+// traegt es hinter einem '#', das der Browser niemals an den Server schickt.
+//
+// Vorher war die Konto-Nummer beides zugleich. Weil sie im Mehrspieler-Betrieb
+// verteilt wird, konnte jeder Mitspieler das Profil lesen und ueberschreiben.
+const newAccountSecret = () => {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+};
+
+// Gehalten in einer Modulvariablen UND im Speicher: direkt nach dem Anlegen
+// eines Kontos ist der Speicher noch nicht geschrieben, der erste Aufruf braucht
+// das Geheimnis aber schon.
+let CURRENT_SECRET = null;
+const setSecret = (s) => { CURRENT_SECRET = s || null; };
+const getSecret = () => {
+  if (CURRENT_SECRET) return CURRENT_SECRET;
+  try { return STORE.load().secret || ''; } catch (e) { return ''; }
+};
+// Kopfzeilen fuer jeden Aufruf, der etwas Eigenes betrifft.
+const auth = (extra) => {
+  const s = getSecret();
+  return Object.assign({}, extra || {}, s ? { 'X-Plonky-Secret': s } : {});
+};
+
 // ── backend API (same-origin; degrades to localStorage-only if unreachable) ──
 const API = {
   async listGames(accountId) {
-    const r = await fetch('/api/games', { headers: { 'X-Plonky-Account': accountId } });
+    const r = await fetch('/api/games', { headers: auth({ 'X-Plonky-Account': accountId }) });
     if (!r.ok) throw new Error('list ' + r.status);
     return r.json();
   },
   async saveGame(accountId, game) {
     const r = await fetch('/api/games', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: auth({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(Object.assign({ account_id: accountId }, game)),
     });
     if (!r.ok) throw new Error('save ' + r.status);
     return r.json();
   },
+  // Mit Geheimnis liefert der Server das ganze Konto (inkl. Crew), ohne nur
+  // Name, Farbe und Foto — das, was Mitspieler sehen duerfen.
   async getAccount(accountId) {
-    const r = await fetch('/api/account/' + encodeURIComponent(accountId));
+    const r = await fetch('/api/account/' + encodeURIComponent(accountId), { headers: auth() });
     if (r.status === 404) return null;
     if (!r.ok) throw new Error('account ' + r.status);
     return r.json();
@@ -69,16 +100,30 @@ const API = {
     return r.json();
   },
   async saveAccount(account, crew) {
+    // Das Geheimnis reist in der Kopfzeile, NIE im Rumpf — der Rumpf landet
+    // sonst in Fehlerprotokollen und Zwischenspeichern.
     const body = { id: account.id, name: account.name, color: account.color };
     if (account.kind) body.kind = account.kind;
     if (account.avatar !== undefined) body.avatar = account.avatar || '';
     if (crew !== undefined) body.crew = crew;
     const r = await fetch('/api/account', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: auth({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error('saveAccount ' + r.status);
+    return r.json();
+  },
+  // Persoenlicher Link: Geheimnis -> Konto. POST, damit das Geheimnis im Rumpf
+  // reist und nicht im Pfad; Pfade stehen in den Zugriffsprotokollen.
+  async resolveAccount(secret) {
+    const r = await fetch('/api/account/resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: secret }),
+    });
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error('resolveAccount ' + r.status);
     return r.json();
   },
   async createSession(session) {
@@ -175,7 +220,10 @@ const API = {
 
 const appOrigin = () => (typeof location !== 'undefined' ? location.origin : 'https://app.plonky.ch');
 // the personal restore link for an account
-const accountLink = (id) => appOrigin() + '/m/' + id;
+// Der persoenliche Link traegt das GEHEIMNIS, nicht die Konto-Nummer — und es
+// steht hinter einem '#'. Der Browser schickt alles ab dem '#' niemals an den
+// Server, der Link hinterlaesst also keine Spur in den Zugriffsprotokollen.
+const accountLink = () => appOrigin() + '/m/#' + getSecret();
 // the live-session join link other devices open / scan
 const sessionLink = (code) => appOrigin() + '/j/' + code;
 
@@ -516,7 +564,7 @@ function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto,
   const [confirmDel, setConfirmDel] = useAcS(null); // Mitglied-ID, für die die Lösch-Abfrage offen ist
   const [newName, setNewName] = useAcS('');
   const [copied, setCopied] = useAcS(false);
-  const fullLink = account.id ? accountLink(account.id) : '';
+  const fullLink = account.id ? accountLink() : '';
   const link = fullLink.replace(/^https?:\/\//, '');
 
   const copy = () => { if (!fullLink) return; try { navigator.clipboard.writeText(fullLink); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1600); };
@@ -837,4 +885,4 @@ function FeedbackInbox({ items, go }) {
   );
 }
 
-window.ACC = { STORE, API, newAccountId, newGameId, accountLink, sessionLink, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, FeedbackScreen, FeedbackInbox, aTotals, fmtDate, fmtShort };
+window.ACC = { STORE, API, newAccountId, newAccountSecret, newGameId, setSecret, getSecret, accountLink, sessionLink, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, FeedbackScreen, FeedbackInbox, aTotals, fmtDate, fmtShort };
