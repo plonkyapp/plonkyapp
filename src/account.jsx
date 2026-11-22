@@ -3,34 +3,77 @@ const { useState: useAcS, useEffect: useAcE, useRef: useAcR } = React;
 
 // ── storage ───────────────────────────────────────────────
 // Der ganze Stand des Geraets liegt in EINEM Eintrag, und app.jsx schreibt ihn
-// bei jeder Aenderung komplett neu. Mit zwei offenen Tabs heisst das: der Tab,
+// bei jeder Aenderung komplett neu. Mit zwei offenen Tabs hiess das: der Tab,
 // der zuletzt schreibt, gewinnt — auch wenn er den aelteren Stand im Speicher
 // hat. So schrieb ein alter Tab einen laengst erneuerten Zugang zurueck oder
 // loeschte das Lesezeichen einer Runde, die im anderen Tab lief.
-// Deshalb traegt der Eintrag eine Zaehlnummer (rev). Ein Tab schreibt nur,
-// wenn er den aktuellen Stand kennt. Sonst laedt er neu und uebernimmt ihn.
+//
+// Jetzt traegt der Eintrag eine Zaehlnummer (rev), und jeder Tab merkt sich,
+// was er zuletzt gelesen oder geschrieben hat (base). Hat inzwischen ein
+// anderer Tab geschrieben, wird FELD FUER FELD zusammengefuehrt:
+//   - was DIESER Tab seit seinem letzten Stand geaendert hat, gilt;
+//   - alles andere kommt vom anderen Tab — und save() gibt es zurueck, damit
+//     app.jsx es auch in den Arbeitsspeicher uebernimmt.
+// Nur wenn Konto oder Zugang selbst anders sind, wird neu geladen.
+// (Eine erste Fassung lud bei JEDEM fremden Schreiben neu — zwei Tabs konnten
+// sich damit gegenseitig endlos neu laden.)
+const STORE_FIELDS = ['account', 'secret', 'family', 'history', 'defaultMode', 'autoCrew', 'activeSession', 'venueSlug', 'venueCustom', 'profileDirty'];
+const sEq = (a, b) => JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+const sStrip = (d) => { const o = {}; STORE_FIELDS.forEach(k => { o[k] = (d && d[k] !== undefined) ? d[k] : null; }); return o; };
+const sRev = (d) => { const n = d && d.rev; return (typeof n === 'number' && isFinite(n) && n >= 0) ? n : 0; };
 const STORE = {
   KEY: 'plonky.v1',
   rev: null,       // der Stand, den DIESER Tab kennt (gesetzt von open())
+  base: null,      // was dieser Tab zuletzt gelesen oder geschrieben hat
   frozen: false,   // true: der Tab laedt gleich neu — nichts mehr schreiben
   load() { try { return JSON.parse(localStorage.getItem(this.KEY) || 'null') || {}; } catch (e) { return {}; } },
-  open() { const d = this.load(); this.rev = d.rev || 0; return d; },
+  open() { const d = this.load(); this.rev = sRev(d); this.base = sStrip(d); return d; },
   _write(d) { try { localStorage.setItem(this.KEY, JSON.stringify(d)); return true; } catch (e) { return false; } },
-  reload() { this.frozen = true; try { location.reload(); } catch (e) {} },
+  reload() { if (this.frozen) return; this.frozen = true; try { location.reload(); } catch (e) {} },
+  // Liefert null — oder die Felder, die ein anderer Tab geaendert hat und die
+  // dieser Tab uebernehmen soll.
   save(d) {
-    if (this.frozen) return;
-    const cur = this.load().rev || 0;
-    if (this.rev != null && cur !== this.rev) { this.reload(); return; }   // ein anderer Tab war schneller
-    if (this._write(Object.assign({}, d, { rev: cur + 1 })) && this.rev != null) this.rev = cur + 1;
+    if (this.frozen) return null;
+    const stored = this.load(); const cur = sRev(stored);
+    const mine = sStrip(d); const theirs = sStrip(stored);
+    if (this.rev == null || cur === this.rev) {
+      if (sEq(mine, theirs)) { this.base = mine; return null; }          // nichts geaendert: nicht schreiben
+      if (this._write(Object.assign({}, mine, { rev: cur + 1 }))) { if (this.rev != null) this.rev = cur + 1; this.base = mine; }
+      return null;
+    }
+    // Ein anderer Tab hat inzwischen geschrieben.
+    const idOf = (x) => (x.account && x.account.id) || null;
+    if (!sEq(theirs.secret, mine.secret) || idOf(theirs) !== idOf(mine)) { this.reload(); return null; }
+    const base = this.base || {};
+    const merged = {}; const adopt = {};
+    STORE_FIELDS.forEach(k => {
+      const ich = !sEq(mine[k], base[k]);
+      const sie = !sEq(theirs[k], base[k]);
+      if (k === 'history' && ich && sie) merged[k] = mergeGames(theirs[k] || [], mine[k] || []);   // beide: vereinigen, meins gewinnt je Runde
+      else merged[k] = ich ? mine[k] : theirs[k];
+      if (!sEq(merged[k], mine[k])) adopt[k] = merged[k];
+    });
+    if (sEq(merged, theirs)) { this.rev = cur; this.base = merged; }
+    else if (this._write(Object.assign({}, merged, { rev: cur + 1 }))) { this.rev = cur + 1; this.base = merged; }
+    return Object.keys(adopt).length ? adopt : null;
   },
   // EIN Feld aendern, auf dem Stand, der gerade gespeichert ist — nicht auf
   // dem, den dieser Tab im Speicher hat.
   patch(fields) {
     if (this.frozen) return;
-    const d = this.load(); const cur = d.rev || 0;
+    const d = this.load(); const cur = sRev(d);
     const veraltet = this.rev != null && cur !== this.rev;
-    const ok = this._write(Object.assign({}, d, fields, { rev: cur + 1 }));
-    if (veraltet) this.reload(); else if (ok && this.rev != null) this.rev = cur + 1;
+    if (this._write(Object.assign({}, d, fields, { rev: cur + 1 }))) {
+      this.base = Object.assign({}, this.base || sStrip(d), fields);
+      if (!veraltet && this.rev != null) this.rev = cur + 1;     // veraltet bleibt veraltet: das naechste save() fuehrt zusammen
+    }
+  },
+  // Ein Tab mit einem AELTEREN Stand (etwa noch die Fassung vor dem Update)
+  // hat diesen ueberschrieben: den eigenen wieder hinschreiben.
+  reassert() {
+    if (this.frozen || !this.base) return;
+    const cur = Math.max(sRev(this.load()), this.rev || 0);
+    if (this._write(Object.assign({}, this.base, { rev: cur + 1 }))) this.rev = cur + 1;
   },
 };
 
@@ -251,7 +294,9 @@ const API = {
     if (await gilt(neu)) return neu;
     // Erreichbar und unbekannt. Hat der Server ausdruecklich abgelehnt, ist der
     // Versuch erledigt; ging nur die Leitung verloren, kann er noch ankommen.
-    if (status) PENDING.clear();
+    // (Nur bei einer klaren Absage. Ein 502/504 vom Vorschaltrechner heisst
+    // nicht, dass der Server den Tausch nicht doch noch ausfuehrt.)
+    if (status === 400 || status === 403 || status === 409) PENDING.clear();
     throw new Error('rotate ' + status);
   },
   async deleteAccount() {

@@ -70,6 +70,11 @@ function App() {
   const [synced, setSynced] = useAS(false);
   const [switchAsk, setSwitchAsk] = useAS(null); // { acc, token, bookmark }: fremder persoenlicher Link — erst fragen
   const [soloRetry, setSoloRetry] = useAS(0);
+  // Profil oder Crew wurden geaendert, und der Server hat es noch nicht (kein
+  // Netz, Fehler). Steht mit im Speicher: beim naechsten Start wird dann NICHT
+  // der Stand des Servers uebernommen, sondern erst der eigene hochgeschoben —
+  // sonst waere, was im Funkloch eingegeben wurde, nach dem Neuladen weg.
+  const [profileDirty, setProfileDirty] = useAS(false);
   const secretRef = useAR(null); secretRef.current = secret || null;
   const accIdRef = useAR(null); accIdRef.current = (account && account.id) || null;
   const accountRef = useAR(null); accountRef.current = account;
@@ -79,6 +84,8 @@ function App() {
   // ueberschreibt seine Aenderung nicht.
   const loadedAccRef = useAR(null);
   const loadedFamRef = useAR(null);
+  const dirtyAtLoadRef = useAR(false);
+  const profilePushRef = useAR(0);
 
   // Doppelte Crew-IDs heilen (Altlast des 'fme'-Bugs): gleiche ID = geteilte Scores
   // im Spiel. Duplikate bekommen beim Laden eine frische ID; Einträge bleiben erhalten.
@@ -164,6 +171,8 @@ function App() {
   };
   const adoptServer = (acc, versuch = 0) => {
     if (!acc || !acc.id) { setSynced(true); return; }
+    // Ungesendete eigene Aenderungen von einem frueheren Start: die gehen vor.
+    if (dirtyAtLoadRef.current) { loadedAccRef.current = null; loadedFamRef.current = null; refreshLinkedCrew(familyRef.current); setSynced(true); return; }
     ACC.API.getAccount(acc.id)
       .then(server => {
         if (accIdRef.current !== acc.id) return;            // inzwischen abgemeldet oder gewechselt
@@ -173,7 +182,6 @@ function App() {
       .catch(() => {
         // Server nicht erreichbar. Dann wird auch nichts hochgeschoben — der
         // Stand dieses Geraets kann veraltet sein. Spaeter nochmal versuchen.
-        if (versuch === 0) refreshLinkedCrew(familyRef.current);
         setTimeout(() => { if (accIdRef.current === acc.id) adoptServer(acc, versuch + 1); }, Math.min(60000, 5000 * (versuch + 1)));
       });
   };
@@ -183,7 +191,7 @@ function App() {
   // dieser Tab nichts mehr (STORE.reload friert ein), sonst kaeme der alte
   // Wert aus dem Arbeitsspeicher zurueck. Ist der neue dem Server unbekannt,
   // bleibt er noch zwei Minuten stehen: die Anfrage kann unterwegs sein.
-  const settlePending = (acc, bisher) => {
+  const settlePending = (acc, bisher, versuch) => {
     const unterwegs = ACC.PENDING.get();
     if (!unterwegs) return;
     if (!acc || !acc.id) { ACC.PENDING.clear(); return; }
@@ -195,7 +203,8 @@ function App() {
           if (unterwegs !== bisher) ACC.STORE.reload();
         } else if (ACC.PENDING.age() > 120000) ACC.PENDING.clear();
       })
-      .catch(() => {});
+      // nicht erreichbar: spaeter nochmal (hoechstens ein paar Mal)
+      .catch(() => { if ((versuch || 0) < 5) setTimeout(() => settlePending(acc, bisher, (versuch || 0) + 1), 20000); });
   };
   // Die Runde bringt Anlage UND Bahnenzahl mit. Ohne die Zahl rechnete ein Gast
   // mit der eigenen gemerkten Anlage oder mit 18.
@@ -215,6 +224,7 @@ function App() {
     setActiveSession(bookmark && String(bookmark.accountId || '') === String(acc.id) ? bookmark : null);
     setHistory([]);
     setSwitchAsk(null);
+    setProfileDirty(false); dirtyAtLoadRef.current = false; loadedAccRef.current = null; loadedFamRef.current = null;
     setSynced(true);
     setScreen('home');
     return ACC.API.listGames(acc.id).then(server => { if (server) setHistory(server); }).catch(() => {});
@@ -230,6 +240,10 @@ function App() {
       if (e.key !== ACC.STORE.KEY) return;
       let d = {};
       try { d = JSON.parse(e.newValue || 'null') || {}; } catch (x) { return; }
+      // Ein Tab mit aelterem Stand (noch die Fassung vor dem Update) hat
+      // ueberschrieben: nicht dessen Stand uebernehmen, den eigenen behaupten.
+      const r = (typeof d.rev === 'number') ? d.rev : -1;
+      if (ACC.STORE.rev != null && r < ACC.STORE.rev) { ACC.STORE.reassert(); return; }
       const sec = d.secret || null, aid = (d.account && d.account.id) || null;
       if (sec !== secretRef.current || aid !== accIdRef.current) ACC.STORE.reload();
     };
@@ -240,6 +254,7 @@ function App() {
   // load once
   useAE(() => {
     const d = ACC.STORE.open();
+    if (d.profileDirty) { dirtyAtLoadRef.current = true; setProfileDirty(true); }
     // Gleich zu Beginn, damit schon der erste Server-Aufruf das Geheimnis traegt.
     if (d.secret) { ACC.setSecret(d.secret); setSecretState(d.secret); }
     // Neuer persoenlicher Link: /m/#<geheimnis>. Alles ab '#' bleibt im
@@ -345,6 +360,7 @@ function App() {
             // Die Antwort IST der Stand des Servers (mit Crew). Den uebernehmen
             // — sonst schiebt ein altes Geraet beim Oeffnen seines Lesezeichens
             // seinen alten Namen und seine alte Crew ueber den aktuellen Stand.
+            dirtyAtLoadRef.current = false; setProfileDirty(false);
             applyServer(acc.id, acc);
             setSynced(true);
             setScreen('home');
@@ -410,17 +426,40 @@ function App() {
   // fehlt es (alter Static-Host / offline), bleibt die Auswahl aufs Freitextfeld beschränkt.
   useAE(() => { fetch('/venues.json').then(r => (r.ok ? r.json() : [])).then(d => { if (Array.isArray(d)) setDirectory(d); }).catch(() => {}); }, []);
   // persist
-  useAE(() => { if (hydrated) ACC.STORE.save({ account, secret, family, history, defaultMode, autoCrew, activeSession, venueSlug: venue && venue.slug, venueCustom: venue ? { name: venue.name, holes: venue.holes, slug: venue.slug || null } : null }); }, [hydrated, account, secret, family, history, defaultMode, autoCrew, activeSession, venue]);
+  useAE(() => {
+    if (!hydrated) return;
+    const fremd = ACC.STORE.save({ account, secret, family, history, defaultMode, autoCrew, activeSession, profileDirty, venueSlug: venue && venue.slug, venueCustom: venue ? { name: venue.name, holes: venue.holes, slug: venue.slug || null } : null });
+    if (!fremd) return;
+    // Ein anderer Tab hat diese Felder geaendert, dieser nicht: uebernehmen.
+    // (Konto und Zugang sind dabei garantiert dieselben — sonst laedt STORE neu.)
+    if ('account' in fremd && fremd.account) setAccount(fremd.account);
+    if ('family' in fremd) setFamily(Array.isArray(fremd.family) ? fremd.family : []);
+    if ('history' in fremd) setHistory(Array.isArray(fremd.history) ? fremd.history : []);
+    if ('activeSession' in fremd) setActiveSession(fremd.activeSession || null);
+    if ('defaultMode' in fremd && fremd.defaultMode) setDefaultMode(fremd.defaultMode);
+    if ('autoCrew' in fremd && fremd.autoCrew != null) setAutoCrew(fremd.autoCrew);
+    if ('profileDirty' in fremd) setProfileDirty(!!fremd.profileDirty);
+  }, [hydrated, account, secret, family, history, defaultMode, autoCrew, activeSession, venue, profileDirty]);
   // keep the server copy of the account (name/color/photo) in sync. Skip the very
   // first run after load: otherwise this device's stale localStorage would clobber
   // a change made elsewhere (e.g. the master set your crew photo) before we adopt it.
   useAE(() => {
-    if (!hydrated || !synced || !account || !account.id) return;
-    ACC.API.saveAccount(account, family).catch(e => {
-      // 410: das Konto wurde auf einem anderen Geraet geloescht. Dann vergisst
-      // es auch dieses — statt es bei jedem Speichern neu anlegen zu wollen.
-      if (/ 410$/.test(String(e && e.message))) logout();
-    });
+    if (!hydrated || !account || !account.id) return;
+    if (!synced) {
+      // Noch nicht mit dem Server abgeglichen (kein Netz). Hat der Nutzer
+      // trotzdem schon etwas geaendert, wird das vermerkt.
+      if ((loadedAccRef.current && account !== loadedAccRef.current) || (loadedFamRef.current && family !== loadedFamRef.current)) setProfileDirty(true);
+      return;
+    }
+    const marke = ++profilePushRef.current;
+    ACC.API.saveAccount(account, family)
+      .then(() => { if (marke === profilePushRef.current) setProfileDirty(false); })
+      .catch(e => {
+        // 410: das Konto wurde auf einem anderen Geraet geloescht. Dann vergisst
+        // es auch dieses — statt es bei jedem Speichern neu anlegen zu wollen.
+        if (/ 410$/.test(String(e && e.message))) { logout(); return; }
+        if (marke === profilePushRef.current) setProfileDirty(true);
+      });
   }, [hydrated, synced, account, family]);
   // when a crew slot is claimed by someone with their own account, remember the
   // link (crew member ↔ account) so the master shows their current photo later
@@ -559,6 +598,9 @@ function App() {
     if (!pls.some(p => GAME.totals(p).played > 0)) return;
     gameSavedRef.current = true;
     setActiveSession(null); // finished & archived → drop the live bookmark
+    // Dieselbe Live-Runde ist schon im Verlauf (etwa nach einem Neuladen
+    // mitten im Beenden): nicht ein zweites Mal anlegen.
+    if (sessionCode && history.some(g => g.code === sessionCode && g.mine !== false)) return;
     const owner = (acc || account) && (acc || account).id;
     // accounts that joined with their own device become participants of this ONE
     // shared record (so they see it — and any later host edit — in their history)
@@ -798,6 +840,8 @@ function App() {
     gameSavedRef.current = false;
     setPlayers([]); setRole(null); setMode(null); setMe(null); setSessionCode(null);
     setSwitchAsk(null);
+    setProfileDirty(false); dirtyAtLoadRef.current = false; loadedAccRef.current = null; loadedFamRef.current = null;
+    setSynced(true);     // ein neues Konto in derselben Sitzung muss gespeichert werden koennen
     go('cover');
   };
   // Zugangslink erneuern: der alte gilt danach nicht mehr. Der neue wird SOFORT
@@ -835,6 +879,7 @@ function App() {
       setAccount({ id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', avatar: acc.avatar || '', created: acc.created || Date.now() });
       setFamily(healFam(Array.isArray(acc.crew) ? acc.crew : []));
       setActiveSession(as => (as && String(as.accountId || '') === String(acc.id)) ? as : null); // fremdes Lesezeichen verwerfen
+      setProfileDirty(false); dirtyAtLoadRef.current = false; loadedAccRef.current = null; loadedFamRef.current = null;
       setSynced(true);
       ACC.API.listGames(acc.id).then(server => setHistory(server || [])).catch(() => {});
       go('home');
