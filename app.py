@@ -15,8 +15,20 @@ from flask_sqlalchemy import SQLAlchemy
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Obergrenze für den Rumpf einer Anfrage. Fotos reisen als base64 im JSON mit,
+# und ohne Grenze kann jeder beliebig grosse Daten in die Datenbank schieben.
+# 2 MB ist grosszügig: ein Foto misst rund 10 KB, eine volle Runde deutlich
+# unter 100 KB. Darüber antwortet Flask von selbst mit 413.
+MAX_BODY_MB = 2
+
 # Files the static layer is allowed to serve. Everything else (e.g. .py/.sh)
 # returns 404 so the backend source is never exposed.
+# Alte Entwürfe und Projektdateien liegen im selben Ordner wie index.html und
+# haben passende Endungen — sie würden also ausgeliefert. Sie sind keine
+# Geheimnisse, aber im Web haben sie nichts verloren: zwei Prototypen vom Mai
+# und die Liste der eingesetzten Pakete samt Versionen.
+BLOCKED_FILES = {"requirements.txt", "plonky.html", "plonky v1 (mit scan).html"}
+
 ALLOWED_EXT = {
     ".html", ".jsx", ".js", ".css", ".map",
     ".png", ".svg", ".ico", ".jpg", ".jpeg", ".webp",
@@ -35,6 +47,7 @@ def database_url():
 
 
 app = Flask(__name__, static_folder=None)
+app.config["MAX_CONTENT_LENGTH"] = MAX_BODY_MB * 1024 * 1024
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url()
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True, "pool_recycle": 300}
@@ -331,6 +344,22 @@ def upsert_game():
     if game is None:
         game = Game(id=game_id)
         db.session.add(game)
+    else:
+        # Die Runde gibt es schon. Bis 22.11.2026 durfte sie JEDER überschreiben,
+        # der die ID kannte — samt Besitzerwechsel. Die IDs waren zudem blosse
+        # Zeitstempel, und die Detailansicht zeigt die Uhrzeit auf die Minute.
+        # Jetzt darf nur ändern, wer dabei war: der Besitzer oder ein
+        # eingetragener Mitspieler.
+        erlaubt = {gp.account_id for gp in game.participants}
+        erlaubt.add(game.account_id)
+        erlaubt.discard(None)
+        rufer = request.headers.get("X-Plonky-Account") or account_id
+        if erlaubt and rufer not in erlaubt:
+            abort(403)
+        # Der Besitzer bleibt der Besitzer. Sonst könnte ein Mitspieler die
+        # Runde beim Speichern seiner Korrektur auf sich selbst umschreiben.
+        if game.account_id:
+            account_id = game.account_id
 
     game.account_id = account_id
     game.date = data.get("date")
@@ -368,14 +397,10 @@ def upsert_game():
     return jsonify(game_to_dict(game))
 
 
-@app.route("/api/games/<game_id>", methods=["DELETE"])
-def delete_game(game_id):
-    game = db.session.get(Game, game_id)
-    if game is None:
-        abort(404)
-    db.session.delete(game)
-    db.session.commit()
-    return jsonify({"ok": True})
+# Hier stand bis 22.11.2026 DELETE /api/games/<id> — ohne jede Prüfung: wer die
+# ID kannte, löschte die Runde. Die App rief die Route nie auf, es gibt im
+# Bedienkonzept gar kein "Runde löschen". Eine Route, die niemand braucht und
+# jeder benutzen kann, gehört weg statt abgesichert.
 
 
 @app.route("/api/account/<account_id>", methods=["GET"])
@@ -1200,6 +1225,8 @@ def index(token=None):
 def static_files(path):
     ext = os.path.splitext(path)[1].lower()
     if ext not in ALLOWED_EXT:
+        abort(404)
+    if os.path.basename(path).lower() in BLOCKED_FILES:
         abort(404)
     full = os.path.join(APP_DIR, path)
     if not os.path.isfile(full):

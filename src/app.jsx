@@ -336,7 +336,7 @@ function App() {
     // accounts that joined with their own device become participants of this ONE
     // shared record (so they see it — and any later host edit — in their history)
     const participants = [...new Set(pls.map(p => p.account_id).filter(id => id && id !== owner))];
-    const game = { id: 'g' + Date.now(), date: Date.now(), venue: (venue && venue.name) || '', mode: mode || 'sequential', code: sessionCode || '', participants,
+    const game = { id: ACC.newGameId(), date: Date.now(), venue: (venue && venue.name) || '', mode: mode || 'sequential', code: sessionCode || '', participants,
       players: pls.map(p => ({ id: p.id, name: p.name, color: p.color, avatar: p.avatar || '', account_id: p.account_id || null, scores: { ...p.scores } })) };
     setHistory(h => [...h, game]);
     setFamily(fam => {

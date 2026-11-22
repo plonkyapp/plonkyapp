@@ -27,6 +27,17 @@ const newAccountId = () => {
   return 'a' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 };
 
+// Runden-ID. Vorher war das 'g' + Date.now() — ein blosser Zeitstempel, und die
+// Detailansicht zeigt die Uhrzeit auf die Minute genau. Wer ein Bild der Runde
+// sah, musste nur 60'000 Millisekunden durchprobieren. Der Zeitstempel bleibt
+// vorne, damit die Historie weiter nach Alter sortiert; dahinter kommt echter
+// Zufall. Alte IDs bleiben gueltig.
+const newGameId = () => {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return 'g' + Date.now() + '-' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+};
+
 // ── backend API (same-origin; degrades to localStorage-only if unreachable) ──
 const API = {
   async listGames(accountId) {
@@ -428,7 +439,10 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
   const winText = winners.length > 1 ? (winners.length === 2 ? `${nameOf(winners[0].p)} & ${nameOf(winners[1].p)} gewinnen` : 'Unentschieden') : (ranked[0] ? `${nameOf(ranked[0].p)} gewinnt` : '');
   return (
     <Screen>
-      <AppHeader title={game.venue} sub={fmtDate(game.date) + (game.code ? ' · ' + game.code : '')} onBack={() => editing ? finishEdit() : go(from)} />
+      {/* Der Runden-Code stand hier bis 22.11.2026. Beitreten laeuft heute nur
+          noch ueber QR oder Link, abgetippt wird er nie — er war also nur noch
+          etwas, das auf Screenshots landet. */}
+      <AppHeader title={game.venue} sub={fmtDate(game.date)} onBack={() => editing ? finishEdit() : go(from)} />
       <Body>
         {!editing && ranked[0] && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'color-mix(in srgb, var(--accent) 9%, var(--card))', border: '1px solid var(--accent)', borderRadius: 16, padding: '12px 16px', marginBottom: 16 }}>
@@ -823,4 +837,4 @@ function FeedbackInbox({ items, go }) {
   );
 }
 
-window.ACC = { STORE, API, newAccountId, accountLink, sessionLink, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, FeedbackScreen, FeedbackInbox, aTotals, fmtDate, fmtShort };
+window.ACC = { STORE, API, newAccountId, newGameId, accountLink, sessionLink, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, FeedbackScreen, FeedbackInbox, aTotals, fmtDate, fmtShort };
