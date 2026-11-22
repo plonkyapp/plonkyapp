@@ -109,7 +109,9 @@ function App() {
     const d = ACC.STORE.load();
     const linkMatch = typeof location !== 'undefined' && location.pathname.match(/^\/m\/([^\/?#]+)/);
     const joinMatch = typeof location !== 'undefined' && location.pathname.match(/^\/j\/([^\/?#]+)/);
-    const fbMatch = typeof location !== 'undefined' && location.pathname.match(/^\/fb\/([^\/?#]+)/);
+    // Nur noch /fb — der Schluessel wird serverseitig von /fb/<key> gegen eine
+    // Cookie-Sitzung getauscht und erreicht das Frontend nie.
+    const fbMatch = typeof location !== 'undefined' && /^\/fb\/?$/.test(location.pathname);
 
     // The remembered venue has to be restored on EVERY entry path. The link
     // branches below return early, so without this a device opened via /m/ keeps
@@ -119,10 +121,10 @@ function App() {
 
     // opened via the private feedback inbox link (/fb/<key>)
     if (fbMatch) {
-      const key = decodeURIComponent(fbMatch[1]);
-      if (window.history && window.history.replaceState) window.history.replaceState({}, '', '/');
+      // Kein replaceState mehr: in /fb steckt kein Geheimnis, und so
+      // funktioniert ein Neuladen des Posteingangs waehrend der Sitzung.
       if (d.account) setAccount(d.account.id ? d.account : { ...d.account, id: ACC.newAccountId() });
-      ACC.API.listFeedback(key)
+      ACC.API.listFeedback()
         .then(items => { setFeedbackItems(items || []); setScreen('feedbackInbox'); })
         .catch(() => { setFeedbackItems(null); setScreen('feedbackInbox'); })
         .finally(() => setHydrated(true));

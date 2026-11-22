@@ -152,8 +152,11 @@ const API = {
     if (!r.ok) throw new Error('submitFeedback ' + r.status);
     return r.json();
   },
-  async listFeedback(key) {
-    const r = await fetch('/api/feedback?key=' + encodeURIComponent(key));
+  // Kein Schluessel im Aufruf: die Sitzung steckt im HttpOnly-Cookie, das
+  // /fb/<key> gesetzt hat. Vorher lief das als /api/feedback?key=... — und
+  // Query-Parameter landen im Klartext in den Zugriffsprotokollen.
+  async listFeedback() {
+    const r = await fetch('/fb/daten', { credentials: 'same-origin' });
     if (!r.ok) throw new Error('listFeedback ' + r.status);
     return r.json();
   },
@@ -796,7 +799,7 @@ function FeedbackInbox({ items, go }) {
       <Body>
         {!items ? (
           <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 18, padding: '24px 18px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 14, lineHeight: 1.5 }}>
-            Kein Zugriff. Der Link/Schlüssel stimmt nicht — oder der <b>FEEDBACK_KEY</b> ist auf dem Server noch nicht gesetzt.
+            Keine Sitzung. Entweder ist sie abgelaufen — sie hält 12 Stunden — oder der Link stimmt nicht. Zum Anmelden den Schlüssel-Link <code>/fb/&lt;FEEDBACK_KEY&gt;</code> öffnen.
           </div>
         ) : items.length === 0 ? (
           <div style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 14, padding: '34px 0' }}>Noch kein Feedback.</div>

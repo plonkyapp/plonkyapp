@@ -232,13 +232,63 @@ def security_headers(resp):
     resp.headers.setdefault("Referrer-Policy", "no-referrer")
 
     path = request.path
-    if path.startswith("/admin") or path.startswith("/fb/") or path.startswith("/api/feedback"):
+    if path.startswith("/admin") or path == "/fb" or path.startswith("/fb/"):
         # Nur hier, nicht für die ganze App: über das Indexieren von
         # app.plonky.ch soll diese Zeile nicht nebenbei mitentscheiden.
         resp.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
         # Personendaten gehören nicht in den Platten-Cache des Browsers.
         resp.headers["Cache-Control"] = "no-store, max-age=0"
     return resp
+
+
+# ── Sitzungs-Tickets für die privaten Bereiche ──────────────────────────────
+# Ein Ticket ist "Ablaufzeit.HMAC(Geheimnis, Ablaufzeit)". Kein zusätzliches
+# Geheimnis nötig, nichts zu speichern, übersteht einen Neustart — und wird das
+# Geheimnis auf render gewechselt, sind alle Tickets sofort ungültig.
+# Das Geheimnis selbst steht NIE im Cookie, nur eine Signatur damit.
+def _env_secret(name):
+    return (os.environ.get(name) or "").encode()
+
+
+def _sign(secret, exp):
+    return hmac.new(secret, str(exp).encode(), hashlib.sha256).hexdigest()
+
+
+def _ticket(secret, hours):
+    exp = int(time.time()) + hours * 3600
+    return "%d.%s" % (exp, _sign(secret, exp))
+
+
+def _ticket_ok(secret, ticket):
+    if not secret or not ticket or "." not in ticket:
+        return False
+    exp_s, _, sig = ticket.partition(".")
+    if not exp_s.isdigit() or int(exp_s) < time.time():
+        return False
+    # compare_digest, damit die Antwortzeit nicht verrät, wie weit eine
+    # gefälschte Signatur gestimmt hat.
+    return hmac.compare_digest(sig, _sign(secret, int(exp_s)))
+
+
+def _secret_matches(given, secret):
+    """Rohes Geheimnis vergleichen — für den Einstiegslink und den Header."""
+    if not secret or not given:
+        return False
+    return hmac.compare_digest(str(given).encode(), secret)
+
+
+def _set_ticket_cookie(resp, name, secret, hours, path):
+    # Hinter dem render-Proxy steht das echte Schema nur im Header. Lokal über
+    # http würde ein secure-Cookie gar nicht erst gesendet.
+    https = request.headers.get("X-Forwarded-Proto", request.scheme) == "https"
+    resp.set_cookie(
+        name, _ticket(secret, hours),
+        max_age=hours * 3600,
+        httponly=True,      # kein Zugriff aus JavaScript
+        secure=https,       # nur über HTTPS mitsenden
+        samesite="Lax",     # nicht an fremde Seiten mitschicken
+        path=path,          # nur an den Bereich, der es braucht
+    )
 
 
 @app.route("/api/health")
@@ -577,17 +627,59 @@ def submit_feedback():
     return jsonify({"ok": True})
 
 
-@app.route("/api/feedback", methods=["GET"])
-def list_feedback():
-    """Private inbox. Requires ?key=<FEEDBACK_KEY env>. 403 if unset/mismatch."""
-    admin = os.environ.get("FEEDBACK_KEY")
-    if not admin or request.args.get("key") != admin:
+# ── Privater Feedback-Posteingang ──────────────────────────────────────────
+# Bis 22.11.2026 lief das über GET /api/feedback?key=<FEEDBACK_KEY> — der
+# Schlüssel reiste als Query-Parameter, und der Einstiegslink /fb/<key> trug ihn
+# zusätzlich im Pfad. Beides landet im Klartext in den Zugriffsprotokollen von
+# render. Genau davor warnt der Kommentar oben bei /api/games:
+# "query params end up in access logs".
+#
+# Jetzt derselbe Weg wie beim Dashboard: /fb/<key> prüft den Schlüssel einmal,
+# setzt eine Cookie-Sitzung und leitet auf /fb weiter. Die Datenabfrage trägt
+# danach ÜBERHAUPT keinen Schlüssel mehr — weder im Pfad noch im Query.
+FB_COOKIE = "plonky_fb"
+FB_HOURS = 12
+
+
+@app.route("/fb/<key>")
+def feedback_login(key):
+    """Einstiegslink. Prüft, setzt die Sitzung, leitet auf /fb weiter."""
+    secret = _env_secret("FEEDBACK_KEY")
+    if not _secret_matches(key, secret):
+        abort(403)
+    resp = redirect("/fb", code=302)
+    # Pfad /fb, nicht / : das Cookie geht nur an den Posteingang. Deshalb liegt
+    # die Datenabfrage unten auch unter /fb/daten und nicht unter /api/.
+    _set_ticket_cookie(resp, FB_COOKIE, secret, FB_HOURS, "/fb")
+    return resp
+
+
+@app.route("/fb/daten")
+def feedback_items():
+    """Die Einträge. Cookie-Sitzung ODER Header — niemals ein Query-Parameter.
+
+    Werkzeug bevorzugt eine Regel ohne Platzhalter, deshalb gewinnt /fb/daten
+    gegen /fb/<key> und wird nicht als Schlüssel missverstanden.
+    """
+    secret = _env_secret("FEEDBACK_KEY")
+    # Cookie für den Browser; Header für Werkzeuge wie curl, damit auch dort
+    # nichts in der Adresszeile oder im Protokoll landet.
+    ok = (_ticket_ok(secret, request.cookies.get(FB_COOKIE))
+          or _secret_matches(request.headers.get("X-Plonky-Feedback"), secret))
+    if not ok:
         abort(403)
     items = Feedback.query.order_by(Feedback.created_at.desc()).limit(500).all()
     return jsonify([
         {"id": f.id, "rating": f.rating, "message": f.message, "contact": f.contact, "name": f.name, "created": f.created_at}
         for f in items
     ])
+
+
+@app.route("/fb/abmelden")
+def feedback_logout():
+    resp = redirect("/", code=302)
+    resp.delete_cookie(FB_COOKIE, path="/fb")
+    return resp
 
 
 # ── Analytics-Dashboard (privat, nur mit ADMIN_KEY) ──────────────────────────
@@ -1049,31 +1141,6 @@ def _ago(ms):
 ADMIN_COOKIE = "plonky_admin"
 ADMIN_HOURS = 12
 
-
-def _admin_secret():
-    return (os.environ.get("ADMIN_KEY") or "").encode()
-
-
-def _admin_sign(exp):
-    return hmac.new(_admin_secret(), str(exp).encode(), hashlib.sha256).hexdigest()
-
-
-def _admin_ticket():
-    exp = int(time.time()) + ADMIN_HOURS * 3600
-    return "%d.%s" % (exp, _admin_sign(exp))
-
-
-def _admin_ticket_ok(ticket):
-    if not _admin_secret() or not ticket or "." not in ticket:
-        return False
-    exp_s, _, sig = ticket.partition(".")
-    if not exp_s.isdigit() or int(exp_s) < time.time():
-        return False
-    # compare_digest, damit die Antwortzeit nicht verrät, wie weit eine
-    # gefälschte Signatur gestimmt hat.
-    return hmac.compare_digest(sig, _admin_sign(int(exp_s)))
-
-
 ADMIN_GATE_HTML = """<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>plonky</title>
@@ -1096,23 +1163,11 @@ def _admin_gate(title, text, status):
 
 @app.route("/admin/<key>")
 def admin_login(key):
-    admin = os.environ.get("ADMIN_KEY")
-    # compare_digest statt != : die Antwortzeit soll nicht verraten, wie viele
-    # Zeichen des Schlüssels gestimmt haben.
-    if not admin or not hmac.compare_digest(str(key), str(admin)):
+    secret = _env_secret("ADMIN_KEY")
+    if not _secret_matches(key, secret):
         abort(403)
     resp = redirect("/admin", code=302)
-    # Hinter dem render-Proxy steht das echte Schema nur im Header. Lokal über
-    # http würde ein secure-Cookie gar nicht erst gesendet.
-    https = request.headers.get("X-Forwarded-Proto", request.scheme) == "https"
-    resp.set_cookie(
-        ADMIN_COOKIE, _admin_ticket(),
-        max_age=ADMIN_HOURS * 3600,
-        httponly=True,      # kein Zugriff aus JavaScript
-        secure=https,       # nur über HTTPS mitsenden
-        samesite="Lax",     # nicht an fremde Seiten mitschicken
-        path="/admin",      # und nur an das Dashboard, nicht an die ganze App
-    )
+    _set_ticket_cookie(resp, ADMIN_COOKIE, secret, ADMIN_HOURS, "/admin")
     return resp
 
 
@@ -1122,7 +1177,7 @@ def admin_dashboard():
         resp = _admin_gate("Abgemeldet.", "Die Sitzung ist beendet. Zum Wiederanmelden den Schlüssel-Link öffnen.", 200)
         resp.delete_cookie(ADMIN_COOKIE, path="/admin")
         return resp
-    if not _admin_ticket_ok(request.cookies.get(ADMIN_COOKIE)):
+    if not _ticket_ok(_env_secret("ADMIN_KEY"), request.cookies.get(ADMIN_COOKIE)):
         return _admin_gate("Keine Sitzung.", "Abgelaufen oder nie angemeldet. Zum Anmelden den Schlüssel-Link öffnen.", 403)
     global now_ms
     now_ms = int(time.time() * 1000)
@@ -1132,7 +1187,7 @@ def admin_dashboard():
 @app.route("/")
 @app.route("/m/<token>")
 @app.route("/j/<token>")
-@app.route("/fb/<token>")
+@app.route("/fb")  # Posteingang OHNE Schlüssel; /fb/<key> ist die Anmeldung oben
 @app.route("/p/<token>")  # per-venue QR link: /p/<venue-slug> — frontend reads it, sets the active venue
 def index(token=None):
     return send_from_directory(APP_DIR, "index.html")
