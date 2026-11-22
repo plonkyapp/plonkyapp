@@ -695,11 +695,32 @@ def _mutate_session(code):
     return s, payload, players
 
 
+def _require_open(payload):
+    """Eine beendete Runde nimmt nichts mehr an.
+
+    Bis 22.11.2026 wurde "finished" gesetzt, aber nirgends geprueft: wer den
+    Runden-Code hatte, konnte Schlaege einer laengst abgeschlossenen Runde
+    aendern, die Spielerliste ersetzen oder die Runde loeschen — fuer immer,
+    denn der Code laeuft nie ab. Das Frontend hielt sich selbst schon daran
+    ("if (srvFinished) return"), der Server erzwang es nur nicht.
+
+    409 statt 403: der Aufrufer ist nicht unberechtigt, die Runde ist vorbei.
+
+    Offen bleibt bewusst NUR /claim: ein Gast, der auf dem Ergebnis-Bildschirm
+    sein Konto anlegt, verknuepft danach noch seinen Platz damit.
+    Nachkorrigieren laeuft nicht hierueber, sondern ueber die gespeicherte
+    Runde (POST /api/games) — die gehoert einem Konto.
+    """
+    if payload.get("finished"):
+        abort(409)
+
+
 @app.route("/api/session/<code>/score", methods=["POST"])
 def session_score(code):
     body = request.get_json(silent=True) or {}
     pid, hole, strokes = body.get("player_id"), body.get("hole"), body.get("strokes")
     s, payload, players = _mutate_session(code)
+    _require_open(payload)
     for p in players:
         if str(p.get("id")) == str(pid):
             scores = p.get("scores") or {}
@@ -720,6 +741,7 @@ def session_players(code):
     body = request.get_json(silent=True) or {}
     incoming = body.get("players") or []
     s, payload, existing = _mutate_session(code)
+    _require_open(payload)
     by_id = {str(p.get("id")): p for p in existing}
     merged = []
     for i, p in enumerate(incoming):
@@ -777,6 +799,7 @@ def session_leave(code):
     body = request.get_json(silent=True) or {}
     pid = body.get("player_id")
     s, payload, players = _mutate_session(code)
+    _require_open(payload)
     for p in players:
         if str(p.get("id")) == str(pid):
             p["claimed"] = False
@@ -805,6 +828,13 @@ def session_delete(code):
     """Host discards a round — remove the live session entirely."""
     s = db.session.get(Session, (code or "").upper())
     if s is not None:
+        try:
+            payload = json.loads(s.data or "{}")
+        except (ValueError, TypeError):
+            payload = {}
+        # Verwerfen geht nur, solange gespielt wird. Danach brauchen die
+        # Mitspieler die Runde noch, um ihre Kopie mit dem Endstand zu sichern.
+        _require_open(payload)
         db.session.delete(s)
         db.session.commit()
     return jsonify({"ok": True})
