@@ -5,6 +5,7 @@ import html
 import json
 import os
 import secrets
+import sys
 import threading
 import time
 from urllib.parse import urlencode
@@ -1240,8 +1241,28 @@ def _admin_html(s):
   <section class="card col12"><h2>Namensliste <span class="tag">Konten &amp; Crew</span></h2><div class="names">{names_html}</div>
     <p class="caption">Geschlecht wird bewusst nicht erfasst — bei Interesse m/w am Namen ablesen.</p></section>
 </div>
-<footer>plonky Analytics · angemeldete Sitzung, läuft nach {ADMIN_HOURS} Std ab · <a href="/admin?abmelden=1" style="color:inherit;text-decoration:underline">abmelden</a></footer>
+<footer>plonky Analytics · angemeldete Sitzung, läuft nach {ADMIN_HOURS} Std ab · <a href="/admin?abmelden=1" style="color:inherit;text-decoration:underline">abmelden</a><br><span style="opacity:.65">{_runtime_info()}</span></footer>
 </div></body></html>"""
+
+
+def _runtime_info():
+    """Welche Fassungen laufen hier gerade? Steht nur im privaten Dashboard.
+
+    Oeffentlich waere das eine Einladung: wer die Versionen kennt, kennt die
+    passenden Luecken. Hier drin ist es das Gegenteil — ohne diese Zeile faellt
+    ein veraltetes Paket erst auf, wenn jemand gezielt danach sucht.
+    """
+    teile = ["Python %d.%d.%d" % sys.version_info[:3]]
+    try:
+        from importlib.metadata import version as _v
+        for name in ("flask", "sqlalchemy", "gunicorn", "psycopg2-binary"):
+            try:
+                teile.append("%s %s" % (name, _v(name)))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return " \u00b7 ".join(teile)
 
 
 now_ms = 0  # gesetzt pro Request in admin_dashboard()
