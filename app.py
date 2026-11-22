@@ -38,12 +38,30 @@ ALLOWED_EXT = {
 
 
 def database_url():
+    """Verbindungsadresse — mit AUSDRUECKLICH genanntem Treiber.
+
+    render liefert die Adresse als postgres:// ; SQLAlchemy braucht postgresql://.
+    Entscheidend ist aber das Stueck dahinter: ohne Treibernamen sucht sich
+    SQLAlchemy selbst einen aus — und diese Wahl hat sich geaendert.
+
+        SQLAlchemy 2.0:  postgresql://  ->  psycopg2
+        SQLAlchemy 2.1:  postgresql://  ->  psycopg   (psycopg3!)
+
+    Beim Sprung auf 2.1 startete die App deshalb nicht mehr: "No module named
+    'psycopg'". Gegen SQLite faellt das nicht auf, nur gegen PostgreSQL.
+    Deshalb steht der Treiber jetzt im Klartext in der Adresse. Ein kuenftiger
+    Wechsel auf psycopg3 ist dann eine bewusste Entscheidung an genau dieser
+    Stelle und keine stille Nebenwirkung einer Aktualisierung.
+    """
     url = os.environ.get("DATABASE_URL")
     if not url:
         return "sqlite:///" + os.path.join(APP_DIR, "plonky_local.db")
-    # render hands out postgres:// ; SQLAlchemy 2 needs postgresql://
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql://", 1)
+    # Nur ergaenzen, wenn kein Treiber dasteht — "postgresql+psycopg://" (falls
+    # wir spaeter umsteigen) bleibt unangetastet.
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
     return url
 
 
