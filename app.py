@@ -1,4 +1,6 @@
 import datetime
+import hashlib
+import hmac
 import html
 import json
 import os
@@ -8,7 +10,7 @@ import time
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from flask import Flask, abort, jsonify, request, send_from_directory
+from flask import Flask, abort, jsonify, make_response, redirect, request, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -210,6 +212,33 @@ def game_to_dict(game):
             for p in game.players
         ],
     }
+
+
+# ── Sicherheits-Header für jede Antwort ──────────────────────────────────────
+# Die Website plonky.ch hat solche Header seit Langem in ihrer .htaccess, die App
+# hatte bis 22.11.2026 keinen einzigen. Nachgezogen.
+#
+# Bewusst NICHT dabei: Strict-Transport-Security. Das merken Browser sich über
+# Monate und lässt sich kaum zurücknehmen — eine solche Einbahnstrasse gehört
+# nicht in einen Nebenschritt. Separat entscheiden.
+@app.after_request
+def security_headers(resp):
+    # setdefault: eine Route, die es bewusst anders will, behält ihren Wert.
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    # no-referrer: verlässt die Seite nie als Referer. Heute hat die
+    # Admin-Seite keinen einzigen externen Link — kommt je einer dazu, würde
+    # sonst der Schlüssel in der Adresszeile mitgeschickt.
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+
+    path = request.path
+    if path.startswith("/admin") or path.startswith("/fb/") or path.startswith("/api/feedback"):
+        # Nur hier, nicht für die ganze App: über das Indexieren von
+        # app.plonky.ch soll diese Zeile nicht nebenbei mitentscheiden.
+        resp.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+        # Personendaten gehören nicht in den Platten-Cache des Browsers.
+        resp.headers["Cache-Control"] = "no-store, max-age=0"
+    return resp
 
 
 @app.route("/api/health")
@@ -984,7 +1013,7 @@ def _admin_html(s):
   <section class="card col12"><h2>Namensliste <span class="tag">Konten &amp; Crew</span></h2><div class="names">{names_html}</div>
     <p class="caption">Geschlecht wird bewusst nicht erfasst — bei Interesse m/w am Namen ablesen.</p></section>
 </div>
-<footer>plonky Analytics · nur über den geheimen /admin-Schlüssel erreichbar</footer>
+<footer>plonky Analytics · angemeldete Sitzung, läuft nach {ADMIN_HOURS} Std ab · <a href="/admin?abmelden=1" style="color:inherit;text-decoration:underline">abmelden</a></footer>
 </div></body></html>"""
 
 
@@ -1003,11 +1032,98 @@ def _ago(ms):
     return f"vor {h//24} Tg"
 
 
+# ── Anmeldung am Dashboard: Schlüssel EINMAL, danach eine Sitzung ───────────
+# Vorher stand der ADMIN_KEY bei jedem Aufruf in der Adresszeile — und damit im
+# Browser-Verlauf, in den Lesezeichen, im Geräte-Abgleich und in den
+# Request-Logs von render. Geraten wird so ein Schlüssel nie (32 Zeichen,
+# ~190 Bit); er geht verloren, weil er herumgetragen wird.
+#
+# Jetzt: /admin/<key> prüft, setzt eine Cookie-Sitzung und leitet auf /admin
+# weiter. Der Schlüssel steht danach ein einziges Mal im Verlauf, die
+# Adresszeile des Dashboards selbst ist sauber.
+#
+# Der Sitzungsnachweis ist "Ablaufzeit.HMAC(ADMIN_KEY, Ablaufzeit)" — kein
+# zusätzliches Geheimnis nötig, nichts zu speichern, übersteht einen Neustart.
+# Schöner Nebeneffekt: wird der ADMIN_KEY auf render gewechselt, sind alle
+# Sitzungen sofort ungültig.
+ADMIN_COOKIE = "plonky_admin"
+ADMIN_HOURS = 12
+
+
+def _admin_secret():
+    return (os.environ.get("ADMIN_KEY") or "").encode()
+
+
+def _admin_sign(exp):
+    return hmac.new(_admin_secret(), str(exp).encode(), hashlib.sha256).hexdigest()
+
+
+def _admin_ticket():
+    exp = int(time.time()) + ADMIN_HOURS * 3600
+    return "%d.%s" % (exp, _admin_sign(exp))
+
+
+def _admin_ticket_ok(ticket):
+    if not _admin_secret() or not ticket or "." not in ticket:
+        return False
+    exp_s, _, sig = ticket.partition(".")
+    if not exp_s.isdigit() or int(exp_s) < time.time():
+        return False
+    # compare_digest, damit die Antwortzeit nicht verrät, wie weit eine
+    # gefälschte Signatur gestimmt hat.
+    return hmac.compare_digest(sig, _admin_sign(int(exp_s)))
+
+
+ADMIN_GATE_HTML = """<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><title>plonky</title>
+<style>body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#F5F8F4;color:#152019;font:16px/1.6 ui-sans-serif,system-ui,-apple-system,sans-serif;
+text-align:center;padding:30px}}
+.b{{max-width:380px}}.d{{width:54px;height:54px;border-radius:50%;background:#15A35A;
+margin:0 auto 22px;position:relative}}.d i{{position:absolute;left:50%;top:50%;
+transform:translate(-50%,-50%);width:19px;height:19px;border-radius:50%;background:#F5F8F4}}
+h1{{font-size:20px;margin:0 0 10px}}p{{margin:0;color:#53605A;font-size:15px}}</style>
+</head><body><div class="b"><div class="d"><i></i></div>
+<h1>{title}</h1><p>{text}</p></div></body></html>"""
+
+
+def _admin_gate(title, text, status):
+    resp = make_response(ADMIN_GATE_HTML.format(title=title, text=text), status)
+    resp.headers["Content-Type"] = "text/html; charset=utf-8"
+    return resp
+
+
 @app.route("/admin/<key>")
-def admin_dashboard(key):
+def admin_login(key):
     admin = os.environ.get("ADMIN_KEY")
-    if not admin or key != admin:
+    # compare_digest statt != : die Antwortzeit soll nicht verraten, wie viele
+    # Zeichen des Schlüssels gestimmt haben.
+    if not admin or not hmac.compare_digest(str(key), str(admin)):
         abort(403)
+    resp = redirect("/admin", code=302)
+    # Hinter dem render-Proxy steht das echte Schema nur im Header. Lokal über
+    # http würde ein secure-Cookie gar nicht erst gesendet.
+    https = request.headers.get("X-Forwarded-Proto", request.scheme) == "https"
+    resp.set_cookie(
+        ADMIN_COOKIE, _admin_ticket(),
+        max_age=ADMIN_HOURS * 3600,
+        httponly=True,      # kein Zugriff aus JavaScript
+        secure=https,       # nur über HTTPS mitsenden
+        samesite="Lax",     # nicht an fremde Seiten mitschicken
+        path="/admin",      # und nur an das Dashboard, nicht an die ganze App
+    )
+    return resp
+
+
+@app.route("/admin")
+def admin_dashboard():
+    if request.args.get("abmelden"):
+        resp = _admin_gate("Abgemeldet.", "Die Sitzung ist beendet. Zum Wiederanmelden den Schlüssel-Link öffnen.", 200)
+        resp.delete_cookie(ADMIN_COOKIE, path="/admin")
+        return resp
+    if not _admin_ticket_ok(request.cookies.get(ADMIN_COOKIE)):
+        return _admin_gate("Keine Sitzung.", "Abgelaufen oder nie angemeldet. Zum Anmelden den Schlüssel-Link öffnen.", 403)
     global now_ms
     now_ms = int(time.time() * 1000)
     return _admin_html(_admin_stats())
