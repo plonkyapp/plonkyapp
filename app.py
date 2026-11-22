@@ -114,7 +114,8 @@ class Session(db.Model):
 
 
 class Feedback(db.Model):
-    """Player feedback. Read via the private inbox (GET /api/feedback?key=FEEDBACK_KEY)."""
+    """Player feedback. Read via the private inbox: /fb/<FEEDBACK_KEY> sets a
+    session, then GET /fb/daten. Never a key in the query string."""
     __tablename__ = "feedback"
     id = db.Column(db.Integer, primary_key=True)
     rating = db.Column(db.Integer, nullable=True)  # 1=😞 2=😐 3=😍, or null
