@@ -1172,7 +1172,9 @@ def admin_login(key):
     return resp
 
 
-@app.route("/admin")
+# strict_slashes=False: auch /admin/ (von Hand getippt, mit Schrägstrich am
+# Ende) landet hier statt auf einer 404-Seite.
+@app.route("/admin", strict_slashes=False)
 def admin_dashboard():
     if request.args.get("abmelden"):
         resp = _admin_gate("Abgemeldet.", "Die Sitzung ist beendet. Zum Wiederanmelden den Schlüssel-Link öffnen.", 200)
@@ -1188,7 +1190,7 @@ def admin_dashboard():
 @app.route("/")
 @app.route("/m/<token>")
 @app.route("/j/<token>")
-@app.route("/fb")  # Posteingang OHNE Schlüssel; /fb/<key> ist die Anmeldung oben
+@app.route("/fb", strict_slashes=False)  # Posteingang OHNE Schlüssel, auch /fb/ ; /fb/<key> ist die Anmeldung oben
 @app.route("/p/<token>")  # per-venue QR link: /p/<venue-slug> — frontend reads it, sets the active venue
 def index(token=None):
     return send_from_directory(APP_DIR, "index.html")
