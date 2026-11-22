@@ -142,7 +142,8 @@ function Avatar({ name, color, size = 38, ring = false, dim = false, src = null,
   const resolve = React.useContext(AvatarCtx);
   const finalSrc = resolve ? resolve({ account_id: accountId, name, avatar: src }) : src;
   src = finalSrc;
-  const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';
+  // String(...): ein Name, der kein Text ist, darf die Anzeige nicht werfen.
+  const initial = String(name || '?').trim().charAt(0).toUpperCase() || '?';
   return (
     <div style={{
       width: size, height: size, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',

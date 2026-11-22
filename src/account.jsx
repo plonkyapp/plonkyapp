@@ -642,16 +642,20 @@ function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto,
                   ? <input autoFocus value={m.name} onChange={e => rename(m.id, e.target.value)} onKeyDown={e => e.key === 'Enter' && setEditId(null)}
                       style={{ flex: 1, border: 'none', background: 'transparent', fontFamily: 'var(--font)', fontSize: 15.5, fontWeight: 600, outline: 'none', color: 'var(--ink)' }} />
                   : <div style={{ flex: 1, fontSize: 15.5, fontWeight: 600 }}>{m.name}</div>}
-                <button onClick={() => onCrewCamera(m)} title="Foto" style={iconBtn}><Ic.camera size={17} color={photoOf(m) ? 'var(--accent)' : 'var(--ink-3)'} /></button>
+                {/* Kamera nur ohne eigenes Konto: wer eines hat, setzt sein Foto selbst. */}
+                {!m.accountId && <button onClick={() => onCrewCamera(m)} title="Foto" style={iconBtn}><Ic.camera size={17} color={photoOf(m) ? 'var(--accent)' : 'var(--ink-3)'} /></button>}
                 <button onClick={() => setEditId(editId === m.id ? null : m.id)} style={iconBtn}>{editId === m.id ? <Ic.check size={18} color="var(--accent)" /> : <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-3)' }}>Bearb.</span>}</button>
                 <button onClick={() => setConfirmDel(confirmDel === m.id ? null : m.id)} style={iconBtn}><Ic.x size={17} color="var(--ink-3)" /></button>
               </div>
-              {editId === m.id && photoOf(m) && (
+              {editId === m.id && m.accountId && (
+                <div style={{ marginTop: 9, paddingTop: 9, borderTop: '1px solid var(--line)', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.4 }}>
+                  {m.name} hat ein eigenes Konto — Name und Foto kommen von dort und lassen sich nur dort ändern.
+                </div>
+              )}
+              {editId === m.id && !m.accountId && photoOf(m) && (
                 <div style={{ marginTop: 9, paddingTop: 9, borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 9 }}>
                   <span style={{ flex: 1, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.4 }}>
-                    {m.accountId
-                      ? 'Gehört zum Konto von ' + m.name + ' — Entfernen löscht es überall, auch in früheren Spielen.'
-                      : m.name + ' hat kein eigenes Konto: in bereits gespeicherten Spielen bleibt das Foto vorerst erhalten.'}
+                    {m.name + ' hat kein eigenes Konto: in bereits gespeicherten Spielen bleibt das Foto vorerst erhalten.'}
                   </span>
                   <button onClick={() => setMemberPhoto(m, '')} style={{ flexShrink: 0, height: 32, padding: '0 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--bad)', fontFamily: 'var(--font)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Foto entfernen</button>
                 </div>

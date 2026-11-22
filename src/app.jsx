@@ -398,18 +398,16 @@ function App() {
   };
 
   const openGame = (id) => { setHistId(id); setHistFrom(screen); go('historyDetail'); };
-  // Setting a crew member's photo writes to the ONE source: their account (when
-  // linked), so it sticks and shows everywhere via the id lookup. An unlinked
-  // member (no own account) just keeps the photo on the local crew entry.
+  // Das Foto eines Crew-Mitglieds OHNE eigenes Konto liegt am Crew-Eintrag.
+  // Hat das Mitglied ein eigenes Konto, gehoert das Foto dorthin — und nur der
+  // Inhaber aendert es. Frueher schrieb diese Funktion von hier aus ins fremde
+  // Konto; seit der Trennung von Ausweis und Zugang (22.11.2026) lehnt der
+  // Server das ab, und das ist richtig so: sonst koennte jeder, der eine
+  // Konto-Nummer kennt, fremde Fotos setzen. Die Einstellungen bieten den
+  // Knopf fuer verknuepfte Mitglieder deshalb gar nicht mehr an.
   const setCrewPhoto = (member, src) => {
+    if (member.accountId) return;
     setFamily(f => f.map(m => m.id === member.id ? { ...m, avatar: src } : m));
-    const aid = member.accountId;
-    if (!aid) return; // unlinked member: photo lives on the local crew entry
-    pendingAvatarRef.current.add(aid);                 // shield from a stale in-flight fetch
-    setAvatars(prev => ({ ...prev, [aid]: src }));     // show immediately
-    ACC.API.saveAccount({ id: aid, avatar: src })      // persist to the ONE source: their account
-      .catch(() => {})
-      .finally(() => { pendingAvatarRef.current.delete(aid); });
   };
   // drop the "Laufende Runde" bookmark. ONLY the host may delete the round for
   // everyone. A Sub-Konto (companion) must NEVER delete it — not her round; a
@@ -678,5 +676,40 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+// Fehlergrenze. Ohne sie leert ein einziger Anzeigefehler die ganze App: der
+// Bildschirm bleibt weiss, und in einer Live-Runde bei jedem Abgleich erneut.
+// Nachgestellt am 22.11.2026 mit einem Namen, der eine Zahl war. Der Server
+// prueft Eingaben inzwischen — das hier ist das Netz darunter.
+class Fehlergrenze extends React.Component {
+  constructor(props) { super(props); this.state = { kaputt: false }; }
+  static getDerivedStateFromError() { return { kaputt: true }; }
+  componentDidCatch(err) { try { console.error('plonky:', err); } catch (e) {} }
+  render() {
+    if (!this.state.kaputt) return this.props.children;
+    // "Zur Startseite" vergisst das Lesezeichen der laufenden Runde: steckt der
+    // Fehler in deren Daten, kaeme man sonst sofort wieder hier an. Konto,
+    // Zugang und Verlauf bleiben unberuehrt.
+    const heim = () => {
+      try {
+        const d = JSON.parse(localStorage.getItem('plonky.v1') || '{}');
+        d.activeSession = null;
+        localStorage.setItem('plonky.v1', JSON.stringify(d));
+      } catch (e) {}
+      location.href = '/';
+    };
+    const knopf = { width: '100%', height: 48, borderRadius: 14, fontFamily: 'var(--font)', fontSize: 15, fontWeight: 700, cursor: 'pointer' };
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 28, background: 'var(--ground, #F4F4F1)', fontFamily: 'var(--font)', color: 'var(--ink, #191A15)' }}>
+        <div style={{ maxWidth: 340, width: '100%', textAlign: 'center' }}>
+          <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>Da ist etwas schiefgelaufen.</div>
+          <div style={{ fontSize: 14.5, lineHeight: 1.5, color: 'var(--ink-2, #53605A)', marginBottom: 22 }}>Deine Runden und dein Konto sind nicht betroffen.</div>
+          <button onClick={() => location.reload()} style={{ ...knopf, border: 'none', background: 'var(--accent, #15A35A)', color: '#fff', marginBottom: 10 }}>Neu laden</button>
+          <button onClick={heim} style={{ ...knopf, border: '1px solid var(--line, #E5EAE5)', background: 'var(--card, #fff)', color: 'var(--ink, #191A15)' }}>Zur Startseite</button>
+        </div>
+      </div>
+    );
+  }
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Fehlergrenze><App /></Fehlergrenze>);
 setTimeout(() => window.__fitPhone && window.__fitPhone(), 80);

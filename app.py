@@ -1,9 +1,11 @@
+import collections
 import datetime
 import hashlib
 import hmac
 import html
 import json
 import os
+import re
 import secrets
 import sys
 import threading
@@ -167,6 +169,135 @@ class Feedback(db.Model):
     created_at = db.Column(db.BigInteger, nullable=False, default=lambda: int(time.time() * 1000))
 
 
+# ══ Eingaben pruefen ═══════════════════════════════════════════════════════
+# Bis 22.11.2026 speicherte der Server, was man ihm schickte — ohne Typ, Laenge
+# oder Inhalt anzusehen. Nachgestellte Folgen:
+#   - ein "Foto", das eine fremde Web-Adresse ist: die Browser der Mitspieler
+#     laden sie, der Absender sieht IP und Zeitpunkt jedes Einzelnen
+#   - dasselbe ueber eine "Farbe" wie url(https://…)
+#   - eine Zahl als Name oder ein Objekt als Schlag in einer Live-Runde: das
+#     Frontend rechnet name.trim() und der Bildschirm bleibt bei ALLEN weiss
+#   - crew = [5]: das Admin-Dashboard antwortet mit 500
+#
+# Grundsatz: bereinigen statt abweisen. Ein einzelnes unbrauchbares Feld soll
+# nicht die ganze Speicherung kosten — es faellt weg, der Rest kommt an.
+# Die Grenzen sind an den echten Daten vom Sommer gemessen (laengster Name 9
+# Zeichen, groesstes Foto 23'799, hoechster Schlag 19) und grosszuegig gesetzt.
+MAX_NAME = 60
+MAX_VENUE = 120
+MAX_AVATAR = 150_000      # Zeichen der data-URL; das groesste echte Foto: 23'799
+MAX_PLAYERS = 40          # pro Runde; bisheriges Maximum: 5
+MAX_CREW = 60             # pro Konto; bisheriges Maximum: 4
+MAX_HOLE = 99
+MAX_STROKES = 99
+_ID_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,80}$")
+_HEX_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+# Nur ein eingebettetes Bild. Keine http-Adresse, kein SVG (kann Skript tragen).
+_AVATAR_RE = re.compile(r"^data:image/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$")
+
+
+def _body():
+    """Der Rumpf als Woerterbuch — sonst ein leeres. Eine Liste oder Zahl als
+    JSON haette frueher bei .get() einen 500er ausgeloest."""
+    d = request.get_json(silent=True)
+    return d if isinstance(d, dict) else {}
+
+
+def _text(v, limit):
+    """Text, sonst leer. NUL-Zeichen raus — PostgreSQL lehnt sie ab."""
+    if not isinstance(v, str):
+        return ""
+    return v.replace("\x00", "")[:limit]
+
+
+def _ident(v):
+    """Spieler- oder Crew-Kennung: kurzer Text oder Zahl. Das Frontend benutzt
+    beides ('me', 'c17…', Date.now() + Math.random())."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return v if v == v and abs(v) < 1e16 else None   # v == v schliesst NaN aus
+    if isinstance(v, str) and 0 < len(v) <= 80 and "\x00" not in v:
+        return v
+    return None
+
+
+def _account_ref(v):
+    """Konto- oder Spiel-Kennung: nur das enge Alphabet."""
+    return v if isinstance(v, str) and _ID_RE.match(v) else None
+
+
+def _color(v):
+    return v if isinstance(v, str) and _HEX_RE.match(v) else ""
+
+
+def _avatar(v):
+    if not isinstance(v, str) or not v or len(v) > MAX_AVATAR:
+        return ""
+    return v if _AVATAR_RE.match(v) else ""
+
+
+def _int(v, lo, hi):
+    """Ganze Zahl im Bereich, sonst None. bool ist in Python ein int — raus."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    if isinstance(v, str) and v.isdigit() and len(v) <= 4:
+        v = int(v)
+    if isinstance(v, int) and lo <= v <= hi:
+        return v
+    return None
+
+
+def _scores(v):
+    """{"1": 3, "2": 2, …} — nur ganze Bahnen, nur ganze Schlaege."""
+    out = {}
+    if not isinstance(v, dict):
+        return out
+    for k, strokes in list(v.items())[:MAX_HOLE]:
+        hole = _int(k, 1, MAX_HOLE)
+        st = _int(strokes, 0, MAX_STROKES)
+        if hole is not None and st is not None:
+            out[str(hole)] = st
+    return out
+
+
+def _crew(v):
+    """Die Crew eines Kontos: Liste von Eintraegen mit festen Feldern.
+
+    Uebernimmt zugleich die Foto-Regel von strip_crew_avatars(): ein Eintrag
+    mit eigenem Konto traegt kein Foto — das gehoert zu jenem Konto.
+    """
+    out = []
+    if not isinstance(v, list):
+        return out
+    for m in v[:MAX_CREW]:
+        if not isinstance(m, dict):
+            continue
+        mid = _ident(m.get("id"))
+        if mid is None:
+            continue
+        e = {"id": mid, "name": _text(m.get("name"), MAX_NAME), "color": _color(m.get("color"))}
+        linked = _account_ref(m.get("accountId") or m.get("account_id"))
+        if linked:
+            e["accountId"] = linked
+        elif _avatar(m.get("avatar")):
+            e["avatar"] = _avatar(m.get("avatar"))
+        out.append(e)
+    return out
+
+
+def _dicts(v):
+    """Aus irgendetwas Gespeichertem die Woerterbuecher einer Liste herausholen.
+    Fuer das Dashboard: es soll an einem kaputten Altbestand nicht sterben."""
+    return [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
+
+
+def _s(v):
+    return v.strip() if isinstance(v, str) else ""
+
+
 def strip_crew_avatars(crew):
     """A crew entry for someone with their OWN account must not carry a photo.
 
@@ -226,6 +357,14 @@ def _given_secret():
     return request.headers.get(SECRET_HEADER) or ""
 
 
+def _secret_usable(secret):
+    """Taugt das als Zugang fuer ein NEUES Konto? Das Frontend schickt 64
+    Hex-Zeichen (256 Bit). Ein kurzes Geheimnis waere ratbar — und weil der
+    Aufrufer ueber den Abdruck gefunden wird, haette ein erratenes Geheimnis
+    das ganze Konto geoeffnet."""
+    return isinstance(secret, str) and 32 <= len(secret) <= 200
+
+
 def _caller():
     """WER ruft hier an? Die Antwort kommt ausschliesslich aus dem Geheimnis.
 
@@ -262,8 +401,10 @@ def account_public(acc):
     Bewusst OHNE crew — die Liste der eigenen Leute geht niemanden sonst etwas
     an — und ohne alles, was nach Zugang aussieht.
     """
-    return {"id": acc.id, "name": acc.name, "color": acc.color,
-            "avatar": acc.avatar or "", "kind": acc.kind or "master"}
+    # Auch beim AUSLIEFERN geprueft, nicht nur beim Speichern: was vor der
+    # Pruefschicht in die Datenbank kam, darf trotzdem keinen Browser erreichen.
+    return {"id": acc.id, "name": _text(acc.name, MAX_NAME), "color": _color(acc.color),
+            "avatar": _avatar(acc.avatar), "kind": acc.kind if acc.kind in ("master", "companion") else "master"}
 
 
 def account_to_dict(acc):
@@ -271,7 +412,7 @@ def account_to_dict(acc):
         crew = json.loads(acc.crew or "[]")
     except (ValueError, TypeError):
         crew = []
-    return {"id": acc.id, "name": acc.name, "color": acc.color, "crew": crew, "kind": acc.kind or "master", "avatar": acc.avatar or "", "created": acc.created_at}
+    return dict(account_public(acc), crew=_crew(crew), created=acc.created_at)
 
 
 def session_to_dict(s):
@@ -279,9 +420,28 @@ def session_to_dict(s):
         payload = json.loads(s.data or "{}")
     except (ValueError, TypeError):
         payload = {}
-    players = payload.get("players", [])
-    # Avatars travel with the round so every device shows each player's current
-    # photo (a joiner pushes their own on claim). Photos are small (~10 KB).
+    if not isinstance(payload, dict):
+        payload = {}
+    # Jeder Spieler geht nur in fester, gepruefter Form hinaus. Eine Zahl als
+    # Name oder ein Objekt als Schlag hat frueher bei allen Mitspielern die
+    # Anzeige geworfen — egal, wie es in die Runde gekommen ist.
+    players = []
+    for p in _dicts(payload.get("players")):
+        pid = _ident(p.get("id"))
+        if pid is None:
+            continue
+        players.append({
+            "id": pid,
+            "name": _text(p.get("name"), MAX_NAME),
+            "color": _color(p.get("color")),
+            "scores": _scores(p.get("scores")),
+            "claimed": bool(p.get("claimed")),
+            "host": bool(p.get("host")),
+            # Avatars travel with the round so every device shows each player's
+            # current photo (a joiner pushes their own on claim). ~10 KB each.
+            "avatar": _avatar(p.get("avatar")),
+            "account_id": _account_ref(p.get("account_id")),
+        })
     return {
         "code": s.code,
         "mode": s.mode,
@@ -304,14 +464,113 @@ def game_to_dict(game):
             {
                 "id": p.ext_id or p.id,
                 "account_id": p.account_id,
-                "name": p.name,
-                "color": p.color,
-                "avatar": p.avatar or "",
+                "name": _text(p.name, MAX_NAME),
+                "color": _color(p.color),
+                "avatar": _avatar(p.avatar),
                 "scores": {str(s.hole): s.strokes for s in p.scores},
             }
             for p in game.players
         ],
     }
+
+
+# ══ Flutbremse ════════════════════════════════════════════════════════════
+# Runden, Konten und Feedback lassen sich ohne Anmeldung anlegen — das ist
+# gewollt, die App hat kein Login. Bis 22.11.2026 bremste aber nichts: 40
+# Runden in Folge, 40 angenommen, jede Anfrage bis 2 MB.
+#
+# Das ist eine SCHWELLE, keine Mauer: sie haelt ein einfaches Skript von einer
+# Adresse auf, nicht einen verteilten Angriff. Die Grenzen sind bewusst weit —
+# an einer Anlage teilen sich viele Handys dieselbe Adresse (WLAN, Mobilfunk).
+#
+# Woher die Adresse des Absenders kommt, ist heikel. Vor der App sitzt das
+# Cloudflare von render (nicht Michaels — die Nameserver liegen bei tophost);
+# verlaesslich ist nur dessen Kopfzeile CF-Connecting-IP. X-Forwarded-For kann
+# der Absender selbst vorbelegen. Fehlt die verlaessliche Angabe, wird NICHT
+# gebremst: lieber keine Bremse als eine, die alle Nutzer fuer einen einzigen
+# haelt und die App fuer alle sperrt.
+#
+# Im Arbeitsspeicher, also pro Prozess. gunicorn laeuft hier mit einem Worker.
+# Abschalten ohne Deploy: Umgebungsvariable RATE_LIMIT=off.
+RATE_OFF = (os.environ.get("RATE_LIMIT") or "").strip().lower() in ("off", "0", "false", "aus")
+RATE_RULES = {                 # Eimer: (hoechstens, in Sekunden)
+    "session": (30, 600),      # neue Live-Runden
+    "account": (30, 600),      # NEUE Konten (Aendern zaehlt nicht)
+    "feedback": (10, 600),
+    "write": (1500, 600),      # alle Schreibzugriffe zusammen
+}
+_RATE = {}
+
+
+def _client_ip():
+    ip = (request.headers.get("CF-Connecting-IP") or "").strip()
+    if ip:
+        return ip[:64]
+    if request.headers.get("X-Forwarded-For"):
+        return None            # hinter einem Proxy, aber ohne verlaessliche Angabe
+    return request.remote_addr  # direkt angesprochen (lokale Entwicklung)
+
+
+def _rate_ok(bucket):
+    if RATE_OFF:
+        return True
+    ip = _client_ip()
+    if not ip:
+        return True
+    limit, window = RATE_RULES[bucket]
+    now = time.time()
+    q = _RATE.get((bucket, ip))
+    if q is None:
+        if len(_RATE) > 20000:  # nie unbegrenzt wachsen: Abgelaufenes wegraeumen
+            for k in [k for k, v in _RATE.items() if not v or v[-1] <= now - 600]:
+                _RATE.pop(k, None)
+        q = _RATE[(bucket, ip)] = collections.deque()
+    while q and q[0] <= now - window:
+        q.popleft()
+    if len(q) >= limit:
+        return False
+    q.append(now)
+    return True
+
+
+# Groessengrenze je Route. Die allgemeine (2 MB) bleibt die Obergrenze; hier
+# wird enger gezogen, wo nie so viel anfaellt. Gemessen an den echten Daten:
+# die groesste Runde hatte 47 KB, ein Schlag ist ein paar Bytes.
+_SMALL = 8 * 1024
+BODY_CAPS = (
+    ("/api/feedback", 20 * 1024),
+    ("/api/account/resolve", _SMALL),
+    ("/api/session", 800 * 1024),   # Anlegen und Spielerliste: Gaeste mit Foto
+)
+
+
+@app.before_request
+def guard_writes():
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+        return None
+    path = request.path
+    cap = None
+    if path.startswith("/api/session/") and path.rsplit("/", 1)[-1] in ("score", "leave", "finish"):
+        cap = _SMALL
+    elif path.startswith("/api/session/") and path.endswith("/claim"):
+        cap = 200 * 1024           # traegt hoechstens ein Foto
+    else:
+        for prefix, c in BODY_CAPS:
+            if path.startswith(prefix):
+                cap = c
+                break
+    if cap is not None:
+        try:
+            request.max_content_length = cap   # pro Anfrage setzbar seit Flask 3.1
+        except AttributeError:
+            pass
+    bucket = "session" if path == "/api/session" else "feedback" if path == "/api/feedback" else None
+    if not _rate_ok("write") or (bucket and not _rate_ok(bucket)):
+        resp = jsonify({"error": "zu viele Anfragen"})
+        resp.status_code = 429
+        resp.headers["Retry-After"] = "600"
+        return resp
+    return None
 
 
 # ── Sicherheits-Header für jede Antwort ──────────────────────────────────────
@@ -441,8 +700,8 @@ def list_games():
 
 @app.route("/api/games", methods=["POST"])
 def upsert_game():
-    data = request.get_json(silent=True) or {}
-    game_id = data.get("id")
+    data = _body()
+    game_id = _account_ref(data.get("id"))
     if not game_id:
         abort(400, "missing game id")
 
@@ -452,7 +711,7 @@ def upsert_game():
     if not secret:
         abort(403)
     rufer = _caller()
-    account_id = data.get("account_id")
+    account_id = _account_ref(data.get("account_id"))
 
     if rufer is None:
         # Erstes Spiel eines frischen Geraets. Das Frontend legt das Konto an
@@ -464,6 +723,10 @@ def upsert_game():
         # es von Anfang an gebunden, und die erste Runde geht nicht verloren.
         if not account_id or db.session.get(Account, account_id) is not None:
             abort(403)
+        if not _secret_usable(secret):
+            abort(400, "secret too short")
+        if not _rate_ok("account"):
+            abort(429)
         rufer = Account(id=account_id)
         rufer.secret_hash = _hash_secret(secret)
         db.session.add(rufer)
@@ -474,6 +737,7 @@ def upsert_game():
     account_id = rufer.id
 
     game = db.session.get(Game, game_id)
+    ist_besitzer = True
     if game is None:
         game = Game(id=game_id)
         db.session.add(game)
@@ -493,38 +757,48 @@ def upsert_game():
         # Der Besitzer bleibt der Besitzer. Sonst könnte ein Mitspieler die
         # Runde beim Speichern seiner Korrektur auf sich selbst umschreiben.
         if game.account_id:
+            ist_besitzer = str(game.account_id) == str(rufer.id)
             account_id = game.account_id
 
     game.account_id = account_id
-    game.date = data.get("date")
-    game.venue = data.get("venue") or ""
-    game.mode = data.get("mode") or ""
-    game.code = data.get("code") or ""
+    game.date = _int(data.get("date"), 0, 10**14)
+    game.venue = _text(data.get("venue"), MAX_VENUE)
+    game.mode = _text(data.get("mode"), 20)
+    game.code = _text(data.get("code"), 32)
 
     # Replace players/scores wholesale (cascade clears the old ones).
     game.players.clear()
     db.session.flush()
 
-    for pdata in data.get("players", []):
-        pacc = pdata.get("account_id")
+    for pdata in _dicts(data.get("players"))[:MAX_PLAYERS]:
+        pid = _ident(pdata.get("id"))
+        pacc = _account_ref(pdata.get("account_id"))
         player = Player(
-            ext_id=str(pdata.get("id")) if pdata.get("id") is not None else None,
+            ext_id=str(pid) if pid is not None else None,
             account_id=pacc,
-            name=pdata.get("name") or "",
-            color=pdata.get("color") or "",
-            avatar=snapshot_avatar(pacc, pdata.get("avatar")),
+            name=_text(pdata.get("name"), MAX_NAME),
+            color=_color(pdata.get("color")),
+            avatar=snapshot_avatar(pacc, _avatar(pdata.get("avatar"))),
         )
-        for hole, strokes in (pdata.get("scores") or {}).items():
+        for hole, strokes in _scores(pdata.get("scores")).items():
             player.scores.append(Score(hole=int(hole), strokes=strokes))
         game.players.append(player)
 
     # Replace the participant links (accounts that joined but don't own the game).
     # Only set when provided, so an edit that omits them doesn't wipe them.
-    if data.get("participants") is not None:
+    #
+    # NUR der Besitzer. Bis 22.11.2026 durfte jeder Beteiligte die Liste
+    # ersetzen — nachgestellt: B speicherte die geteilte Runde mit gekuerzter
+    # Liste, und C sah sie danach nicht mehr. Ein Mitspieler korrigiert
+    # Schlaege; wer dabei war, entscheidet er nicht.
+    if ist_besitzer and isinstance(data.get("participants"), list):
         game.participants.clear()
         db.session.flush()
-        for pid in data.get("participants") or []:
-            if pid and pid != account_id:
+        gesehen = set()
+        for raw in data.get("participants")[:MAX_PLAYERS]:
+            pid = _account_ref(raw)
+            if pid and pid != account_id and pid not in gesehen:
+                gesehen.add(pid)
                 game.participants.append(GameParticipant(account_id=pid))
 
     db.session.commit()
@@ -557,8 +831,8 @@ def get_account(account_id):
 def resolve_account():
     """Persoenlicher Link: Geheimnis -> Konto. POST, damit das Geheimnis im
     Rumpf reist und nicht im Pfad — Pfade landen in den Zugriffsprotokollen."""
-    data = request.get_json(silent=True) or {}
-    token = (data.get("secret") or "").strip()
+    data = _body()
+    token = _text(data.get("secret"), 200).strip()
     if not token:
         abort(400, "missing secret")
 
@@ -580,7 +854,7 @@ def get_accounts():
     if not ids:
         return jsonify([])
     accs = Account.query.filter(Account.id.in_(ids)).all()
-    return jsonify([{"id": a.id, "name": a.name, "color": a.color, "avatar": a.avatar or ""} for a in accs])
+    return jsonify([{"id": a.id, "name": _text(a.name, MAX_NAME), "color": _color(a.color), "avatar": _avatar(a.avatar)} for a in accs])
 
 
 def notify(text):
@@ -604,8 +878,8 @@ def notify(text):
 
 @app.route("/api/account", methods=["POST"])
 def upsert_account():
-    data = request.get_json(silent=True) or {}
-    account_id = data.get("id")
+    data = _body()
+    account_id = _account_ref(data.get("id"))
     if not account_id:
         abort(400, "missing account id")
     secret = _given_secret()
@@ -619,6 +893,15 @@ def upsert_account():
     acc = db.session.get(Account, account_id)
     is_new = acc is None
     if is_new:
+        if not _secret_usable(secret):
+            abort(400, "secret too short")
+        # Ein Geheimnis gehoert zu genau EINEM Konto — der Aufrufer wird ja
+        # ueber dessen Abdruck gefunden. Zwei Konten mit demselben Geheimnis
+        # waeren nicht mehr auseinanderzuhalten.
+        if _caller() is not None:
+            abort(409)
+        if not _rate_ok("account"):
+            abort(429)
         acc = Account(id=account_id)
         acc.secret_hash = _hash_secret(secret)
         db.session.add(acc)
@@ -629,16 +912,20 @@ def upsert_account():
         # verteilt. Betroffen waren nur Michaels eigene Testgeraete.
         if not acc.secret_hash or not hmac.compare_digest(acc.secret_hash, _hash_secret(secret)):
             abort(403)
-    if data.get("name") is not None:
-        acc.name = data.get("name")
-    if data.get("color") is not None:
-        acc.color = data.get("color")
-    if data.get("crew") is not None:
-        acc.crew = json.dumps(strip_crew_avatars(data.get("crew")))
-    if data.get("kind") is not None:
+    # Jedes Feld einzeln geprueft. Was nicht passt, wird uebergangen — der
+    # alte Wert bleibt stehen, statt durch Unbrauchbares ersetzt zu werden.
+    if isinstance(data.get("name"), str):
+        acc.name = _text(data.get("name"), MAX_NAME)
+    if _color(data.get("color")):
+        acc.color = _color(data.get("color"))
+    if isinstance(data.get("crew"), list):
+        acc.crew = json.dumps(_crew(data.get("crew")))
+    if data.get("kind") in ("master", "companion"):
         acc.kind = data.get("kind")
-    if data.get("avatar") is not None:
-        acc.avatar = data.get("avatar")
+    if data.get("avatar") == "":
+        acc.avatar = ""                                   # ausdruecklich entfernt
+    elif _avatar(data.get("avatar")):
+        acc.avatar = _avatar(data.get("avatar"))          # nur ein echtes Bild
     db.session.commit()
     if is_new and (acc.kind or "master") == "master":
         notify("🆕 Neues plonky-Konto: " + (acc.name or "ohne Name"))
@@ -647,25 +934,28 @@ def upsert_account():
 
 @app.route("/api/session", methods=["POST"])
 def create_session():
-    data = request.get_json(silent=True) or {}
-    players = [
-        {
-            "id": p.get("id"),
-            "name": p.get("name") or "",
-            "color": p.get("color") or "",
-            "scores": p.get("scores") or {},
-            "claimed": bool(p.get("claimed")),
-            "host": (i == 0),  # the lead device that created the round
-            "avatar": snapshot_avatar(p.get("account_id"), p.get("avatar")),
+    data = _body()
+    players = []
+    for p in _dicts(data.get("players"))[:MAX_PLAYERS]:
+        pid = _ident(p.get("id"))
+        if pid is None:
+            continue
+        pacc = _account_ref(p.get("account_id"))
+        players.append({
+            "id": pid,
+            "name": _text(p.get("name"), MAX_NAME),
+            "color": _color(p.get("color")),
+            "scores": _scores(p.get("scores")),
+            "claimed": p.get("claimed") is True,
+            "host": (len(players) == 0),  # the lead device that created the round
+            "avatar": snapshot_avatar(pacc, _avatar(p.get("avatar"))),
             # identity travels with the round: names/photos resolve live by account id
-            "account_id": p.get("account_id"),
-        }
-        for i, p in enumerate(data.get("players") or [])
-    ]
+            "account_id": pacc,
+        })
     s = Session(
         code=new_session_code(),
-        mode=data.get("mode") or "sequential",
-        venue=data.get("venue") or "",
+        mode=_text(data.get("mode"), 20) or "sequential",
+        venue=_text(data.get("venue"), MAX_VENUE),
         data=json.dumps({"players": players}),
         rev=1,
     )
@@ -691,7 +981,9 @@ def _mutate_session(code):
         payload = json.loads(s.data or "{}")
     except (ValueError, TypeError):
         payload = {}
-    players = payload.get("players", [])
+    if not isinstance(payload, dict):
+        payload = {}
+    players = _dicts(payload.get("players"))
     return s, payload, players
 
 
@@ -717,14 +1009,24 @@ def _require_open(payload):
 
 @app.route("/api/session/<code>/score", methods=["POST"])
 def session_score(code):
-    body = request.get_json(silent=True) or {}
-    pid, hole, strokes = body.get("player_id"), body.get("hole"), body.get("strokes")
+    body = _body()
+    pid = _ident(body.get("player_id"))
+    hole = _int(body.get("hole"), 1, MAX_HOLE)
+    raw = body.get("strokes")
+    strokes = None if raw is None else _int(raw, 0, MAX_STROKES)
+    # Eine Bahn ist eine ganze Zahl, ein Schlag auch. Alles andere — ein Text,
+    # ein Objekt — wuerde bei jedem Mitspieler beim Anzeigen einen Fehler werfen.
+    if pid is None or hole is None or (raw is not None and strokes is None):
+        abort(400)
     s, payload, players = _mutate_session(code)
     _require_open(payload)
     for p in players:
         if str(p.get("id")) == str(pid):
-            scores = p.get("scores") or {}
-            scores[str(hole)] = strokes
+            scores = _scores(p.get("scores"))
+            if strokes is None:
+                scores.pop(str(hole), None)     # kein Wert = Eintrag weg
+            else:
+                scores[str(hole)] = strokes
             p["scores"] = scores
             break
     payload["players"] = players
@@ -738,28 +1040,31 @@ def session_score(code):
 def session_players(code):
     """Replace the roster (host adding/removing players during setup),
     preserving claimed/scores for ids that already exist."""
-    body = request.get_json(silent=True) or {}
-    incoming = body.get("players") or []
+    body = _body()
+    incoming = _dicts(body.get("players"))[:MAX_PLAYERS]
     s, payload, existing = _mutate_session(code)
     _require_open(payload)
     by_id = {str(p.get("id")): p for p in existing}
     merged = []
-    for i, p in enumerate(incoming):
-        old = by_id.get(str(p.get("id"))) or {}
+    for p in incoming:
+        pid = _ident(p.get("id"))
+        if pid is None:
+            continue
+        old = by_id.get(str(pid)) or {}
         # A claimed slot keeps the photo the joiner brought; otherwise take the
         # host's roster photo (falling back to whatever was there).
-        avatar = old.get("avatar") if old.get("claimed") else (p.get("avatar") or old.get("avatar") or "")
+        avatar = old.get("avatar") if old.get("claimed") else (_avatar(p.get("avatar")) or old.get("avatar") or "")
         # keep the slot↔account link across roster syncs; the host roster carries
         # identities too (e.g. the host's own slot)
-        pacc = old.get("account_id") or p.get("account_id")
+        pacc = _account_ref(old.get("account_id")) or _account_ref(p.get("account_id"))
         merged.append({
-            "id": p.get("id"),
-            "name": p.get("name"),
-            "color": p.get("color"),
-            "scores": old.get("scores") or p.get("scores") or {},
+            "id": pid,
+            "name": _text(p.get("name"), MAX_NAME),
+            "color": _color(p.get("color")),
+            "scores": _scores(old.get("scores")) or _scores(p.get("scores")),
             "claimed": bool(old.get("claimed")),
-            "host": (i == 0),
-            "avatar": snapshot_avatar(pacc, avatar),
+            "host": (len(merged) == 0),
+            "avatar": snapshot_avatar(pacc, _avatar(avatar)),
         })
         if pacc:
             merged[-1]["account_id"] = pacc
@@ -772,10 +1077,12 @@ def session_players(code):
 
 @app.route("/api/session/<code>/claim", methods=["POST"])
 def session_claim(code):
-    body = request.get_json(silent=True) or {}
-    pid = body.get("player_id")
-    avatar = body.get("avatar")
-    account_id = body.get("account_id")
+    body = _body()
+    pid = _ident(body.get("player_id"))
+    avatar = _avatar(body.get("avatar"))
+    account_id = _account_ref(body.get("account_id"))
+    if pid is None:
+        abort(400)
     s, payload, players = _mutate_session(code)
     for p in players:
         if str(p.get("id")) == str(pid):
@@ -783,7 +1090,7 @@ def session_claim(code):
             if account_id:  # link this slot to the joiner's account (crew photo sync)
                 p["account_id"] = account_id
             # an account-less joiner has nowhere but the round to keep a photo
-            p["avatar"] = snapshot_avatar(account_id or p.get("account_id"), avatar or p.get("avatar"))
+            p["avatar"] = snapshot_avatar(account_id or p.get("account_id"), avatar or _avatar(p.get("avatar")))
             break
     payload["players"] = players
     s.data = json.dumps(payload)
@@ -796,8 +1103,10 @@ def session_claim(code):
 def session_leave(code):
     """A joiner leaves before/without saving: free their slot so they (or anyone)
     can pick it again. Without this a left slot stays 'claimed' and locks them out."""
-    body = request.get_json(silent=True) or {}
-    pid = body.get("player_id")
+    body = _body()
+    pid = _ident(body.get("player_id"))
+    if pid is None:
+        abort(400)
     s, payload, players = _mutate_session(code)
     _require_open(payload)
     for p in players:
@@ -842,17 +1151,17 @@ def session_delete(code):
 
 @app.route("/api/feedback", methods=["POST"])
 def submit_feedback():
-    data = request.get_json(silent=True) or {}
-    msg = (data.get("message") or "").strip()
-    rating = data.get("rating")
+    data = _body()
+    msg = _text(data.get("message"), 4000).strip()
+    rating = _int(data.get("rating"), 1, 3)
     if not msg and not rating:
         abort(400, "empty feedback")
     fb = Feedback(
-        rating=rating if isinstance(rating, int) else None,
-        message=msg[:4000],
-        contact=(data.get("contact") or "")[:200],
-        name=(data.get("name") or "")[:120],
-        account_id=data.get("account_id"),
+        rating=rating,
+        message=msg,
+        contact=_text(data.get("contact"), 200),
+        name=_text(data.get("name"), 120),
+        account_id=_account_ref(data.get("account_id")),
     )
     db.session.add(fb)
     db.session.commit()
@@ -1060,7 +1369,7 @@ def _admin_stats():
 
     def crew_len(a):
         try:
-            return len(json.loads(a.crew or "[]"))
+            return len(_dicts(json.loads(a.crew or "[]")))
         except Exception:
             return 0
 
@@ -1136,8 +1445,8 @@ def _admin_stats():
             crew = json.loads(a.crew or "[]")
         except Exception:
             crew = []
-        for c in crew:
-            nm = (c.get("name") or "").strip()
+        for c in _dicts(crew):
+            nm = _s(c.get("name"))
             if nm and nm.lower() not in seen:
                 seen.add(nm.lower())
                 names.append((nm, _col(c.get("color"), "#8A968F")))
@@ -1161,13 +1470,14 @@ def _admin_stats():
             coplayers.setdefault(host, set()).add(nm)
     for sess in Session.query.all():
         try:
-            pl = (json.loads(sess.data or "{}") or {}).get("players") or []
+            roh = json.loads(sess.data or "{}")
+            pl = _dicts(roh.get("players")) if isinstance(roh, dict) else []
         except Exception:
             pl = []
         if not pl:
             continue
         host_p = next((x for x in pl if x.get("host")), pl[0])
-        host = host_p.get("account_id")
+        host = _account_ref(host_p.get("account_id"))
         if not host:
             continue
         v = (sess.venue or "").strip()
@@ -1176,7 +1486,7 @@ def _admin_stats():
         for x in pl:
             if x is host_p:
                 continue
-            nm = (x.get("name") or "").strip()
+            nm = _s(x.get("name"))
             if nm:
                 coplayers.setdefault(host, set()).add(nm)
 
@@ -1187,7 +1497,7 @@ def _admin_stats():
             crew = json.loads(a.crew or "[]")
         except Exception:
             crew = []
-        saved = {(c.get("name") or "").strip() for c in crew if (c.get("name") or "").strip()}
+        saved = {_s(c.get("name")) for c in _dicts(crew) if _s(c.get("name"))}
         allnames = sorted(saved | coplayers.get(a.id, set()), key=str.lower)
         venues_here = sorted(account_venues.get(a.id, set()), key=str.lower)
         new_accounts.append((a.name or "ohne Name", _fmt_dt(a.created_at, tz), _col(a.color), allnames, venues_here))
@@ -1358,6 +1668,16 @@ def _runtime_info():
                 pass
     except Exception:
         pass
+    # Greift die Flutbremse? Sie braucht CF-Connecting-IP; fehlt die Kopfzeile,
+    # bremst sie nicht. Von aussen ist das nicht zu sehen — hier schon.
+    if RATE_OFF:
+        teile.append("Flutbremse: aus (RATE_LIMIT)")
+    elif request.headers.get("CF-Connecting-IP"):
+        teile.append("Flutbremse: aktiv")
+    elif request.headers.get("X-Forwarded-For"):
+        teile.append("Flutbremse: INAKTIV (kein CF-Connecting-IP)")
+    else:
+        teile.append("Flutbremse: aktiv (lokal)")
     return " \u00b7 ".join(teile)
 
 
