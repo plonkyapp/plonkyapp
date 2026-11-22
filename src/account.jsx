@@ -56,9 +56,14 @@ const newAccountSecret = () => {
 // eines Kontos ist der Speicher noch nicht geschrieben, der erste Aufruf braucht
 // das Geheimnis aber schon.
 let CURRENT_SECRET = null;
-const setSecret = (s) => { CURRENT_SECRET = s || null; };
+// Sobald die App einmal gesetzt hat, gilt NUR noch die Modulvariable — auch
+// wenn sie leer ist. Ohne dieses Merkmal wuerde direkt nach dem Abmelden noch
+// der alte Wert aus dem Speicher zurueckkommen, bis der naechste
+// Speichervorgang durch ist.
+let SECRET_SET = false;
+const setSecret = (s) => { CURRENT_SECRET = s || null; SECRET_SET = true; };
 const getSecret = () => {
-  if (CURRENT_SECRET) return CURRENT_SECRET;
+  if (SECRET_SET) return CURRENT_SECRET || '';
   try { return STORE.load().secret || ''; } catch (e) { return ''; }
 };
 // Kopfzeilen fuer jeden Aufruf, der etwas Eigenes betrifft.

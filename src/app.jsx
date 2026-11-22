@@ -563,7 +563,21 @@ function App() {
     setMe(null);
     go('join');
   };
-  const logout = () => { setAccount(null); go('cover'); };
+  // Abmelden heisst: dieses Geraet vergisst das Konto VOLLSTAENDIG.
+  // Vorher wurde nur das aktive Konto zurueckgesetzt — Geheimnis, Crew und
+  // Verlauf blieben im Browserspeicher liegen. Seit der Trennung von Ausweis
+  // und Zugang waere das der Zugangsschluessel selbst: auf einem geteilten
+  // Geraet haette sich das Konto per persoenlichem Link wiederholen lassen.
+  // Die Runden sind auf dem Server; mit dem persoenlichen Link kommt alles
+  // zurueck.
+  const logout = () => {
+    useSecret(null);
+    setAccount(null);
+    setFamily([]);
+    setHistory([]);
+    setActiveSession(null);
+    go('cover');
+  };
   // restore an existing account into THIS browser context (e.g. the home-screen
   // app) by pasting its personal link — bridges Safari ↔ installed app, which
   // keep separate storage on iOS. Accepts a full /m/<id> link or just the id.

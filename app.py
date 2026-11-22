@@ -226,25 +226,32 @@ def _given_secret():
     return request.headers.get(SECRET_HEADER) or ""
 
 
-def _account_allows(acc, secret=None):
-    """Darf der Aufrufer dieses Konto benutzen?
+def _caller():
+    """WER ruft hier an? Die Antwort kommt ausschliesslich aus dem Geheimnis.
 
-    Ein Konto OHNE Abdruck stammt aus der Zeit vor der Trennung: der erste
-    Zugriff mit einem Geheimnis uebernimmt es (und schliesst die Tuer hinter
-    sich zu). Ohne diese Regel waeren alte Geraete ausgesperrt.
+    Das ist die wichtigste Funktion dieser Datei. Bis 22.11.2026 abends wurde
+    an zwei Stellen unterschiedlich gefragt: das Geheimnis gegen das Konto aus
+    dem RUMPF geprueft, das Recht aber gegen das Konto aus der KOPFZEILE. Wer
+    sein eigenes Geheimnis schickte und dazu eine fremde Konto-Nummer in die
+    Kopfzeile schrieb, durfte fremde Runden ueberschreiben. Nachgestellt: aus
+    "Echte Anlage" mit 2 Schlaegen wurde "GEFAELSCHT" mit 99.
+
+    Lehre: die Identitaet EINMAL bestimmen, danach nur noch diese benutzen.
+    Eine Konto-Nummer aus einer Kopfzeile ist kein Nachweis — sie steht in
+    jeder Runde, in der man mitgespielt hat.
     """
+    secret = _given_secret()
+    if not secret:
+        return None
+    return Account.query.filter_by(secret_hash=_hash_secret(secret)).first()
+
+
+def _require_caller(account_id=None):
+    """Aufrufer bestimmen; mit account_id zusaetzlich: muss dieses Konto sein."""
+    acc = _caller()
     if acc is None:
-        return False
-    if not acc.secret_hash:
-        return True
-    given = _hash_secret(secret if secret is not None else _given_secret())
-    return bool(given) and hmac.compare_digest(acc.secret_hash, given)
-
-
-def _require_account(account_id):
-    """Konto laden und den Zugang pruefen — 403, wenn das Geheimnis fehlt."""
-    acc = db.session.get(Account, account_id) if account_id else None
-    if acc is not None and not _account_allows(acc):
+        abort(403)
+    if account_id is not None and str(acc.id) != str(account_id):
         abort(403)
     return acc
 
@@ -419,9 +426,10 @@ def list_games():
         # Ohne Nummer gibt es nichts herauszugeben. Niemals auf "alle Spiele"
         # zurueckfallen.
         abort(400, "missing account_id")
-    # Die Nummer allein genuegt NICHT mehr: sie steht in jeder Runde, in der man
-    # mitgespielt hat. Den Verlauf oeffnet nur das Geheimnis.
-    _require_account(account_id)
+    # Die Nummer allein genuegt NICHT: sie steht in jeder Runde, in der man
+    # mitgespielt hat. Den Verlauf oeffnet nur das Geheimnis — und es muss zu
+    # genau diesem Konto gehoeren.
+    _require_caller(account_id)
     # games this account OWNS, plus games it TOOK PART in (one shared record)
     ids = {gid for (gid,) in db.session.query(Game.id).filter_by(account_id=account_id).all()}
     ids |= {gid for (gid,) in db.session.query(GameParticipant.game_id).filter_by(account_id=account_id).all()}
@@ -438,17 +446,32 @@ def upsert_game():
     if not game_id:
         abort(400, "missing game id")
 
+    # Identitaet EINMAL bestimmen, aus dem Geheimnis. Danach wird nur noch
+    # diese benutzt — nie eine Nummer aus Rumpf oder Kopfzeile.
+    secret = _given_secret()
+    if not secret:
+        abort(403)
+    rufer = _caller()
     account_id = data.get("account_id")
-    if account_id:
-        bestehend = db.session.get(Account, account_id)
-        if bestehend is None:
-            # Konto noch nie gesehen: anlegen und das Geheimnis gleich binden.
-            neu = Account(id=account_id)
-            neu.secret_hash = _hash_secret(_given_secret())
-            db.session.add(neu)
-        elif not _account_allows(bestehend):
-            # Man darf nur unter dem eigenen Konto speichern.
+
+    if rufer is None:
+        # Erstes Spiel eines frischen Geraets. Das Frontend legt das Konto an
+        # und speichert die Runde, OHNE auf die Antwort zu warten — kommt die
+        # Runde zuerst an, gibt es das Konto noch nicht. Frueher legte diese
+        # Route es dann ohne Geheimnis an, und es blieb fuer immer offen.
+        #
+        # Jetzt wird es MIT dem mitgeschickten Geheimnis angelegt. Damit ist
+        # es von Anfang an gebunden, und die erste Runde geht nicht verloren.
+        if not account_id or db.session.get(Account, account_id) is not None:
             abort(403)
+        rufer = Account(id=account_id)
+        rufer.secret_hash = _hash_secret(secret)
+        db.session.add(rufer)
+        db.session.flush()
+    elif account_id and str(account_id) != str(rufer.id):
+        # Man speichert nur unter dem eigenen Konto.
+        abort(403)
+    account_id = rufer.id
 
     game = db.session.get(Game, game_id)
     if game is None:
@@ -463,8 +486,9 @@ def upsert_game():
         erlaubt = {gp.account_id for gp in game.participants}
         erlaubt.add(game.account_id)
         erlaubt.discard(None)
-        rufer = request.headers.get("X-Plonky-Account") or account_id
-        if erlaubt and rufer not in erlaubt:
+        # Gegen den oben bestimmten Aufrufer, NICHT gegen eine mitgeschickte
+        # Nummer. Genau diese Verwechslung war die Luecke.
+        if erlaubt and str(rufer.id) not in {str(x) for x in erlaubt}:
             abort(403)
         # Der Besitzer bleibt der Besitzer. Sonst könnte ein Mitspieler die
         # Runde beim Speichern seiner Korrektur auf sich selbst umschreiben.
@@ -523,7 +547,8 @@ def get_account(account_id):
     acc = db.session.get(Account, account_id)
     if acc is None:
         abort(404)
-    if _given_secret() and _account_allows(acc):
+    eigen = _caller()
+    if eigen is not None and str(eigen.id) == str(acc.id):
         return jsonify(account_to_dict(acc))
     return jsonify(account_public(acc))
 
@@ -537,14 +562,10 @@ def resolve_account():
     if not token:
         abort(400, "missing secret")
 
+    # Nur ueber das Geheimnis. Der frueher erlaubte Altweg "Nummer statt
+    # Geheimnis" ist weg: die Nummer kennt jeder Mitspieler, sie haette ein
+    # fremdes Konto geoeffnet.
     acc = Account.query.filter_by(secret_hash=_hash_secret(token)).first()
-    if acc is None:
-        # Alter Link aus der Zeit, als die Nummer selbst der Zugang war. Nur
-        # erlaubt, solange das Konto noch kein Geheimnis hat — sobald eines
-        # gesetzt ist, faellt dieser Weg fuer dieses Konto weg.
-        legacy = db.session.get(Account, token)
-        if legacy is not None and not legacy.secret_hash:
-            acc = legacy
     if acc is None:
         abort(404)
     return jsonify(account_to_dict(acc))
@@ -587,21 +608,27 @@ def upsert_account():
     account_id = data.get("id")
     if not account_id:
         abort(400, "missing account id")
+    secret = _given_secret()
+    # OHNE Geheimnis entsteht hier nichts mehr. Bis 22.11.2026 abends war das
+    # erlaubt — und ein so angelegtes Konto blieb fuer immer offen: wer die
+    # Nummer kannte, las den Verlauf, aenderte das Profil UND konnte den Zugang
+    # an ein eigenes Geheimnis binden, womit der echte Besitzer ausgesperrt war.
+    if not secret:
+        abort(400, "missing secret")
+
     acc = db.session.get(Account, account_id)
     is_new = acc is None
-    secret = _given_secret()
     if is_new:
         acc = Account(id=account_id)
         acc.secret_hash = _hash_secret(secret)
         db.session.add(acc)
     else:
-        # Bis 22.11.2026 durfte hier JEDER schreiben, der die Nummer kannte —
-        # und die kennt jeder Mitspieler. Nachgewiesen: Profil umbenannt, Foto
-        # geloescht, ohne jeden Nachweis.
-        if not _account_allows(acc):
+        # Kein Uebernehmen mehr. Ein Konto ohne Abdruck stammt aus der Zeit vor
+        # der Trennung und laesst sich nicht mehr beschreiben — "die Nummer
+        # kennen" war nie ein Besitznachweis, sie wird ja an Mitspieler
+        # verteilt. Betroffen waren nur Michaels eigene Testgeraete.
+        if not acc.secret_hash or not hmac.compare_digest(acc.secret_hash, _hash_secret(secret)):
             abort(403)
-        if not acc.secret_hash and secret:
-            acc.secret_hash = _hash_secret(secret)  # altes Konto uebernimmt sein Geheimnis
     if data.get("name") is not None:
         acc.name = data.get("name")
     if data.get("color") is not None:
