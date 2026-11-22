@@ -952,11 +952,15 @@ def create_session():
             # identity travels with the round: names/photos resolve live by account id
             "account_id": pacc,
         })
+    payload = {"players": players}
+    host_key = _round_key(HOST_HEADER)
+    if host_key:
+        payload["host_hash"] = _hash_secret(host_key)
     s = Session(
         code=new_session_code(),
         mode=_text(data.get("mode"), 20) or "sequential",
         venue=_text(data.get("venue"), MAX_VENUE),
-        data=json.dumps({"players": players}),
+        data=json.dumps(payload),
         rev=1,
     )
     db.session.add(s)
@@ -985,6 +989,59 @@ def _mutate_session(code):
         payload = {}
     players = _dicts(payload.get("players"))
     return s, payload, players
+
+
+# ══ Rollen in der Live-Runde ══════════════════════════════════════════════
+# Bis 22.11.2026 war der Runden-Code Einladung und Generalvollmacht in einem:
+# wer ihn hatte, konnte beenden, verwerfen, die Spielerliste ersetzen und
+# fremde Schlaege aendern. Das Frontend bot das einem Beigetretenen nie an —
+# der Server haette es aber angenommen.
+#
+# Jetzt ist der Code nur noch die Einladung. Dazu kommen zwei unsichtbare
+# Schluessel, die das jeweilige Handy SELBST erzeugt und mitschickt:
+#
+#   Gastgeber-Schluessel  X-Plonky-Host   beim Anlegen der Runde
+#   Platz-Schluessel      X-Plonky-Slot   beim Belegen eines Platzes
+#
+# Selbst erzeugt statt vom Server vergeben, weil das Netz auf einer Anlage
+# wackelt: ginge die Antwort mit einem vergebenen Schluessel verloren, waere
+# der Gast ausgesperrt. So gelingt ein zweiter Versuch mit demselben Schluessel
+# einfach. Gespeichert wird nur der Abdruck, und keiner der beiden verlaesst je
+# den Server — session_to_dict() gibt nur feste, gepruefte Felder heraus.
+#
+# Eine Runde OHNE Gastgeber-Abdruck stammt aus der Zeit davor (oder von einem
+# noch offenen alten Tab) und verhaelt sich wie bisher.
+HOST_HEADER = "X-Plonky-Host"
+SLOT_HEADER = "X-Plonky-Slot"
+
+
+def _round_key(header):
+    """Schluessel aus der Kopfzeile, wenn er als solcher taugt (128 Bit = 32 Hex)."""
+    v = request.headers.get(header) or ""
+    return v if 20 <= len(v) <= 200 else ""
+
+
+def _enforced(payload):
+    return bool(payload.get("host_hash"))
+
+
+def _is_host(payload):
+    h = payload.get("host_hash")
+    if not h:
+        return True                    # Runde aus der Zeit davor: wie bisher
+    given = _round_key(HOST_HEADER)
+    return bool(given) and hmac.compare_digest(str(h), _hash_secret(given))
+
+
+def _owns_slot(p):
+    h = p.get("key_hash")
+    given = _round_key(SLOT_HEADER)
+    return bool(h) and bool(given) and hmac.compare_digest(str(h), _hash_secret(given))
+
+
+def _require_host(payload):
+    if not _is_host(payload):
+        abort(403)
 
 
 def _require_open(payload):
@@ -1022,6 +1079,11 @@ def session_score(code):
     _require_open(payload)
     for p in players:
         if str(p.get("id")) == str(pid):
+            # Der Gastgeber tippt fuer jeden; wer beigetreten ist, nur fuer den
+            # eigenen Platz. Das Frontend hielt sich schon daran ("joined as
+            # one player: only your own score") — jetzt erzwingt es der Server.
+            if not (_is_host(payload) or _owns_slot(p)):
+                abort(403)
             scores = _scores(p.get("scores"))
             if strokes is None:
                 scores.pop(str(hole), None)     # kein Wert = Eintrag weg
@@ -1044,6 +1106,7 @@ def session_players(code):
     incoming = _dicts(body.get("players"))[:MAX_PLAYERS]
     s, payload, existing = _mutate_session(code)
     _require_open(payload)
+    _require_host(payload)
     by_id = {str(p.get("id")): p for p in existing}
     merged = []
     for p in incoming:
@@ -1068,6 +1131,8 @@ def session_players(code):
         })
         if pacc:
             merged[-1]["account_id"] = pacc
+        if old.get("key_hash"):
+            merged[-1]["key_hash"] = old.get("key_hash")   # der Platz bleibt seinem Inhaber
     payload["players"] = merged
     s.data = json.dumps(payload)
     s.rev = (s.rev or 0) + 1
@@ -1084,13 +1149,34 @@ def session_claim(code):
     if pid is None:
         abort(400)
     s, payload, players = _mutate_session(code)
+    rufer = _caller()
+    # Eine Konto-Verknuepfung gilt nur, wenn der Aufrufer dieses Konto IST.
+    # Frueher genuegte die blosse Nummer — und die kennt jeder Mitspieler.
+    belegt_konto = account_id if (account_id and rufer is not None and str(rufer.id) == str(account_id)) else None
+    if not _enforced(payload):
+        belegt_konto = account_id      # Runde aus der Zeit davor: wie bisher
     for p in players:
         if str(p.get("id")) == str(pid):
+            if _enforced(payload):
+                slot_key = _round_key(SLOT_HEADER)
+                host = _is_host(payload)
+                eigen = _owns_slot(p)
+                # Wiedereinstieg mit dem eigenen Konto: der Platz ist mit
+                # einem Konto verknuepft, und der Aufrufer weist es nach.
+                konto = rufer is not None and p.get("account_id") and str(rufer.id) == str(p.get("account_id"))
+                if p.get("host") and not host:
+                    abort(403)                         # der Platz des Gastgebers
+                if p.get("claimed") and not (eigen or konto or host):
+                    abort(409)                         # schon vergeben
+                if not host:
+                    if not slot_key:
+                        abort(400)                     # ohne Platz-Schluessel kein Platz
+                    p["key_hash"] = _hash_secret(slot_key)
             p["claimed"] = True
-            if account_id:  # link this slot to the joiner's account (crew photo sync)
-                p["account_id"] = account_id
+            if belegt_konto:  # link this slot to the joiner's account (crew photo sync)
+                p["account_id"] = belegt_konto
             # an account-less joiner has nowhere but the round to keep a photo
-            p["avatar"] = snapshot_avatar(account_id or p.get("account_id"), avatar or _avatar(p.get("avatar")))
+            p["avatar"] = snapshot_avatar(belegt_konto or p.get("account_id"), avatar or _avatar(p.get("avatar")))
             break
     payload["players"] = players
     s.data = json.dumps(payload)
@@ -1111,8 +1197,11 @@ def session_leave(code):
     _require_open(payload)
     for p in players:
         if str(p.get("id")) == str(pid):
+            if not (_is_host(payload) or _owns_slot(p)):
+                abort(403)                 # nur den eigenen Platz raeumen
             p["claimed"] = False
             p.pop("account_id", None)  # slot is free again; next claimer relinks
+            p.pop("key_hash", None)
             break
     payload["players"] = players
     s.data = json.dumps(payload)
@@ -1125,6 +1214,7 @@ def session_leave(code):
 def session_finish(code):
     """Host ends the round. Every device sees finished=true and only then shows the winner."""
     s, payload, players = _mutate_session(code)
+    _require_host(payload)
     payload["finished"] = True
     s.data = json.dumps(payload)
     s.rev = (s.rev or 0) + 1
@@ -1141,9 +1231,12 @@ def session_delete(code):
             payload = json.loads(s.data or "{}")
         except (ValueError, TypeError):
             payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
         # Verwerfen geht nur, solange gespielt wird. Danach brauchen die
         # Mitspieler die Runde noch, um ihre Kopie mit dem Endstand zu sichern.
         _require_open(payload)
+        _require_host(payload)
         db.session.delete(s)
         db.session.commit()
     return jsonify({"ok": True})

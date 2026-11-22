@@ -295,8 +295,12 @@ function App() {
     // den eigenen Spieler-Slot ans neue Konto knüpfen — sonst erkennt der
     // "Host nie in der eigenen Crew"-Filter (der über account_id geht) den Host nicht
     setPlayers(ps => ps.map((p, i) => (me != null ? String(p.id) === String(me) : i === 0) ? { ...p, account_id: acc.id } : p));
-    ACC.API.saveAccount(acc, me != null ? undefined : family).catch(() => {});
-    if (me != null && sessionCode) ACC.API.sessionClaim(sessionCode, me, acc.avatar, acc.id).catch(() => {});
+    // Erst das Konto, DANN die Verknuepfung des Platzes: der Server verknuepft
+    // nur noch ein Konto, dessen Zugang der Aufrufer nachweist — dazu muss es
+    // dort schon existieren.
+    ACC.API.saveAccount(acc, me != null ? undefined : family).catch(() => {})
+      .then(() => { if (me != null && sessionCode) return ACC.API.sessionClaim(sessionCode, me, acc.avatar, acc.id); })
+      .catch(() => {});
   }, [hydrated, screen, account, me, players.length, sessionCode]);
 
   // a host's solo game ("ich tippe für alle") skips the invite step, so it has no
@@ -525,10 +529,12 @@ function App() {
     };
     useSecret(ACC.newAccountSecret());
     setAccount(acc);
-    ACC.API.saveAccount(acc, family).catch(() => {});
     // tell the session this slot now belongs to a real account (host can link it
-    // to their crew entry, so my photo stays current for them)
-    if (sessionCode && me != null) ACC.API.sessionClaim(sessionCode, me, acc.avatar, acc.id).catch(() => {});
+    // to their crew entry, so my photo stays current for them) — erst NACH dem
+    // Anlegen des Kontos, sonst kann der Server die Verknuepfung nicht pruefen
+    ACC.API.saveAccount(acc, family).catch(() => {})
+      .then(() => { if (sessionCode && me != null) return ACC.API.sessionClaim(sessionCode, me, acc.avatar, acc.id); })
+      .catch(() => {});
     // keep a copy of the round she just finished (pull final scores from the server)
     if (resultsFinal) {
       if (sessionCode) {
@@ -569,6 +575,7 @@ function App() {
   // Die Runden sind auf dem Server; mit dem persoenlichen Link kommt alles
   // zurueck.
   const logout = () => {
+    ACC.ROUNDS.clear();   // auch die Schluessel laufender Runden
     useSecret(null);
     setAccount(null);
     setFamily([]);

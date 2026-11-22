@@ -72,6 +72,47 @@ const auth = (extra) => {
   return Object.assign({}, extra || {}, s ? { 'X-Plonky-Secret': s } : {});
 };
 
+// ── Schluessel fuer Live-Runden ─────────────────────────────────────────────
+// Der Runden-Code (im QR) ist nur die Einladung. Was ein Geraet in der Runde
+// DARF, haengt an zwei unsichtbaren Schluesseln, die es selbst erzeugt:
+//   host — wer die Runde eroeffnet hat: beenden, verwerfen, Spielerliste,
+//          Schlaege fuer alle
+//   slot — wer einem Platz beigetreten ist: nur die eigenen Schlaege
+// Selbst erzeugt und VOR dem Absenden gemerkt: geht eine Antwort im wackligen
+// Netz der Anlage verloren, gelingt der zweite Versuch mit demselben Schluessel.
+// Eigene Ablage neben dem STORE-Blob (den app.jsx bei jeder Aenderung komplett
+// neu schreibt) — wie SEEN weiter oben.
+const ROUNDS = {
+  KEY: 'plonky.rounds.v1',
+  read() { try { return JSON.parse(localStorage.getItem(this.KEY) || '{}') || {}; } catch (e) { return {}; } },
+  get(code) { return this.read()[String(code || '').toUpperCase()] || {}; },
+  set(code, patch) {
+    try {
+      const d = this.read();
+      const k = String(code || '').toUpperCase();
+      d[k] = Object.assign({}, d[k], patch, { t: Date.now() });
+      // nur die juengsten 30 Runden behalten
+      const keep = Object.keys(d).sort((a, b) => (d[b].t || 0) - (d[a].t || 0)).slice(0, 30);
+      const out = {}; keep.forEach(x => { out[x] = d[x]; });
+      localStorage.setItem(this.KEY, JSON.stringify(out));
+    } catch (e) {}
+  },
+  clear() { try { localStorage.removeItem(this.KEY); } catch (e) {} },
+};
+const newRoundKey = () => {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+};
+// Kopfzeilen fuer einen Aufruf in einer Runde: was dieses Geraet dort hat.
+const roundAuth = (code, extra) => {
+  const k = ROUNDS.get(code);
+  const h = Object.assign({ 'Content-Type': 'application/json' }, extra || {});
+  if (k.host) h['X-Plonky-Host'] = k.host;
+  if (k.slot) h['X-Plonky-Slot'] = k.slot;
+  return h;
+};
+
 // ── backend API (same-origin; degrades to localStorage-only if unreachable) ──
 const API = {
   async listGames(accountId) {
@@ -132,13 +173,18 @@ const API = {
     return r.json();
   },
   async createSession(session) {
+    // Gastgeber-Schluessel: hier erzeugt, mitgeschickt, und unter dem Code
+    // gemerkt, den der Server zurueckgibt.
+    const host = newRoundKey();
     const r = await fetch('/api/session', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Plonky-Host': host },
       body: JSON.stringify(session),
     });
     if (!r.ok) throw new Error('createSession ' + r.status);
-    return r.json();
+    const sess = await r.json();
+    if (sess && sess.code) ROUNDS.set(sess.code, { host });
+    return sess;
   },
   async getSession(code, full = false) {
     // full=true also returns player photos (used once on join); the score-poll
@@ -149,11 +195,22 @@ const API = {
     return r.json();
   },
   async sessionScore(code, playerId, hole, strokes) {
-    const r = await fetch('/api/session/' + encodeURIComponent(code) + '/score', {
+    const send = () => fetch('/api/session/' + encodeURIComponent(code) + '/score', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: roundAuth(code),
       body: JSON.stringify({ player_id: playerId, hole, strokes }),
     });
+    let r = await send();
+    // 403 als Beigetretener heisst: der Server kennt meinen Platz-Schluessel
+    // (noch) nicht — etwa weil das Belegen im Funkloch verloren ging. Einmal
+    // nachholen und den Schlag erneut schicken, statt ihn still zu verlieren.
+    if (r.status === 403 && !ROUNDS.get(code).host) {
+      try {
+        const me = (STORE.load().account) || null;
+        await API.sessionClaim(code, playerId, me && me.avatar, me && me.id);
+        r = await send();
+      } catch (e) {}
+    }
     if (!r.ok) throw new Error('sessionScore ' + r.status);
     return r.json();
   },
@@ -161,9 +218,16 @@ const API = {
     const body = { player_id: playerId };
     if (avatar) body.avatar = avatar; // bring my own photo into the round
     if (accountId) body.account_id = accountId; // link this slot to my account
+    // Platz-Schluessel: einer pro Runde und Platz. Fuer denselben Platz bleibt
+    // er gleich (Wiedereinstieg, zweiter Versuch), fuer einen anderen neu.
+    const known = ROUNDS.get(code);
+    if (!known.host && (!known.slot || known.pid !== String(playerId))) {
+      ROUNDS.set(code, { slot: newRoundKey(), pid: String(playerId) });
+    }
     const r = await fetch('/api/session/' + encodeURIComponent(code) + '/claim', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // auth(): die Konto-Verknuepfung gilt nur mit dem Zugang zu diesem Konto
+      headers: auth(roundAuth(code)),
       body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error('sessionClaim ' + r.status);
@@ -173,7 +237,7 @@ const API = {
   async sessionLeave(code, playerId) {
     const r = await fetch('/api/session/' + encodeURIComponent(code) + '/leave', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: roundAuth(code),
       body: JSON.stringify({ player_id: playerId }),
     });
     if (!r.ok) throw new Error('sessionLeave ' + r.status);
@@ -181,7 +245,7 @@ const API = {
   },
   // host discards a round entirely (used by "Laufende Runde verwerfen")
   async deleteSession(code) {
-    const r = await fetch('/api/session/' + encodeURIComponent(code), { method: 'DELETE' });
+    const r = await fetch('/api/session/' + encodeURIComponent(code), { method: 'DELETE', headers: roundAuth(code) });
     if (!r.ok) throw new Error('deleteSession ' + r.status);
     return r.json();
   },
@@ -189,7 +253,7 @@ const API = {
   async sessionFinish(code) {
     const r = await fetch('/api/session/' + encodeURIComponent(code) + '/finish', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: roundAuth(code),
     });
     if (!r.ok) throw new Error('sessionFinish ' + r.status);
     return r.json();
@@ -198,7 +262,7 @@ const API = {
   async sessionPlayers(code, players) {
     const r = await fetch('/api/session/' + encodeURIComponent(code) + '/players', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: roundAuth(code),
       body: JSON.stringify({ players: (players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '', account_id: p.account_id || null })) }),
     });
     if (!r.ok) throw new Error('sessionPlayers ' + r.status);
@@ -894,4 +958,4 @@ function FeedbackInbox({ items, go }) {
   );
 }
 
-window.ACC = { STORE, API, newAccountId, newAccountSecret, newGameId, setSecret, getSecret, accountLink, sessionLink, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, FeedbackScreen, FeedbackInbox, aTotals, fmtDate, fmtShort };
+window.ACC = { STORE, ROUNDS, API, newAccountId, newAccountSecret, newGameId, setSecret, getSecret, accountLink, sessionLink, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, FeedbackScreen, FeedbackInbox, aTotals, fmtDate, fmtShort };
