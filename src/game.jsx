@@ -309,7 +309,7 @@ function EndConfirmSheet({ miss, onBack, onEnd }) {
   );
 }
 
-function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults, sessionCode, me, onHome, account = null, family = [], venueName = OB.VENUE, nameOf = (x) => x.name }) {
+function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults, sessionCode, me, onHome, onLost = null, account = null, family = [], venueName = OB.VENUE, nameOf = (x) => x.name }) {
   const [hole, setHole] = useS(1);
   const [focus, setFocus] = useS(null);
   const [voice, setVoice] = useS(false);
@@ -317,12 +317,29 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
   const [srvFinished, setSrvFinished] = useS(false); // host pressed "Spiel beenden" (joiner learns it from the poll)
   const pendingRef = useR({}); // "pid:hole" -> value not yet confirmed by the server
 
+  const pendingAtRef = useR({}); // "pid:hole" -> wann zuletzt gesendet
+  // Die Verbindung zur Runde ist weg: 'runde' = der Gastgeber hat sie verworfen
+  // (oder sie ist abgelaufen), 'platz' = mein Platz existiert nicht mehr oder
+  // gehoert jemand anderem. Frueher lief das Spiel in beiden Faellen einfach
+  // weiter — der Gast tippte eine ganze Runde, von der nichts ankam.
+  const [lost, setLost] = useS(null);
+  const lostRef = useR(null); lostRef.current = lost;
+  const abgelehntRef = useR(0); // Ablehnungen in Folge fuer meinen Platz
+  const sendScore = (id, h, val) => ACC.API.sessionScore(sessionCode, id, h, val)
+    .then(() => { abgelehntRef.current = 0; })
+    .catch(e => {
+      const m = String(e && e.message);
+      // Als Beigetretener zweimal hintereinander abgewiesen (403) oder der
+      // Platz ist weg (404): Nachsenden hilft nicht mehr.
+      if (me != null && / (403|404|platz)$/.test(m)) { abgelehntRef.current += 1; if (abgelehntRef.current >= 2) setLost(l => l || 'platz'); }
+    });
   const pushScore = (id, h, val) => {
     pendingRef.current[id + ':' + h] = val; // remember locally so the score-poll never wipes it
-    if (sessionCode) ACC.API.sessionScore(sessionCode, id, h, val).catch(() => {});
+    pendingAtRef.current[id + ':' + h] = Date.now();
+    if (sessionCode) sendScore(id, h, val);
   };
   const set = (id, val) => {
-    if (srvFinished) return; // host ended the round → it's over, no more edits
+    if (srvFinished || lost) return; // host ended the round → it's over, no more edits
     if (me != null && String(id) !== String(me)) return; // joined as one player: only your own score
     setPlayers(ps => ps.map(p => p.id === id ? { ...p, scores: { ...p.scores, [hole]: val } } : p));
     pushScore(id, hole, val);
@@ -336,7 +353,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
   // a solo game's session can arrive a moment after the first scores — flush them once it does
   useE(() => {
     if (!sessionCode) return;
-    Object.keys(pendingRef.current).forEach(k => { const i = k.indexOf(':'); ACC.API.sessionScore(sessionCode, k.slice(0, i), +k.slice(i + 1), pendingRef.current[k]).catch(() => {}); });
+    Object.keys(pendingRef.current).forEach(k => { const i = k.indexOf(':'); sendScore(k.slice(0, i), +k.slice(i + 1), pendingRef.current[k]); });
   }, [sessionCode]);
 
   // live session: pull others' scores; local pending writes win until the server echoes them back
@@ -344,10 +361,31 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
     if (!sessionCode) return;
     let alive = true;
     const tick = () => ACC.API.getSession(sessionCode).then(sess => {
-      if (!alive || !sess) return;
+      if (!alive) return;
+      if (!sess) { setLost('runde'); return; }          // 404: die Runde gibt es nicht mehr
       setSrvFinished(!!sess.finished);
       const srv = {}; (sess.players || []).forEach(sp => { srv[sp.id] = sp; });
+      if (me != null && !srv[me] && !sess.finished) { setLost(l => l || 'platz'); return; }   // mein Platz wurde entfernt
       const pending = pendingRef.current;
+      // Nachsenden: ein Schlag, den der Server nach ein paar Sekunden noch
+      // nicht hat, ging verloren (Funkloch, kurze Ablehnung). Frueher wurde er
+      // nie wieder geschickt — der Bildschirm zeigte ihn weiter, der Server
+      // kannte ihn nicht, und beim Beenden fehlte er.
+      if (!sess.finished && !lostRef.current) {
+        const jetzt = Date.now();
+        Object.keys(pending).forEach(k => {
+          const sep = k.indexOf(':'); const pid = k.slice(0, sep); const h = k.slice(sep + 1);
+          const sp = srv[pid];
+          if (!sp || String((sp.scores || {})[h]) === String(pending[k])) return;
+          if (jetzt - (pendingAtRef.current[k] || 0) < 5000) return; // der erste Versuch laeuft vielleicht noch
+          // Als Gastgeber fuer einen Platz, den ein Gast selbst belegt hat: dort
+          // gilt, was der Gast tippt. Ein aelterer Wert von hier darf seinen
+          // neueren nicht nachtraeglich ueberschreiben.
+          if (me == null && sp.claimed && !sp.host) { delete pending[k]; delete pendingAtRef.current[k]; return; }
+          pendingAtRef.current[k] = jetzt;
+          sendScore(pid, +h, pending[k]);
+        });
+      }
       setPlayers(prev => prev.map(p => {
         const sp = srv[p.id];
         if (!sp) return p;
@@ -365,7 +403,7 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
     const iv = setInterval(tick, 3000);
     return () => { alive = false; clearInterval(iv); };
   }, [sessionCode]);
-  const canEdit = (pid) => !srvFinished && (me == null || String(pid) === String(me));
+  const canEdit = (pid) => !srvFinished && !lost && (me == null || String(pid) === String(me));
   const ordered = me == null ? players : [...players].sort((a, b) => {
     const am = String(a.id) === String(me), bm = String(b.id) === String(me);
     return am === bm ? 0 : am ? -1 : 1;
@@ -395,6 +433,15 @@ function GameScreen({ players, setPlayers, go, voiceOn, showTotals, openResults,
           </div>
           {onHome && !srvFinished && <button onClick={onHome} title="Pause – zu meinem plonky; die Runde läuft weiter" style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', background: 'var(--card)', borderRadius: 999, padding: '5px 12px 5px 10px', cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)' }}><Ic.home size={15} /> Pause</button>}
         </div>
+        {lost && (
+          <div style={{ background: 'color-mix(in srgb, var(--bad) 9%, var(--card))', border: '1px solid var(--bad)', borderRadius: 12, padding: '10px 12px', margin: '6px 0 0' }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{lost === 'runde' ? 'Diese Runde gibt es nicht mehr.' : 'Dein Platz in dieser Runde ist weg.'}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.4, margin: '3px 0 8px' }}>{lost === 'runde'
+              ? 'Der Gastgeber hat sie verworfen, oder sie ist abgelaufen. Was du jetzt tippst, kommt nirgends mehr an.'
+              : 'Der Gastgeber hat die Aufstellung geändert, oder jemand anderes sitzt auf dem Platz. Was du jetzt tippst, kommt nicht mehr an — scann den QR-Code nochmal.'}</div>
+            {onLost && <button onClick={onLost} style={{ border: 'none', background: 'var(--bad)', color: '#fff', borderRadius: 10, padding: '7px 14px', fontFamily: 'var(--font)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Zur Startseite</button>}
+          </div>
+        )}
         {srvFinished && me != null && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'color-mix(in srgb, var(--accent) 10%, var(--card))', border: '1px solid var(--accent)', borderRadius: 12, padding: '8px 12px', margin: '6px 0 0' }}>
             <Ic.trophy size={16} color="var(--accent)" />

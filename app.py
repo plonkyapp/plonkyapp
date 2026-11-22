@@ -1,8 +1,11 @@
+import base64
 import collections
+import contextlib
 import datetime
 import hashlib
 import hmac
 import html
+import ipaddress
 import json
 import os
 import re
@@ -10,10 +13,11 @@ import secrets
 import sys
 import threading
 import time
+import zlib
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from flask import Flask, abort, jsonify, make_response, redirect, request, send_from_directory
+from flask import Flask, abort, g, jsonify, make_response, redirect, request, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,10 +36,16 @@ MAX_BODY_MB = 2
 # und die Liste der eingesetzten Pakete samt Versionen.
 BLOCKED_FILES = {"requirements.txt", "plonky.html", "plonky v1 (mit scan).html"}
 
+# Seit dem Audit vom 22.11.2026 wird nach PFAD ausgeliefert, nicht nach Endung.
+# Vorher genuegte eine passende Endung irgendwo im Ordner: lokal lag damit die
+# vollstaendige Sicherung der Live-Datenbank (z_backup/…json) abrufbar da,
+# ebenso .claude/ und der Inhalt des virtualenv.
+STATIC_ROOT_FILES = {"manifest.json", "venues.json", "ios-frame.jsx", "tweaks-panel.jsx"}
+STATIC_DIRS = ("src/", "assets/", "vendor/")
 ALLOWED_EXT = {
-    ".html", ".jsx", ".js", ".css", ".map",
+    ".jsx", ".js", ".css", ".json",
     ".png", ".svg", ".ico", ".jpg", ".jpeg", ".webp",
-    ".woff", ".woff2", ".ttf", ".webmanifest", ".json", ".txt",
+    ".woff", ".woff2",
 }
 
 
@@ -72,8 +82,29 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_BODY_MB * 1024 * 1024
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url()
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True, "pool_recycle": 300}
+if not app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite"):
+    # gunicorn laeuft mit 24 Threads (gunicorn.conf.py): genug Verbindungen,
+    # und lieber nach 10 s eine Absage als ein Thread, der ewig wartet.
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"].update({"pool_size": 10, "max_overflow": 14, "pool_timeout": 10})
 
 db = SQLAlchemy(app)
+
+# SQLite prueft Fremdschluessel nur auf ausdruecklichen Wunsch. Ohne das blieben
+# lokal geloeschte Schlaege als Waisen liegen und tauchten bei der naechsten
+# Zeile mit derselben Nummer wieder auf — lokale Tests zeigten dann etwas
+# anderes als PostgreSQL in der Produktion.
+if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite"):
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    @event.listens_for(Engine, "connect")
+    def _sqlite_fk(dbapi_conn, _record):
+        try:
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.close()
+        except Exception:
+            pass
 
 
 class Account(db.Model):
@@ -156,8 +187,44 @@ class Session(db.Model):
     created_at = db.Column(db.BigInteger, nullable=False, default=lambda: int(time.time() * 1000))
 
 
+class Trust(db.Model):
+    """member hat mit eigenem Geraet und nachgewiesenem Konto an einer Runde
+    von owner teilgenommen. Nur dann darf owner ihn spaeter als Teilnehmer
+    einer gespeicherten Runde eintragen.
+
+    Vorher konnte jeder, der eine Konto-Nummer kannte, diesem Konto beliebige
+    Runden in den Verlauf setzen (Audit 22.11.2026) — die Teilnehmerliste kam
+    ungeprueft aus dem Rumpf. Mit dieser Beziehung bleibt erhalten, was gewollt
+    ist: die Runde, die der Vater fuer die Tochter eintraegt, erscheint auch bei
+    ihr — aber erst, nachdem sie einmal selbst bei ihm beigetreten ist.
+    """
+    __tablename__ = "trust"
+    id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.String, nullable=False, index=True)
+    member_id = db.Column(db.String, nullable=False, index=True)
+    created_at = db.Column(db.BigInteger, nullable=False, default=lambda: int(time.time() * 1000))
+    __table_args__ = (db.UniqueConstraint("owner_id", "member_id", name="uq_trust_pair"),)
+
+
+class Tombstone(db.Model):
+    """Ein geloeschtes Konto bleibt geloescht.
+
+    Ohne das legte ein zweites Geraet desselben Kontos — das von der Loeschung
+    nichts weiss — das Konto beim naechsten Speichern einfach wieder an, samt
+    Name, Foto und Crew. Gemerkt wird nur der Abdruck der Nummer, nichts
+    Persoenliches.
+    """
+    __tablename__ = "tombstone"
+    id_hash = db.Column(db.String, primary_key=True)
+    created_at = db.Column(db.BigInteger, nullable=False, default=lambda: int(time.time() * 1000))
+
+
+def _is_deleted(account_id):
+    return db.session.get(Tombstone, _hash_secret("konto:" + str(account_id))) is not None
+
+
 class Feedback(db.Model):
-    """Player feedback. Read via the private inbox: /fb/<FEEDBACK_KEY> sets a
+    """Player feedback. Read via the private inbox: /fb#<FEEDBACK_KEY> sets a
     session, then GET /fb/daten. Never a key in the query string."""
     __tablename__ = "feedback"
     id = db.Column(db.Integer, primary_key=True)
@@ -185,15 +252,30 @@ class Feedback(db.Model):
 # Zeichen, groesstes Foto 23'799, hoechster Schlag 19) und grosszuegig gesetzt.
 MAX_NAME = 60
 MAX_VENUE = 120
-MAX_AVATAR = 150_000      # Zeichen der data-URL; das groesste echte Foto: 23'799
-MAX_PLAYERS = 40          # pro Runde; bisheriges Maximum: 5
-MAX_CREW = 60             # pro Konto; bisheriges Maximum: 4
-MAX_HOLE = 99
+# Das Audit vom 22.11.2026 hat gezeigt, wie teuer grosszuegige Grenzen sind:
+# mit 150'000 Zeichen pro "Foto" passten 13 davon in eine Runde von 1,95 MB,
+# 40 solche Runden liessen sich in einer Sekunde ablegen, und ein einziger
+# Abruf des Verlaufs trieb den Arbeitsspeicher von 107 auf 318 MB.
+MAX_AVATAR = 40_000       # Zeichen der data-URL; das groesste echte Foto: 23'799
+MAX_PLAYERS = 16          # pro Runde; bisheriges Maximum: 5
+MAX_CREW = 30             # pro Konto; bisheriges Maximum: 4
+MAX_GAMES = 300           # gespeicherte Runden pro Konto
+MAX_GAMES_LISTED = 100    # so viele liefert der Verlauf hoechstens aus (die juengsten)
+LIST_PHOTO_BUDGET = 1_500_000   # Zeichen Foto pro Verlaufs-Abruf; danach Initialen
+ACCOUNTS_PER_LOOKUP = 25  # Sammelabfrage der Fotos
+MAX_SESSION_BYTES = 400_000   # eine Live-Runde samt Fotos; die groesste echte: 47'194
+SESSION_DAYS = 14         # danach wird eine Live-Runde geloescht
+MAX_HOLE = 54             # die groesste Anlage im Verzeichnis hat 36 Bahnen
 MAX_STROKES = 99
-_ID_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,80}$")
-_HEX_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+# \Z statt $: "$" laesst einen Zeilenumbruch am Ende durch.
+_ID_RE = re.compile(r"[A-Za-z0-9_.\-]{1,80}\Z")
+_HEX_RE = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\Z")
 # Nur ein eingebettetes Bild. Keine http-Adresse, kein SVG (kann Skript tragen).
-_AVATAR_RE = re.compile(r"^data:image/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$")
+_AVATAR_RE = re.compile(r"data:image/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})\Z")
+# Einsame Ersatzzeichen (halbe UTF-16-Paare) lassen sich nicht als UTF-8
+# schreiben: eines davon in einem Crew-Namen hat das Dashboard lahmgelegt.
+_SURROGATES = re.compile("[\ud800-\udfff]")
+_MAGIC = {"jpeg": (b"\xff\xd8\xff",), "png": (b"\x89PNG\r\n\x1a\n",), "webp": (b"RIFF",)}
 
 
 def _body():
@@ -207,7 +289,7 @@ def _text(v, limit):
     """Text, sonst leer. NUL-Zeichen raus — PostgreSQL lehnt sie ab."""
     if not isinstance(v, str):
         return ""
-    return v.replace("\x00", "")[:limit]
+    return _SURROGATES.sub("", v.replace("\x00", ""))[:limit]
 
 
 def _ident(v):
@@ -217,7 +299,7 @@ def _ident(v):
         return None
     if isinstance(v, (int, float)):
         return v if v == v and abs(v) < 1e16 else None   # v == v schliesst NaN aus
-    if isinstance(v, str) and 0 < len(v) <= 80 and "\x00" not in v:
+    if isinstance(v, str) and 0 < len(v) <= 80 and "\x00" not in v and not _SURROGATES.search(v):
         return v
     return None
 
@@ -232,9 +314,23 @@ def _color(v):
 
 
 def _avatar(v):
+    """Ein eingebettetes Bild — und zwar wirklich eines.
+
+    Das Zeichenmuster allein genuegte nicht: 150'000 Buchstaben "A" galten als
+    Foto. Jetzt muessen die ersten Bytes die Kennung des angegebenen Formats
+    tragen. Das macht aus der Pruefung keinen Bildbetrachter, aber aus dem
+    Fotofeld auch keinen freien Datenspeicher mehr.
+    """
     if not isinstance(v, str) or not v or len(v) > MAX_AVATAR:
         return ""
-    return v if _AVATAR_RE.match(v) else ""
+    m = _AVATAR_RE.match(v)
+    if not m:
+        return ""
+    try:
+        head = base64.b64decode(m.group(2)[:24] + "=" * (-len(m.group(2)[:24]) % 4))
+    except Exception:
+        return ""
+    return v if any(head.startswith(sig) for sig in _MAGIC[m.group(1)]) else ""
 
 
 def _int(v, lo, hi):
@@ -243,7 +339,8 @@ def _int(v, lo, hi):
         return None
     if isinstance(v, float) and v.is_integer():
         v = int(v)
-    if isinstance(v, str) and v.isdigit() and len(v) <= 4:
+    # isascii(): "²" besteht isdigit(), laesst int() aber scheitern.
+    if isinstance(v, str) and v.isascii() and v.isdigit() and len(v) <= 4:
         v = int(v)
     if isinstance(v, int) and lo <= v <= hi:
         return v
@@ -415,7 +512,11 @@ def account_to_dict(acc):
     return dict(account_public(acc), crew=_crew(crew), created=acc.created_at)
 
 
-def session_to_dict(s):
+def session_to_dict(s, full=False):
+    """full=False laesst die Fotos weg. Der Abgleich laeuft alle drei Sekunden
+    auf jedem Geraet; mit Fotos waren das bei fuenf Spielern rund 60 KB pro
+    Abruf, also ueber 70 MB mobile Daten in einer Stunde. Das Frontend holt die
+    Fotos beim Beitreten und danach nur noch gelegentlich (?full=1)."""
     try:
         payload = json.loads(s.data or "{}")
     except (ValueError, TypeError):
@@ -439,7 +540,7 @@ def session_to_dict(s):
             "host": bool(p.get("host")),
             # Avatars travel with the round so every device shows each player's
             # current photo (a joiner pushes their own on claim). ~10 KB each.
-            "avatar": _avatar(p.get("avatar")),
+            "avatar": _avatar(p.get("avatar")) if full else "",
             "account_id": _account_ref(p.get("account_id")),
         })
     return {
@@ -448,13 +549,19 @@ def session_to_dict(s):
         "venue": s.venue,
         "rev": s.rev,
         "finished": bool(payload.get("finished", False)),  # host pressed "Spiel beenden"
+        "holes": _int(payload.get("holes"), 1, MAX_HOLE),
         "players": players,
     }
 
 
-def game_to_dict(game):
+def game_to_dict(game, viewer=None):
+    """Eine einzelne Runde (nach dem Speichern). Der Verlauf baut seine Liste
+    in list_games() selbst — schlank, ohne ORM-Objekte fuer jeden Schlag."""
     return {
         "id": game.id,
+        # Gehoert die Runde dem, der sie gerade ansieht? Ein Teilnehmer darf
+        # Schlaege korrigieren und sich austragen, mehr nicht.
+        "mine": viewer is None or str(game.account_id) == str(viewer),
         "date": game.date,
         "venue": game.venue,
         "mode": game.mode,
@@ -493,93 +600,347 @@ def game_to_dict(game):
 # Im Arbeitsspeicher, also pro Prozess. gunicorn laeuft hier mit einem Worker.
 # Abschalten ohne Deploy: Umgebungsvariable RATE_LIMIT=off.
 RATE_OFF = (os.environ.get("RATE_LIMIT") or "").strip().lower() in ("off", "0", "false", "aus")
-RATE_RULES = {                 # Eimer: (hoechstens, in Sekunden)
-    "session": (30, 600),      # neue Live-Runden
-    "account": (30, 600),      # NEUE Konten (Aendern zaehlt nicht)
-    "feedback": (10, 600),
-    "write": (1500, 600),      # alle Schreibzugriffe zusammen
+
+# ── Wie die Bremse denkt ──────────────────────────────────────────────────
+# Die erste Fassung zaehlte nur nach ADRESSE. Das zweite Audit hat gezeigt, was
+# das auf einer Minigolf-Anlage heisst: dort teilen sich alle ein WLAN, also
+# eine Adresse — und ein einziges Geraet, das Unfug treibt, sperrte alle
+# anderen fuer zehn Minuten aus.
+#
+# Jetzt in zwei Stufen:
+#   1. Jede Adresse hat ein grosszuegiges Kontingent. Solange es reicht, wird
+#      nicht weiter gefragt.
+#   2. Ist es aufgebraucht, zaehlt ein NACHWEIS: wer den Gastgeber- oder
+#      Platz-Schluessel der Runde oder den Zugang zu einem Konto vorlegt,
+#      bekommt ein eigenes Kontingent. Wer nichts vorlegt, wartet.
+# Wer in seiner Runde sitzt, spielt also weiter, egal was nebenan passiert.
+#
+# Was das NICHT ist: ein Schutz gegen einen verteilten Angriff aus vielen
+# Netzen. Den faengt Cloudflare vor dem Server ab — oder niemand.
+RULES = {                              # Eimer: (hoechstens, in Sekunden)
+    "write_ip": (4000, 600),           # Schreibzugriffe je Adresse
+    "write_key": (1500, 600),          # ... je Nachweis, wenn die Adresse voll ist
+    "read_ip": (15000, 600),           # Lesezugriffe auf /api/ je Adresse (25/s)
+    "session_ip": (30, 600),           # neue Live-Runden je Adresse
+    "session_ip_day": (300, 86400),
+    "session_key": (10, 600),          # ... je Konto, wenn die Adresse voll ist
+    "account_ip": (40, 600),           # NEUE Konten je Adresse (Aendern zaehlt nicht)
+    "feedback_ip": (10, 600),
+    "list_key": (60, 600),             # Verlauf je Konto
+    # Bytes statt Anfragen — nur fuer Anfragen ueber BIG_BODY. Schlaege und
+    # anderes Kleines bremst das nie.
+    "bytes_ip": (25 * 1024 * 1024, 600),
+    "bytes_ip_day": (100 * 1024 * 1024, 86400),
+    "bytes_key": (10 * 1024 * 1024, 600),
+    "bytes_key_day": (30 * 1024 * 1024, 86400),
+    "bytes_all": (400 * 1024 * 1024, 3600),   # alle zusammen
 }
-_RATE = {}
+BIG_BODY = 4096
+WIDE_FACTOR = 5        # ein IPv6-/48 (ein Anschluss mit vielen /64) bekommt das Fuenffache
+_BUCKETS = {}
+_RATE_LOCK = threading.Lock()   # gunicorn laeuft mit Threads
+
+
+def _ip_keys():
+    """Die Eimer-Schluessel dieses Absenders: [(schluessel, faktor)].
+
+    IPv6 wird als Zahl gelesen, nicht als Text zerlegt: '2001:db8::5:1' und
+    '2001:db8:0:0:5::1' sind dieselbe Adresse, und ein Anschluss hat ein ganzes
+    /64 (oft ein /56 oder /48) — sonst waere jede der Adressen darin ein
+    eigener Eimer.
+    """
+    raw = (request.headers.get("CF-Connecting-IP") or "").strip()
+    if not raw:
+        if request.headers.get("X-Forwarded-For"):
+            return []          # hinter einem Proxy, aber ohne verlaessliche Angabe
+        raw = request.remote_addr or ""   # direkt angesprochen (lokale Entwicklung)
+    try:
+        ip = ipaddress.ip_address(raw)
+    except ValueError:
+        return []
+    if ip.version == 6:
+        if ip.ipv4_mapped is not None:
+            return [(str(ip.ipv4_mapped), 1)]
+        n = int(ip)
+        return [("6:%x" % (n >> 64), 1), ("6w:%x" % (n >> 80), WIDE_FACTOR)]
+    return [(str(ip), 1)]
 
 
 def _client_ip():
-    ip = (request.headers.get("CF-Connecting-IP") or "").strip()
-    if ip:
-        return ip[:64]
-    if request.headers.get("X-Forwarded-For"):
-        return None            # hinter einem Proxy, aber ohne verlaessliche Angabe
-    return request.remote_addr  # direkt angesprochen (lokale Entwicklung)
+    k = _ip_keys()
+    return k[0][0] if k else None
 
 
-def _rate_ok(bucket):
+def _prune(now):
+    """Nie unbegrenzt wachsen. Erst Abgelaufenes raus; reicht das nicht, alles —
+    lieber kurz gar nicht bremsen als den Speicher volllaufen lassen."""
+    if len(_BUCKETS) <= 20000:
+        return
+    for k in [k for k, v in _BUCKETS.items() if not v or v[-1][0] <= now - 86400]:
+        _BUCKETS.pop(k, None)
+    if len(_BUCKETS) > 50000:
+        _BUCKETS.clear()
+
+
+def _room(key, limit, window, amount, now):
+    q = _BUCKETS.get(key)
+    if q is None:
+        return amount <= limit
+    while q and q[0][0] <= now - window:
+        q.popleft()
+    return sum(a for _, a in q) + amount <= limit
+
+
+def _book(key, amount, now):
+    q = _BUCKETS.get(key)
+    if q is None:
+        _prune(now)
+        q = _BUCKETS[key] = collections.deque()
+    # Viele kleine Buchungen derselben Sekunde zusammenfassen — sonst waechst
+    # die Schlange eines Tages-Eimers mit jeder Anfrage.
+    if q and now - q[-1][0] < 1.0:
+        q[-1] = (q[-1][0], q[-1][1] + amount)
+    else:
+        q.append((now, amount))
+
+
+def _take_all(keys, amount=1):
+    """keys: [(schluessel, limit, fenster)]. Passt 'amount' in ALLE? Dann in
+    allen verbuchen — sonst in keinem."""
+    now = time.time()
+    with _RATE_LOCK:
+        for key, limit, window in keys:
+            if not _room(key, limit, window, amount, now):
+                return False
+        for key, _limit, _window in keys:
+            _book(key, amount, now)
+        return True
+
+
+def _take_ip(*rules, amount=1):
+    """Kontingent der Adresse. Ohne erkennbare Adresse wird nicht gebremst."""
     if RATE_OFF:
         return True
-    ip = _client_ip()
-    if not ip:
+    keys = []
+    for ipk, factor in _ip_keys():
+        for rule in rules:
+            limit, window = RULES[rule]
+            keys.append(((rule, ipk), limit * factor, window))
+    return _take_all(keys, amount) if keys else True
+
+
+def _take_key(*rules, amount=1):
+    """Kontingent eines Nachweises. Letztes Argument der rules ist der Nachweis."""
+    *names, proof = rules
+    if RATE_OFF:
         return True
-    limit, window = RATE_RULES[bucket]
+    return _take_all([((r, proof), RULES[r][0], RULES[r][1]) for r in names], amount)
+
+
+def _proof():
+    """Was weist diese Anfrage nach? Ein kurzer Abdruck — oder ''.
+
+    Wird nur gefragt, wenn das Kontingent der Adresse aufgebraucht ist; dann
+    kostet es einen Blick in die Datenbank. Gilt:
+      - der Gastgeber- oder ein Platz-Schluessel genau DIESER Runde
+      - der Zugang zu einem Konto
+    """
+    if hasattr(g, "plonky_proof"):
+        return g.plonky_proof
+    proof = ""
+    try:
+        parts = request.path.split("/")
+        if request.path.startswith("/api/session/") and len(parts) > 3:
+            sess = db.session.get(Session, parts[3].upper())
+            if sess is not None:
+                roh = json.loads(sess.data or "{}")
+                if isinstance(roh, dict):
+                    hk, sk = _round_key(HOST_HEADER), _round_key(SLOT_HEADER)
+                    if hk and roh.get("host_hash") and hmac.compare_digest(str(roh.get("host_hash")), _hash_secret(hk)):
+                        proof = "h:" + _hash_secret(hk)[:24]
+                    elif sk:
+                        kh = _hash_secret(sk)
+                        if any(isinstance(x, dict) and x.get("key_hash") == kh for x in (roh.get("players") or [])):
+                            proof = "s:" + kh[:24]
+        if not proof:
+            acc = _caller()
+            if acc is not None:
+                proof = "a:" + str(acc.id)
+    except Exception:
+        proof = ""
+    finally:
+        db.session.rollback()      # nichts festhalten; die Route liest selbst neu
+    g.plonky_proof = proof
+    return proof
+
+
+# ── Notbremse fuer die Datenbank ──────────────────────────────────────────
+# Alles oben bremst, wie SCHNELL jemand etwas ablegen kann. Das hier begrenzt,
+# wie VIEL insgesamt liegen darf: ist die Datenbank groesser als die Schwelle,
+# nimmt die App keine grossen Anfragen (Fotos, ganze Runden) mehr an. Schlaege
+# gehen weiter. Schwelle ueber die Umgebungsvariable DB_SOFT_LIMIT_MB.
+DB_SOFT_LIMIT_MB = int(os.environ.get("DB_SOFT_LIMIT_MB") or 600)
+_DB_SIZE = {"t": 0.0, "mb": 0.0, "warned": 0.0}
+
+
+def _db_mb():
     now = time.time()
-    q = _RATE.get((bucket, ip))
-    if q is None:
-        if len(_RATE) > 20000:  # nie unbegrenzt wachsen: Abgelaufenes wegraeumen
-            for k in [k for k, v in _RATE.items() if not v or v[-1] <= now - 600]:
-                _RATE.pop(k, None)
-        q = _RATE[(bucket, ip)] = collections.deque()
-    while q and q[0] <= now - window:
-        q.popleft()
-    if len(q) >= limit:
-        return False
-    q.append(now)
-    return True
+    if now - _DB_SIZE["t"] > 120:
+        _DB_SIZE["t"] = now
+        try:
+            if db.engine.dialect.name == "postgresql":
+                from sqlalchemy import text
+                n = db.session.execute(text("select pg_database_size(current_database())")).scalar()
+                _DB_SIZE["mb"] = float(n or 0) / 1048576.0
+        except Exception:
+            pass
+        finally:
+            db.session.rollback()
+        if _DB_SIZE["mb"] > DB_SOFT_LIMIT_MB * 0.6 and now - _DB_SIZE["warned"] > 6 * 3600:
+            _DB_SIZE["warned"] = now
+            notify("⚠️ plonky-Datenbank: %d MB von %d MB" % (_DB_SIZE["mb"], DB_SOFT_LIMIT_MB))
+    return _DB_SIZE["mb"]
 
 
-# Groessengrenze je Route. Die allgemeine (2 MB) bleibt die Obergrenze; hier
-# wird enger gezogen, wo nie so viel anfaellt. Gemessen an den echten Daten:
-# die groesste Runde hatte 47 KB, ein Schlag ist ein paar Bytes.
+# ── Eins nach dem anderen ─────────────────────────────────────────────────
+# "Gibt es das schon? Nein — dann anlegen" ist mit Threads ein Wettlauf: zwei
+# gleichzeitige Anfragen sehen beide "nein". Ein Satz Sperren, nach Schluessel
+# verteilt; immer in derselben Reihenfolge genommen, damit sich nie zwei
+# gegenseitig blockieren. Reicht, solange EIN Prozess laeuft (gunicorn.conf.py:
+# workers = 1). Dahinter faengt die Datenbank selbst den Rest ab (eindeutige
+# Schluessel, siehe _db_conflict).
+_STRIPES = [threading.Lock() for _ in range(64)]
+
+
+@contextlib.contextmanager
+def _serial(*keys):
+    idx = sorted({zlib.crc32(str(k).encode()) % len(_STRIPES) for k in keys if k})
+    for i in idx:
+        _STRIPES[i].acquire()
+    try:
+        yield
+    finally:
+        for i in reversed(idx):
+            _STRIPES[i].release()
+
+
+# Groessengrenze je Route. Gemessen an den echten Daten vom Sommer: die groesste
+# Runde hatte 47 KB, ein Schlag ist ein paar Bytes. Die allgemeine Grenze (2 MB)
+# gilt nur noch dort, wo keine engere steht.
 _SMALL = 8 * 1024
 BODY_CAPS = (
     ("/api/feedback", 20 * 1024),
     ("/api/account/resolve", _SMALL),
-    ("/api/session", 800 * 1024),   # Anlegen und Spielerliste: Gaeste mit Foto
+    ("/api/account/rotate", _SMALL),
+    ("/api/account", 400 * 1024),   # Profil samt Crew mit Fotos
+    ("/api/games", 400 * 1024),     # eine gespeicherte Runde
+    ("/api/session", 400 * 1024),   # Anlegen und Spielerliste
+    ("/admin", _SMALL),
+    ("/fb", _SMALL),
 )
+# Was im Pfad als Kennung stehen darf. Ein NUL-Zeichen dort endete auf
+# PostgreSQL in einem 500.
+_PATH_ID_RE = re.compile(r"[A-Za-z0-9_.~\-]{1,200}\Z")
+
+
+def _too_many(text="zu viele Anfragen"):
+    resp = jsonify({"error": text})
+    resp.status_code = 429
+    resp.headers["Retry-After"] = "600"
+    return resp
+
+
+def _body_cap(path):
+    if path.startswith("/api/session/") and path.rsplit("/", 1)[-1] in ("score", "leave", "finish"):
+        return _SMALL
+    if path.startswith("/api/session/") and path.endswith("/claim"):
+        return 60 * 1024            # traegt hoechstens ein Foto
+    if path.startswith("/api/games/"):
+        return _SMALL
+    for prefix, c in BODY_CAPS:
+        if path.startswith(prefix):
+            return c
+    return app.config["MAX_CONTENT_LENGTH"]
 
 
 @app.before_request
-def guard_writes():
-    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+def guard_requests():
+    # Nur was eine echte Route trifft, zaehlt. Im Audit reichten 1500 Anfragen
+    # an eine Adresse, die es gar nicht gibt, um einem ganzen WLAN das
+    # Eintragen von Schlaegen zu sperren.
+    if request.url_rule is None:
         return None
     path = request.path
-    cap = None
-    if path.startswith("/api/session/") and path.rsplit("/", 1)[-1] in ("score", "leave", "finish"):
-        cap = _SMALL
-    elif path.startswith("/api/session/") and path.endswith("/claim"):
-        cap = 200 * 1024           # traegt hoechstens ein Foto
-    else:
-        for prefix, c in BODY_CAPS:
-            if path.startswith(prefix):
-                cap = c
-                break
-    if cap is not None:
-        try:
-            request.max_content_length = cap   # pro Anfrage setzbar seit Flask 3.1
-        except AttributeError:
-            pass
-    bucket = "session" if path == "/api/session" else "feedback" if path == "/api/feedback" else None
-    if not _rate_ok("write") or (bucket and not _rate_ok(bucket)):
-        resp = jsonify({"error": "zu viele Anfragen"})
-        resp.status_code = 429
-        resp.headers["Retry-After"] = "600"
-        return resp
+    # Kennungen im Pfad (Konto, Runde, Spiel): nur harmlose Zeichen. Die
+    # App-Seite selbst und die Dateien haben eigene Regeln.
+    if request.endpoint not in ("index", "static_files"):
+        for v in (request.view_args or {}).values():
+            if not _PATH_ID_RE.match(str(v)):
+                abort(404)
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+        if path.startswith("/api/") and not _take_ip("read_ip"):
+            return _too_many()
+        return None
+
+    cap = _body_cap(path)
+    try:
+        request.max_content_length = cap   # pro Anfrage setzbar seit Flask 3.1
+    except AttributeError:
+        pass
+    # Eine ANGEKUENDIGTE Laenge ueber der Grenze: sofort ablehnen, nichts
+    # verbuchen. Im Audit reichten 113 Anfragen, die 25 MB bloss ankuendigten
+    # und nichts schickten, um allen das Schreiben fuer eine Stunde zu sperren.
+    if (request.content_length or 0) > cap:
+        abort(413)
+    # Gezaehlt wird, was wirklich ANKAM. (Wirft selbst 413, wenn ein Rumpf ohne
+    # Laengenangabe die Grenze ueberschreitet.)
+    n = len(request.get_data(cache=True))
+    if RATE_OFF:
+        return None
+
+    # Stufe 1: die Adresse. Stufe 2: der Nachweis.
+    if not _take_ip("write_ip"):
+        if not _proof() or not _take_key("write_key", _proof()):
+            return _too_many()
+    if n > BIG_BODY:
+        if not _take_ip("bytes_ip", "bytes_ip_day", amount=n):
+            if not _proof() or not _take_key("bytes_key", "bytes_key_day", _proof(), amount=n):
+                return _too_many()
+        if not _take_key("bytes_all", "*", amount=n):
+            return _too_many()
+        if _db_mb() > DB_SOFT_LIMIT_MB:
+            return _too_many("Speicher voll")
     return None
+
+
+def _db_conflict(e):
+    """Zwei Anfragen wollten gleichzeitig dasselbe anlegen und die Datenbank
+    hat die zweite abgewiesen: das ist ein Konflikt (409), kein Serverfehler."""
+    db.session.rollback()
+    resp = jsonify({"error": "conflict"})
+    resp.status_code = 409
+    return resp
+
+
+def _db_bad_value(e):
+    db.session.rollback()
+    resp = jsonify({"error": "bad request"})
+    resp.status_code = 400
+    return resp
+
+
+def _register_db_errors():
+    from sqlalchemy.exc import DataError, IntegrityError
+    app.register_error_handler(IntegrityError, _db_conflict)
+    app.register_error_handler(DataError, _db_bad_value)
+
+
+_register_db_errors()
 
 
 # ── Sicherheits-Header für jede Antwort ──────────────────────────────────────
 # Die Website plonky.ch hat solche Header seit Langem in ihrer .htaccess, die App
 # hatte bis 22.11.2026 keinen einzigen. Nachgezogen.
-#
-# Bewusst NICHT dabei: Strict-Transport-Security. Das merken Browser sich über
-# Monate und lässt sich kaum zurücknehmen — eine solche Einbahnstrasse gehört
-# nicht in einen Nebenschritt. Separat entscheiden.
 @app.after_request
 def security_headers(resp):
     # setdefault: eine Route, die es bewusst anders will, behält ihren Wert.
@@ -589,6 +950,12 @@ def security_headers(resp):
     # Admin-Seite keinen einzigen externen Link — kommt je einer dazu, würde
     # sonst der Schlüssel in der Adresszeile mitgeschickt.
     resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    # Alles ausser der App-Seite selbst (die setzt ihre eigene, mit Nonce):
+    # nichts laden, nichts ausfuehren. Greift, wenn jemand eine JSON-Antwort
+    # oder ein SVG direkt als Seite oeffnet.
+    resp.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+    if request.path.startswith("/api/"):
+        resp.headers.setdefault("Cache-Control", "no-store")
 
     # HSTS: der Browser merkt sich, dass es diese Adresse NUR verschluesselt
     # gibt — und ruft sie kuenftig gar nicht erst unverschluesselt auf. Das
@@ -643,7 +1010,11 @@ def _ticket_ok(secret, ticket):
     if not secret or not ticket or "." not in ticket:
         return False
     exp_s, _, sig = ticket.partition(".")
-    if not exp_s.isdigit() or int(exp_s) < time.time():
+    # Streng lesen: ein Umlaut in der Signatur oder 5000 Ziffern als Ablaufzeit
+    # haben frueher einen Absturz (500) ausgeloest statt einer Abweisung.
+    if not re.fullmatch(r"[0-9]{1,12}", exp_s) or not re.fullmatch(r"[0-9a-f]{64}", sig):
+        return False
+    if int(exp_s) < time.time():
         return False
     # compare_digest, damit die Antwortzeit nicht verrät, wie weit eine
     # gefälschte Signatur gestimmt hat.
@@ -689,18 +1060,79 @@ def list_games():
     # mitgespielt hat. Den Verlauf oeffnet nur das Geheimnis — und es muss zu
     # genau diesem Konto gehoeren.
     _require_caller(account_id)
+    if not RATE_OFF and not _take_key("list_key", "a:" + str(account_id)):
+        return _too_many()
     # games this account OWNS, plus games it TOOK PART in (one shared record)
     ids = {gid for (gid,) in db.session.query(Game.id).filter_by(account_id=account_id).all()}
     ids |= {gid for (gid,) in db.session.query(GameParticipant.game_id).filter_by(account_id=account_id).all()}
     if not ids:
         return jsonify([])
-    games = Game.query.filter(Game.id.in_(ids)).order_by(Game.date.desc().nullslast()).all()
-    return jsonify([game_to_dict(g) for g in games])
+    # Der Verlauf ist der teuerste Abruf der App. Im ersten Audit lieferte er
+    # 78 MB; im zweiten trieben 300 Runden mit je 16 Spielern und 99 Bahnen den
+    # Arbeitsspeicher auf 1,4 GB — jeder Schlag war ein eigenes ORM-Objekt.
+    # Deshalb: nur die 100 juengsten Runden, Schlaege als blanke Zeilen, Fotos
+    # nur bis zu einem Budget, und hoechstens drei solche Abrufe gleichzeitig.
+    if not _LIST_SLOTS.acquire(timeout=8):
+        return _too_many()
+    try:
+        games = (db.session.query(Game.id, Game.account_id, Game.date, Game.venue, Game.mode, Game.code)
+                 .filter(Game.id.in_(ids)).order_by(Game.date.desc().nullslast()).limit(MAX_GAMES_LISTED).all())
+        gids = [g_.id for g_ in games]
+        players = (db.session.query(Player.id, Player.game_id, Player.ext_id, Player.account_id, Player.name,
+                                    Player.color, db.func.length(Player.avatar))
+                   .filter(Player.game_id.in_(gids)).order_by(Player.id).all())
+        pids = [p_[0] for p_ in players]
+        scores = {}
+        for i in range(0, len(pids), 500):
+            for pid, hole, strokes in (db.session.query(Score.player_id, Score.hole, Score.strokes)
+                                       .filter(Score.player_id.in_(pids[i:i + 500])).all()):
+                scores.setdefault(pid, {})[str(hole)] = strokes
+        parts = {}
+        for gid, aid in db.session.query(GameParticipant.game_id, GameParticipant.account_id).filter(GameParticipant.game_id.in_(gids)).all():
+            parts.setdefault(gid, []).append(aid)
+        # Fotos: juengste Runden zuerst, bis das Budget aufgebraucht ist.
+        rang = {gid: i for i, gid in enumerate(gids)}
+        budget = LIST_PHOTO_BUDGET
+        mit_foto = []
+        for p_ in sorted(players, key=lambda x: rang.get(x[1], 0)):
+            n = p_[6] or 0
+            if 0 < n <= MAX_AVATAR and n <= budget:
+                budget -= n
+                mit_foto.append(p_[0])
+        fotos = {}
+        for i in range(0, len(mit_foto), 200):
+            for pid, av in db.session.query(Player.id, Player.avatar).filter(Player.id.in_(mit_foto[i:i + 200])).all():
+                fotos[pid] = _avatar(av)
+        by_game = {}
+        for pid, gid, ext_id, pacc, name, color, _n in players:
+            by_game.setdefault(gid, []).append({
+                "id": ext_id or pid, "account_id": pacc, "name": _text(name, MAX_NAME),
+                "color": _color(color), "avatar": fotos.get(pid, ""), "scores": scores.get(pid, {}),
+            })
+        return jsonify([{
+            "id": g_.id, "mine": str(g_.account_id) == str(account_id), "date": g_.date, "venue": g_.venue,
+            "mode": g_.mode, "code": g_.code or "", "participants": parts.get(g_.id, []),
+            "players": by_game.get(g_.id, []),
+        } for g_ in games])
+    finally:
+        _LIST_SLOTS.release()
+
+
+_LIST_SLOTS = threading.BoundedSemaphore(3)
 
 
 @app.route("/api/games", methods=["POST"])
 def upsert_game():
+    # Eins nach dem anderen je Zugang und je Runde. Das Frontend schickt fuer ein
+    # frisches Geraet Konto und erste Runde fast gleichzeitig; ohne diese Sperre
+    # legten beide das Konto an, einer scheiterte mit 500, und die erste Runde
+    # oder der Name fehlten danach (Audit: in 29 von 30 Versuchen).
     data = _body()
+    with _serial("s:" + str(_hash_secret(_given_secret())), "g:" + str(_account_ref(data.get("id")))):
+        return _upsert_game(data)
+
+
+def _upsert_game(data):
     game_id = _account_ref(data.get("id"))
     if not game_id:
         abort(400, "missing game id")
@@ -723,9 +1155,11 @@ def upsert_game():
         # es von Anfang an gebunden, und die erste Runde geht nicht verloren.
         if not account_id or db.session.get(Account, account_id) is not None:
             abort(403)
+        if _is_deleted(account_id):
+            abort(410)
         if not _secret_usable(secret):
             abort(400, "secret too short")
-        if not _rate_ok("account"):
+        if not _take_ip("account_ip"):
             abort(429)
         rufer = Account(id=account_id)
         rufer.secret_hash = _hash_secret(secret)
@@ -738,10 +1172,16 @@ def upsert_game():
 
     game = db.session.get(Game, game_id)
     ist_besitzer = True
+    bisherige = set()
     if game is None:
+        # Obergrenze je Konto — ohne sie liess sich die Datenbank ueber ein
+        # einziges Konto fuellen.
+        if Game.query.filter_by(account_id=account_id).count() >= MAX_GAMES:
+            abort(409)
         game = Game(id=game_id)
         db.session.add(game)
     else:
+        bisherige = {gp.account_id for gp in game.participants}
         # Die Runde gibt es schon. Bis 22.11.2026 durfte sie JEDER überschreiben,
         # der die ID kannte — samt Besitzerwechsel. Die IDs waren zudem blosse
         # Zeitstempel, und die Detailansicht zeigt die Uhrzeit auf die Minute.
@@ -759,6 +1199,20 @@ def upsert_game():
         if game.account_id:
             ist_besitzer = str(game.account_id) == str(rufer.id)
             account_id = game.account_id
+
+    if not ist_besitzer:
+        # Ein Mitspieler korrigiert SCHLAEGE — sonst nichts. Im Audit schrieb
+        # ein Teilnehmer die ganze Runde um: Anlage, Datum, Spielerliste, alles.
+        neu = {str(_ident(pd.get("id"))): _scores(pd.get("scores"))
+               for pd in _dicts(data.get("players"))[:MAX_PLAYERS] if _ident(pd.get("id")) is not None}
+        for pl in game.players:
+            if pl.ext_id in neu:
+                pl.scores.clear()
+                db.session.flush()
+                for hole, strokes in neu[pl.ext_id].items():
+                    pl.scores.append(Score(hole=int(hole), strokes=strokes))
+        db.session.commit()
+        return jsonify(game_to_dict(game, viewer=rufer.id))
 
     game.account_id = account_id
     game.date = _int(data.get("date"), 0, 10**14)
@@ -791,18 +1245,61 @@ def upsert_game():
     # ersetzen — nachgestellt: B speicherte die geteilte Runde mit gekuerzter
     # Liste, und C sah sie danach nicht mehr. Ein Mitspieler korrigiert
     # Schlaege; wer dabei war, entscheidet er nicht.
-    if ist_besitzer and isinstance(data.get("participants"), list):
+    #
+    # Und nur Konten, die sich SELBST ausgewiesen haben: im Audit setzte ein
+    # Fremder einem Konto, dessen Nummer er kannte, erfundene Runden in den
+    # Verlauf. Als Teilnehmer gilt jetzt, wer
+    #   - in dieser Live-Runde einen Platz mit Kontonachweis belegt hat, oder
+    #   - frueher schon einmal selbst bei diesem Besitzer beigetreten ist, oder
+    #   - an dieser gespeicherten Runde bereits beteiligt war.
+    if isinstance(data.get("participants"), list):
+        erwiesen = set()
+        if game.code:
+            live = db.session.get(Session, game.code.upper())
+            if live is not None:
+                try:
+                    roh = json.loads(live.data or "{}")
+                except (ValueError, TypeError):
+                    roh = {}
+                dort = set()
+                for sp in _dicts(roh.get("players") if isinstance(roh, dict) else None):
+                    if sp.get("verified") and _account_ref(sp.get("account_id")):
+                        dort.add(sp.get("account_id"))
+                # Nur wer in dieser Runde SELBST nachweislich dabei war, darf
+                # sich auf sie berufen. Sonst genuegte ein fremder Runden-Code,
+                # um deren Teilnehmern eine erfundene Runde unterzuschieben.
+                # ... und zwar als GASTGEBER. Im zweiten Audit trat ein Fremder
+                # als Gast bei, speicherte eine erfundene Runde mit allen
+                # Mitspielern als Teilnehmer — und durfte das danach fuer immer.
+                # Und nur eine Runde MIT Gastgeber-Schluessel zaehlt: in einer
+                # ohne kann jeder jede Nummer an jeden Platz schreiben.
+                if isinstance(roh, dict) and roh.get("host_hash") and roh.get("host_account") == account_id:
+                    erwiesen = dort
+        for m in erwiesen:
+            _remember_trust(account_id, m)
+        vertraut = {t.member_id for t in Trust.query.filter_by(owner_id=account_id).all()}
+        erlaubte = erwiesen | vertraut | bisherige
         game.participants.clear()
         db.session.flush()
         gesehen = set()
         for raw in data.get("participants")[:MAX_PLAYERS]:
             pid = _account_ref(raw)
-            if pid and pid != account_id and pid not in gesehen:
+            if pid and pid != account_id and pid not in gesehen and pid in erlaubte:
                 gesehen.add(pid)
                 game.participants.append(GameParticipant(account_id=pid))
 
     db.session.commit()
-    return jsonify(game_to_dict(game))
+    return jsonify(game_to_dict(game, viewer=rufer.id))
+
+
+@app.route("/api/games/<game_id>/leave", methods=["POST"])
+def leave_game(game_id):
+    """Ein Teilnehmer nimmt eine Runde aus dem EIGENEN Verlauf. Die Runde selbst
+    bleibt beim Besitzer und den uebrigen Teilnehmern."""
+    rufer = _require_caller()
+    GameParticipant.query.filter_by(game_id=game_id, account_id=rufer.id).delete(synchronize_session=False)
+    db.session.commit()
+    return jsonify({"ok": True})
 
 
 # Hier stand bis 22.11.2026 DELETE /api/games/<id> — ohne jede Prüfung: wer die
@@ -850,7 +1347,8 @@ def get_accounts():
     """Batch photo lookup: ?ids=a,b,c -> [{id,name,color,avatar}]. The one place
     every avatar is resolved from — account id -> current photo."""
     raw = request.args.get("ids") or ""
-    ids = [i for i in (s.strip() for s in raw.split(",")) if i][:200]
+    # 25 statt 200: ohne Anmeldung abrufbar, und jede Antwort traegt Fotos.
+    ids = [i for i in (s.strip() for s in raw.split(",")) if _account_ref(i)][:ACCOUNTS_PER_LOOKUP]
     if not ids:
         return jsonify([])
     accs = Account.query.filter(Account.id.in_(ids)).all()
@@ -878,6 +1376,11 @@ def notify(text):
 
 @app.route("/api/account", methods=["POST"])
 def upsert_account():
+    with _serial("s:" + str(_hash_secret(_given_secret()))):
+        return _upsert_account()
+
+
+def _upsert_account():
     data = _body()
     account_id = _account_ref(data.get("id"))
     if not account_id:
@@ -893,6 +1396,8 @@ def upsert_account():
     acc = db.session.get(Account, account_id)
     is_new = acc is None
     if is_new:
+        if _is_deleted(account_id):
+            abort(410)                       # geloescht bleibt geloescht
         if not _secret_usable(secret):
             abort(400, "secret too short")
         # Ein Geheimnis gehoert zu genau EINEM Konto — der Aufrufer wird ja
@@ -900,7 +1405,7 @@ def upsert_account():
         # waeren nicht mehr auseinanderzuhalten.
         if _caller() is not None:
             abort(409)
-        if not _rate_ok("account"):
+        if not _take_ip("account_ip"):
             abort(429)
         acc = Account(id=account_id)
         acc.secret_hash = _hash_secret(secret)
@@ -928,13 +1433,67 @@ def upsert_account():
         acc.avatar = _avatar(data.get("avatar"))          # nur ein echtes Bild
     db.session.commit()
     if is_new and (acc.kind or "master") == "master":
-        notify("🆕 Neues plonky-Konto: " + (acc.name or "ohne Name"))
+        notify("🆕 Neues plonky-Konto")   # ohne Namen: der ginge sonst an einen Dritten
     return jsonify(account_to_dict(acc))
+
+
+@app.route("/api/account/rotate", methods=["POST"])
+def rotate_account_secret():
+    with _serial("s:" + str(_hash_secret(_given_secret()))):
+        return _rotate_account_secret()
+
+
+def _rotate_account_secret():
+    """Den Zugang erneuern: neues Geheimnis, das alte gilt sofort nicht mehr.
+
+    Der persoenliche Link IST der Zugang. Wer ihn einmal weitergegeben oder
+    fotografiert hat, konnte ihn bisher nie wieder entwerten.
+    """
+    acc = _require_caller()
+    neu = _text(_body().get("new_secret"), 200)
+    if not _secret_usable(neu):
+        abort(400, "secret too short")
+    if Account.query.filter_by(secret_hash=_hash_secret(neu)).first() is not None:
+        abort(409)
+    acc.secret_hash = _hash_secret(neu)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/account", methods=["DELETE"])
+def delete_account():
+    with _serial("s:" + str(_hash_secret(_given_secret()))):
+        return _delete_account()
+
+
+def _delete_account():
+    """Das eigene Konto loeschen — mit allem, was daran haengt.
+
+    Bisher ging das nur per Mail und von Hand. Geloescht werden das Konto samt
+    Foto und Crew, alle Runden, die ihm gehoeren (mit Spielern und Schlaegen),
+    seine Eintraege als Teilnehmer fremder Runden und die Vertrauens-
+    Beziehungen. In Runden ANDERER bleibt die Zeile mit dem Namen stehen —
+    das ist deren Spielstand —, aber ohne Verweis auf dieses Konto.
+    """
+    acc = _require_caller()
+    aid = acc.id
+    for g in Game.query.filter_by(account_id=aid).all():
+        db.session.delete(g)                 # nimmt Spieler, Schlaege, Teilnehmer mit
+    GameParticipant.query.filter_by(account_id=aid).delete(synchronize_session=False)
+    Player.query.filter_by(account_id=aid).update({"account_id": None, "avatar": ""}, synchronize_session=False)
+    Trust.query.filter((Trust.owner_id == aid) | (Trust.member_id == aid)).delete(synchronize_session=False)
+    Feedback.query.filter_by(account_id=aid).update({"account_id": None, "name": "", "contact": ""}, synchronize_session=False)
+    db.session.delete(acc)
+    db.session.add(Tombstone(id_hash=_hash_secret("konto:" + str(aid))))
+    db.session.commit()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/session", methods=["POST"])
 def create_session():
+    _cleanup_sessions()
     data = _body()
+    rufer = _caller()
     players = []
     for p in _dicts(data.get("players"))[:MAX_PLAYERS]:
         pid = _ident(p.get("id"))
@@ -952,15 +1511,40 @@ def create_session():
             # identity travels with the round: names/photos resolve live by account id
             "account_id": pacc,
         })
+    if not players:
+        abort(400)                 # eine Runde ohne Spieler ist keine
+    # Erst jetzt zaehlen: eine abgewiesene Anfrage soll niemandem das
+    # Kontingent wegnehmen. Ist das der Adresse aufgebraucht (jemand im selben
+    # WLAN flutet), darf ein nachgewiesenes Konto trotzdem weiterspielen.
+    if not RATE_OFF and not _take_ip("session_ip", "session_ip_day"):
+        if rufer is None or not _take_key("session_key", "a:" + str(rufer.id)):
+            abort(429)
     payload = {"players": players}
+    # Die Bahnenzahl reist mit: ein Gast kennt die Anlage des Gastgebers nicht
+    # unbedingt und rechnete sonst mit 18 — auf einer Anlage mit 36 Bahnen
+    # liessen sich die uebrigen gar nicht eintragen.
+    holes = _int(data.get("holes"), 1, MAX_HOLE)
+    if holes:
+        payload["holes"] = holes
     host_key = _round_key(HOST_HEADER)
     if host_key:
         payload["host_hash"] = _hash_secret(host_key)
+    # Eine Konto-Nummer an einem Platz ist erst einmal nur eine Behauptung des
+    # Gastgebers. "verified" bekommt ein Platz, wenn der Inhaber des Kontos sich
+    # selbst ausgewiesen hat — hier: der Gastgeber fuer seinen eigenen Platz.
+    # NUR in einer Runde mit Gastgeber-Schluessel. Eine Runde ohne ihn laesst
+    # jeden alles aendern (Altbestand) — auch die Konto-Nummer an einem Platz.
+    # In der Gegenpruefung legte ein Angreifer so eine Runde an, wies sich als
+    # Gastgeber aus, schrieb danach eine FREMDE Nummer auf den Platz und hatte
+    # damit einen "nachgewiesenen" Mitspieler erfunden.
+    if host_key and players and rufer is not None and str(players[0].get("account_id")) == str(rufer.id):
+        players[0]["verified"] = True
+        payload["host_account"] = rufer.id
     s = Session(
         code=new_session_code(),
         mode=_text(data.get("mode"), 20) or "sequential",
         venue=_text(data.get("venue"), MAX_VENUE),
-        data=json.dumps(payload),
+        data=_session_blob(payload),
         rev=1,
     )
     db.session.add(s)
@@ -973,12 +1557,55 @@ def get_session(code):
     s = db.session.get(Session, (code or "").upper())
     if s is None:
         abort(404)
-    return jsonify(session_to_dict(s))
+    return jsonify(session_to_dict(s, full=request.args.get("full") == "1"))
+
+
+_LAST_CLEANUP = [0.0]
+
+
+def _cleanup_sessions(force=False):
+    """Live-Runden, die aelter sind als SESSION_DAYS, loeschen.
+
+    Vorher blieb jede Runde fuer immer liegen — mit Namen, bei Gaesten ohne
+    Konto auch mit Fotos, und mit einem Code, der nie ablief. Hoechstens einmal
+    pro Stunde, damit es das Anlegen einer Runde nicht bremst.
+    """
+    now = time.time()
+    if not force and now - _LAST_CLEANUP[0] < 3600:
+        return
+    _LAST_CLEANUP[0] = now
+    try:
+        cutoff = int((now - SESSION_DAYS * 86400) * 1000)
+        Session.query.filter(Session.created_at < cutoff).delete(synchronize_session=False)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def _session_blob(payload, strict=True):
+    """Als JSON — und nie groesser als MAX_SESSION_BYTES. Jeder Schlag schreibt
+    die ganze Runde neu und jeder Abgleich liest sie; im Audit wuchs eine Runde
+    mit 40 Fotos auf 6 MB.
+
+    strict=False fuer Schlaege: die wachsen nur um ein paar Bytes (begrenzt
+    durch Spieler x Bahnen) und duerfen nie an der Groesse scheitern — sonst
+    legt, wer die Runde mit Fotos bis an die Grenze fuellt, das Eintragen lahm.
+    """
+    blob = json.dumps(payload)
+    if strict and len(blob) > MAX_SESSION_BYTES:
+        abort(413)
+    return blob
 
 
 def _mutate_session(code):
-    """Load a session for update, returning (session, payload, players) or aborting 404."""
-    s = db.session.get(Session, (code or "").upper())
+    """Load a session for update, returning (session, payload, players) or aborting 404.
+
+    Mit Zeilensperre (SELECT … FOR UPDATE): die Runde ist EIN JSON-Feld, das
+    gelesen, geaendert und zurueckgeschrieben wird. Seit gunicorn mit Threads
+    laeuft, koennten sich zwei gleichzeitige Schlaege sonst gegenseitig
+    ueberschreiben. SQLite kennt die Sperre nicht und ignoriert sie.
+    """
+    s = db.session.get(Session, (code or "").upper(), with_for_update=True)
     if s is None:
         abort(404)
     try:
@@ -1039,6 +1666,14 @@ def _owns_slot(p):
     return bool(h) and bool(given) and hmac.compare_digest(str(h), _hash_secret(given))
 
 
+def _remember_trust(owner_id, member_id):
+    """member hat sich in einer Runde von owner selbst ausgewiesen."""
+    if not owner_id or not member_id or str(owner_id) == str(member_id):
+        return
+    if Trust.query.filter_by(owner_id=owner_id, member_id=member_id).first() is None:
+        db.session.add(Trust(owner_id=owner_id, member_id=member_id))
+
+
 def _require_host(payload):
     if not _is_host(payload):
         abort(403)
@@ -1091,8 +1726,13 @@ def session_score(code):
                 scores[str(hole)] = strokes
             p["scores"] = scores
             break
+    else:
+        # Den Platz gibt es nicht (mehr) — etwa weil der Gastgeber ihn aus der
+        # Aufstellung genommen hat. Frueher kam hier 200 zurueck, und der Gast
+        # spielte die ganze Runde ins Leere.
+        abort(404)
     payload["players"] = players
-    s.data = json.dumps(payload)
+    s.data = _session_blob(payload, strict=False)
     s.rev = (s.rev or 0) + 1
     db.session.commit()
     return jsonify(session_to_dict(s))
@@ -1133,8 +1773,15 @@ def session_players(code):
             merged[-1]["account_id"] = pacc
         if old.get("key_hash"):
             merged[-1]["key_hash"] = old.get("key_hash")   # der Platz bleibt seinem Inhaber
+        if old.get("verified") and str(old.get("account_id")) == str(pacc):
+            merged[-1]["verified"] = True
+    rufer = _caller()
+    if (merged and rufer is not None and _enforced(payload)
+            and str(merged[0].get("account_id")) == str(rufer.id)):
+        merged[0]["verified"] = True
+        payload["host_account"] = rufer.id
     payload["players"] = merged
-    s.data = json.dumps(payload)
+    s.data = _session_blob(payload)
     s.rev = (s.rev or 0) + 1
     db.session.commit()
     return jsonify(session_to_dict(s))
@@ -1168,18 +1815,46 @@ def session_claim(code):
                     abort(403)                         # der Platz des Gastgebers
                 if p.get("claimed") and not (eigen or konto or host):
                     abort(409)                         # schon vergeben
+                # Nach dem Ende aendert nur noch der Inhaber seinen eigenen
+                # Platz (ein Gast verknuepft dort sein eben angelegtes Konto).
+                if payload.get("finished") and not (eigen or konto):
+                    abort(409)
                 if not host:
                     if not slot_key:
                         abort(400)                     # ohne Platz-Schluessel kein Platz
-                    p["key_hash"] = _hash_secret(slot_key)
+                    neu = _hash_secret(slot_key)
+                    # EIN Platz pro Geraet: im Audit belegte ein einziger
+                    # Schluessel alle freien Plaetze und tippte fuer sie.
+                    if any(o is not p and o.get("key_hash") == neu for o in players):
+                        abort(409)
+                    p["key_hash"] = neu
+                    if not belegt_konto:
+                        p.pop("verified", None)        # wer hier sitzt, hat sich nicht ausgewiesen
             p["claimed"] = True
+            # "verified" heisst: der Inhaber DIESES Kontos hat sich hier selbst
+            # ausgewiesen. Alles andere nimmt die Marke wieder weg — nie bleibt
+            # sie an einem Platz haengen, dessen Konto sich gerade aendert.
+            ausgewiesen = bool(_enforced(payload) and belegt_konto and rufer is not None and str(rufer.id) == str(belegt_konto))
+            if not ausgewiesen and not (p.get("verified") and rufer is not None and str(rufer.id) == str(p.get("account_id"))):
+                p.pop("verified", None)
             if belegt_konto:  # link this slot to the joiner's account (crew photo sync)
                 p["account_id"] = belegt_konto
+                if ausgewiesen:
+                    p["verified"] = True
+                    # Der Gastgeber weist sich oft erst NACH dem Eroeffnen aus:
+                    # ein frisches Geraet bekommt sein Konto beim ersten Schlag.
+                    if p.get("host") and host:
+                        payload["host_account"] = belegt_konto
+                    _remember_trust(payload.get("host_account"), belegt_konto)
             # an account-less joiner has nowhere but the round to keep a photo
             p["avatar"] = snapshot_avatar(belegt_konto or p.get("account_id"), avatar or _avatar(p.get("avatar")))
+            # Passt die Runde mit diesem Foto nicht mehr unter die Grenze,
+            # bleibt der Platz — nur ohne Foto.
+            if len(json.dumps(payload)) > MAX_SESSION_BYTES - 20_000:
+                p["avatar"] = ""
             break
     payload["players"] = players
-    s.data = json.dumps(payload)
+    s.data = _session_blob(payload, strict=False)
     s.rev = (s.rev or 0) + 1
     db.session.commit()
     return jsonify(session_to_dict(s))
@@ -1202,9 +1877,10 @@ def session_leave(code):
             p["claimed"] = False
             p.pop("account_id", None)  # slot is free again; next claimer relinks
             p.pop("key_hash", None)
+            p.pop("verified", None)
             break
     payload["players"] = players
-    s.data = json.dumps(payload)
+    s.data = _session_blob(payload)
     s.rev = (s.rev or 0) + 1
     db.session.commit()
     return jsonify(session_to_dict(s))
@@ -1249,6 +1925,8 @@ def submit_feedback():
     rating = _int(data.get("rating"), 1, 3)
     if not msg and not rating:
         abort(400, "empty feedback")
+    if not _take_ip("feedback_ip"):
+        abort(429)
     fb = Feedback(
         rating=rating,
         message=msg,
@@ -1268,24 +1946,38 @@ def submit_feedback():
 # render. Genau davor warnt der Kommentar oben bei /api/games:
 # "query params end up in access logs".
 #
-# Jetzt derselbe Weg wie beim Dashboard: /fb/<key> prüft den Schlüssel einmal,
+# Seit dem Audit: /fb#<key> — die Seite schickt ihn per POST /fb/login als Kopfzeile,
+# der Server prüft ihn einmal,
 # setzt eine Cookie-Sitzung und leitet auf /fb weiter. Die Datenabfrage trägt
 # danach ÜBERHAUPT keinen Schlüssel mehr — weder im Pfad noch im Query.
 FB_COOKIE = "plonky_fb"
 FB_HOURS = 12
 
 
-@app.route("/fb/<key>")
-def feedback_login(key):
-    """Einstiegslink. Prüft, setzt die Sitzung, leitet auf /fb weiter."""
+# Anmeldung: der Schluessel steht hinter einem '#' (/fb#<schluessel>). Den Teil
+# ab '#' schickt der Browser nie an den Server; die Seite liest ihn aus und
+# sendet ihn in einer Kopfzeile hierher. Vorher stand er beim ersten Aufruf im
+# Pfad — und damit in den Zugriffsprotokollen.
+KEY_HEADER = "X-Plonky-Key"
+
+
+@app.route("/fb/login", methods=["POST"])
+def feedback_login():
     secret = _env_secret("FEEDBACK_KEY")
-    if not _secret_matches(key, secret):
+    if not _secret_matches(request.headers.get(KEY_HEADER), secret):
         abort(403)
-    resp = redirect("/fb", code=302)
+    resp = jsonify({"ok": True})
     # Pfad /fb, nicht / : das Cookie geht nur an den Posteingang. Deshalb liegt
     # die Datenabfrage unten auch unter /fb/daten und nicht unter /api/.
     _set_ticket_cookie(resp, FB_COOKIE, secret, FB_HOURS, "/fb")
     return resp
+
+
+@app.route("/fb/<path:rest>")
+def feedback_old_link(rest):
+    """Der alte Einstieg /fb/<schluessel> — bewusst abgeschaltet: wer ihn noch
+    benutzt, schriebe den Schluessel bei jedem Aufruf wieder ins Protokoll."""
+    return _admin_gate("Dieser Link gilt nicht mehr.", "Neu: /fb#&lt;Schlüssel&gt; — der Schlüssel steht hinter dem #.", 410)
 
 
 @app.route("/fb/daten")
@@ -1317,7 +2009,7 @@ def feedback_logout():
 
 
 # ── Analytics-Dashboard (privat, nur mit ADMIN_KEY) ──────────────────────────
-# Server-gerenderte Seite unter /admin/<ADMIN_KEY>. Alle Kennzahlen aus den
+# Server-gerenderte Seite unter /admin (Anmeldung: /admin#<ADMIN_KEY>). Alle Kennzahlen aus den
 # vorhandenen Tabellen; Berechnung in Python (portabel: SQLite lokal wie PG live).
 
 ADMIN_CSS = """
@@ -1451,7 +2143,17 @@ def _fmt_dt(ms, tz):
 
 
 def _admin_stats():
-    accounts = Account.query.all()
+    # Ohne die schweren Spalten. Crew und Live-Runden tragen Fotos; alles auf
+    # einmal zu laden, hat im Audit bei 500 Runden 250 MB gekostet. Sie werden
+    # in kleinen Portionen gelesen und sofort auf das Noetige eingedampft.
+    accounts = Account.query.options(db.defer(Account.avatar), db.defer(Account.crew)).all()
+    crew_slim = {}
+    for aid, raw in db.session.query(Account.id, Account.crew).yield_per(20):
+        try:
+            crew_slim[aid] = [{"name": _text(m.get("name"), MAX_NAME), "color": _color(m.get("color")), "accountId": _account_ref(m.get("accountId"))}
+                              for m in _dicts(json.loads(raw or "[]"))]
+        except Exception:
+            crew_slim[aid] = []
     games = Game.query.all()
     now = int(time.time() * 1000)
 
@@ -1461,10 +2163,7 @@ def _admin_stats():
     total = len(accounts)
 
     def crew_len(a):
-        try:
-            return len(_dicts(json.loads(a.crew or "[]")))
-        except Exception:
-            return 0
+        return len(crew_slim.get(a.id, []))
 
     total_crew = sum(crew_len(a) for a in accounts)
 
@@ -1535,7 +2234,7 @@ def _admin_stats():
             names.append((nm, _col(a.color)))
     for a in accounts:
         try:
-            crew = json.loads(a.crew or "[]")
+            crew = crew_slim.get(a.id, [])
         except Exception:
             crew = []
         for c in _dicts(crew):
@@ -1554,14 +2253,14 @@ def _admin_stats():
         v = (g.venue or "").strip()
         if g.account_id and v:
             account_venues.setdefault(g.account_id, set()).add(v)
-    for p in Player.query.all():
+    for p in Player.query.options(db.defer(Player.avatar)).all():
         host = host_by_game.get(p.game_id)
         if not host or p.account_id == host:
             continue
         nm = (p.name or "").strip()
         if nm and nm.lower() != (name_by_id.get(host) or "").strip().lower():
             coplayers.setdefault(host, set()).add(nm)
-    for sess in Session.query.all():
+    for sess in db.session.query(Session.venue, Session.data).order_by(Session.created_at.desc()).limit(3000).yield_per(20):
         try:
             roh = json.loads(sess.data or "{}")
             pl = _dicts(roh.get("players")) if isinstance(roh, dict) else []
@@ -1587,7 +2286,7 @@ def _admin_stats():
     new_accounts = []
     for a in sorted(masters, key=lambda x: -(x.created_at or 0))[:30]:
         try:
-            crew = json.loads(a.crew or "[]")
+            crew = crew_slim.get(a.id, [])
         except Exception:
             crew = []
         saved = {_s(c.get("name")) for c in _dicts(crew) if _s(c.get("name"))}
@@ -1771,6 +2470,7 @@ def _runtime_info():
         teile.append("Flutbremse: INAKTIV (kein CF-Connecting-IP)")
     else:
         teile.append("Flutbremse: aktiv (lokal)")
+    teile.append("Datenbank: %d MB von %d MB" % (_db_mb(), DB_SOFT_LIMIT_MB))
     return " \u00b7 ".join(teile)
 
 
@@ -1795,7 +2495,8 @@ def _ago(ms):
 # Request-Logs von render. Geraten wird so ein Schlüssel nie (32 Zeichen,
 # ~190 Bit); er geht verloren, weil er herumgetragen wird.
 #
-# Jetzt: /admin/<key> prüft, setzt eine Cookie-Sitzung und leitet auf /admin
+# Seit dem Audit: /admin#<key> — per POST /admin/login als Kopfzeile; der Server
+# prüft, setzt eine Cookie-Sitzung, die Seite lädt /admin
 # weiter. Der Schlüssel steht danach ein einziges Mal im Verlauf, die
 # Adresszeile des Dashboards selbst ist sauber.
 #
@@ -1817,23 +2518,51 @@ margin:0 auto 22px;position:relative}}.d i{{position:absolute;left:50%;top:50%;
 transform:translate(-50%,-50%);width:19px;height:19px;border-radius:50%;background:#F5F8F4}}
 h1{{font-size:20px;margin:0 0 10px}}p{{margin:0;color:#53605A;font-size:15px}}</style>
 </head><body><div class="b"><div class="d"><i></i></div>
-<h1>{title}</h1><p>{text}</p></div></body></html>"""
+<h1 id="t">{title}</h1><p id="x">{text}</p></div>{script}</body></html>"""
+
+# Liest den Schluessel hinter dem '#', nimmt ihn SOFORT aus der Adresszeile und
+# tauscht ihn ueber eine Kopfzeile gegen die Sitzung.
+ADMIN_LOGIN_JS = """<script nonce="{nonce}">(function(){{
+  var k = (location.hash || '').replace(/^#/, '');
+  if (!k) return;
+  try {{ history.replaceState(null, '', '/admin'); }} catch (e) {{}}
+  document.getElementById('t').textContent = 'Anmelden …';
+  document.getElementById('x').textContent = '';
+  fetch('/admin/login', {{ method: 'POST', headers: {{ 'X-Plonky-Key': k }} }}).then(function (r) {{
+    if (r.ok) {{ location.replace('/admin'); return; }}
+    document.getElementById('t').textContent = 'Schlüssel stimmt nicht.';
+    document.getElementById('x').textContent = 'Zum Anmelden /admin#<Schlüssel> öffnen.';
+  }}).catch(function () {{
+    document.getElementById('t').textContent = 'Keine Verbindung.';
+  }});
+}})();</script>"""
+CSP_ADMIN = ("default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{n}'; connect-src 'self'; "
+             "img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
 
-def _admin_gate(title, text, status):
-    resp = make_response(ADMIN_GATE_HTML.format(title=title, text=text), status)
+def _admin_gate(title, text, status, login=False):
+    nonce = secrets.token_urlsafe(18)
+    script = ADMIN_LOGIN_JS.format(nonce=nonce) if login else ""
+    resp = make_response(ADMIN_GATE_HTML.format(title=title, text=text, script=script), status)
     resp.headers["Content-Type"] = "text/html; charset=utf-8"
+    resp.headers["Content-Security-Policy"] = CSP_ADMIN.format(n=nonce)
     return resp
 
 
-@app.route("/admin/<key>")
-def admin_login(key):
+@app.route("/admin/login", methods=["POST"])
+def admin_login():
     secret = _env_secret("ADMIN_KEY")
-    if not _secret_matches(key, secret):
+    if not _secret_matches(request.headers.get(KEY_HEADER), secret):
         abort(403)
-    resp = redirect("/admin", code=302)
+    resp = jsonify({"ok": True})
     _set_ticket_cookie(resp, ADMIN_COOKIE, secret, ADMIN_HOURS, "/admin")
     return resp
+
+
+@app.route("/admin/<path:rest>")
+def admin_old_link(rest):
+    """Der alte Einstieg /admin/<schluessel> — bewusst abgeschaltet, siehe /fb."""
+    return _admin_gate("Dieser Link gilt nicht mehr.", "Neu: /admin#&lt;Schlüssel&gt; — der Schlüssel steht hinter dem #.", 410)
 
 
 # strict_slashes=False: auch /admin/ (von Hand getippt, mit Schrägstrich am
@@ -1841,32 +2570,71 @@ def admin_login(key):
 @app.route("/admin", strict_slashes=False)
 def admin_dashboard():
     if request.args.get("abmelden"):
-        resp = _admin_gate("Abgemeldet.", "Die Sitzung ist beendet. Zum Wiederanmelden den Schlüssel-Link öffnen.", 200)
+        resp = _admin_gate("Abgemeldet.", "Die Sitzung ist beendet.", 200)
         resp.delete_cookie(ADMIN_COOKIE, path="/admin")
         return resp
     if not _ticket_ok(_env_secret("ADMIN_KEY"), request.cookies.get(ADMIN_COOKIE)):
-        return _admin_gate("Keine Sitzung.", "Abgelaufen oder nie angemeldet. Zum Anmelden den Schlüssel-Link öffnen.", 403)
+        return _admin_gate("Keine Sitzung.", "Zum Anmelden /admin#&lt;Schlüssel&gt; öffnen.", 403, login=True)
     global now_ms
     now_ms = int(time.time() * 1000)
-    return _admin_html(_admin_stats())
+    resp = make_response(_admin_html(_admin_stats()))
+    resp.headers["Content-Type"] = "text/html; charset=utf-8"
+    resp.headers["Content-Security-Policy"] = CSP_ADMIN.format(n=secrets.token_urlsafe(18))
+    return resp
 
 
 @app.route("/")
 @app.route("/m", strict_slashes=False)  # neuer persoenlicher Link: /m/#<geheimnis>
 @app.route("/m/<token>")                # alter Link, Nummer im Pfad
 @app.route("/j/<token>")
-@app.route("/fb", strict_slashes=False)  # Posteingang OHNE Schlüssel, auch /fb/ ; /fb/<key> ist die Anmeldung oben
+@app.route("/fb", strict_slashes=False)  # Posteingang, auch /fb/ ; Anmeldung über /fb#<key>
 @app.route("/p/<token>")  # per-venue QR link: /p/<venue-slug> — frontend reads it, sets the active venue
 def index(token=None):
-    return send_from_directory(APP_DIR, "index.html")
+    """Die App-Seite — mit einer Content Security Policy.
+
+    Lange hiess es, das gehe nicht, weil JSX im Browser uebersetzt wird. Es
+    geht: Babel reicht die Nonce des text/babel-Tags an das erzeugte Skript
+    weiter und braucht kein eval. Jede Antwort bekommt eine frische Nonce; was
+    sie nicht traegt, laeuft nicht. Dazu: Verbindungen und Bilder nur von der
+    eigenen Adresse — ein eingeschleustes Skript koennte den Zugang im
+    Browserspeicher also weder ausfuehren noch irgendwohin schicken.
+    """
+    nonce = secrets.token_urlsafe(18)
+    resp = make_response(_index_html().replace("__NONCE__", nonce))
+    resp.headers["Content-Type"] = "text/html; charset=utf-8"
+    resp.headers["Content-Security-Policy"] = CSP_APP.format(n=nonce)
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+CSP_APP = ("default-src 'none'; script-src 'self' 'nonce-{n}'; style-src 'self' 'unsafe-inline'; "
+           "font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; "
+           "media-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; "
+           "object-src 'none'")
+_INDEX = {"mtime": None, "html": ""}
+
+
+def _index_html():
+    path = os.path.join(APP_DIR, "index.html")
+    mtime = os.path.getmtime(path)
+    if _INDEX["mtime"] != mtime:
+        with open(path, encoding="utf-8") as fh:
+            _INDEX["html"] = fh.read()
+        _INDEX["mtime"] = mtime
+    return _INDEX["html"]
 
 
 @app.route("/<path:path>")
 def static_files(path):
-    ext = os.path.splitext(path)[1].lower()
-    if ext not in ALLOWED_EXT:
+    if path == "index.html":
+        return index()
+    parts = path.split("/")
+    # kein Punkt-Ordner, kein Leersegment, kein Weg nach oben
+    if any(p == "" or p.startswith(".") for p in parts):
         abort(404)
-    if os.path.basename(path).lower() in BLOCKED_FILES:
+    if os.path.splitext(path)[1].lower() not in ALLOWED_EXT:
+        abort(404)
+    if not (path in STATIC_ROOT_FILES or path.startswith(STATIC_DIRS)):
         abort(404)
     full = os.path.join(APP_DIR, path)
     if not os.path.isfile(full):
@@ -1901,6 +2669,14 @@ def ensure_schema():
     if "account_id" not in player_cols:
         db.session.execute(text("ALTER TABLE player ADD COLUMN account_id VARCHAR"))
         db.session.commit()
+
+    # Ein Zugang gehoert zu genau EINEM Konto — das erzwingt jetzt auch die
+    # Datenbank (bisher nur der Code, und der verlor einen Wettlauf).
+    try:
+        db.session.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_account_secret ON account (secret_hash) WHERE secret_hash IS NOT NULL"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()      # Altbestand mit Doppelten: nicht am Start scheitern
 
     game_cols = {c["name"] for c in inspector.get_columns("game")}
     if "code" not in game_cols:
@@ -1958,8 +2734,15 @@ def purge_photo_copies():
 with app.app_context():
     db.create_all()
     ensure_schema()
-    purge_photo_copies()
+    # purge_photo_copies() lief frueher bei JEDEM Start und lud dafuer alle
+    # Konten und Runden in den Speicher. Es war ein einmaliger Umzug vom
+    # 07.08.2026 und ist laengst erledigt; die Pruefschicht haelt den Zustand.
+    # War die Datenbank gross genug, kam die App deshalb nicht mehr hoch.
+    _cleanup_sessions(force=True)
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
+    # Nur dieser Rechner, kein Debugger: vorher hing der Server mitsamt
+    # Werkzeug-Debugger am ganzen WLAN (0.0.0.0, debug=True).
+    app.run(host="127.0.0.1", port=int(os.environ.get("PORT", 5000)),
+            debug=os.environ.get("PLONKY_DEBUG") == "1")

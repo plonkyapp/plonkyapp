@@ -64,7 +64,21 @@ function App() {
   const startAfterVenueRef = useAR(false); // "Spiel starten" ohne Anlage → erst Wo-spielst-du, nach der Wahl direkt ins Spiel
   const soloSessionRef = useAR(false); // guards one-time session creation for a solo "ich tippe für alle" game
   const pendingAvatarRef = useAR(new Set()); // account ids whose photo is being saved — a fetch must not overwrite them
-  const firstAccountSyncRef = useAR(true); // skip the first server-push after load so stale local doesn't clobber a remote change
+  // Erst wenn der Stand des Servers uebernommen ist, darf dieses Geraet seinen
+  // eigenen hochschieben — sonst ueberschreibt ein altes Geraet beim Oeffnen,
+  // was auf einem anderen geaendert wurde (Name, Farbe, Foto, Crew).
+  const [synced, setSynced] = useAS(false);
+  const [switchAsk, setSwitchAsk] = useAS(null); // { acc, token, bookmark }: fremder persoenlicher Link — erst fragen
+  const [soloRetry, setSoloRetry] = useAS(0);
+  const secretRef = useAR(null); secretRef.current = secret || null;
+  const accIdRef = useAR(null); accIdRef.current = (account && account.id) || null;
+  const accountRef = useAR(null); accountRef.current = account;
+  const familyRef = useAR([]); familyRef.current = family;
+  // Was beim Laden aus dem Speicher kam — genau diese Objekte. Hat der Nutzer
+  // seither etwas geaendert, sind es andere, und der Stand des Servers
+  // ueberschreibt seine Aenderung nicht.
+  const loadedAccRef = useAR(null);
+  const loadedFamRef = useAR(null);
 
   // Doppelte Crew-IDs heilen (Altlast des 'fme'-Bugs): gleiche ID = geteilte Scores
   // im Spiel. Duplikate bekommen beim Laden eine frische ID; Einträge bleiben erhalten.
@@ -98,21 +112,134 @@ function App() {
   const refreshLinkedCrew = (fam) => {
     (fam || []).forEach(m => {
       if (m && m.accountId) ACC.API.getAccount(m.accountId)
-        .then(a => { if (a) setFamily(cur => cur.map(x => x.id === m.id ? { ...x, avatar: a.avatar || x.avatar, name: a.name || x.name } : x)); })
+        .then(a => {
+          if (!a) return;
+          // Dasselbe Array zurueckgeben, wenn nichts anders ist — ein neues
+          // stoesst jedes Mal ein Speichern des Kontos an.
+          setFamily(cur => {
+            let anders = false;
+            const neu = cur.map(x => {
+              if (x.id !== m.id) return x;
+              const av = a.avatar || x.avatar, nm = a.name || x.name;
+              if (av === x.avatar && nm === x.name) return x;
+              anders = true; return { ...x, avatar: av, name: nm };
+            });
+            return anders ? neu : cur;
+          });
+        })
         .catch(() => {});
     });
   };
 
   // the venue this device last played on, as stored
   const storedVenue = (d) => {
-    if (d.venueSlug) return OB.venueBySlug(d.venueSlug);
-    if (d.venueCustom && d.venueCustom.name) return { slug: null, illu: 'generic', name: d.venueCustom.name, holes: d.venueCustom.holes || 18 };
+    const known = d.venueSlug && OB.venueBySlug(d.venueSlug);
+    if (known) return known;
+    // Anlagen aus dem Verzeichnis kennt die eingebaute Liste nicht — Name und
+    // Bahnenzahl stehen deshalb immer mit im Speicher.
+    if (d.venueCustom && d.venueCustom.name) return { slug: d.venueCustom.slug || null, illu: 'generic', name: d.venueCustom.name, holes: d.venueCustom.holes || 18 };
     return null;
   };
 
+  // Den Stand des Servers fuer ein gespeichertes Konto uebernehmen: Foto, Name,
+  // Farbe, Crew. Der Server ist die eine Quelle — sonst macht jedes Geraet die
+  // Aenderung eines anderen beim naechsten Oeffnen rueckgaengig.
+  const applyServer = (aid, server) => {
+    const cur = accountRef.current;
+    // Nur wenn seit dem Laden nichts angefasst wurde — sonst gilt, was der
+    // Nutzer gerade eingegeben hat, und DAS geht gleich zum Server.
+    if (cur && String(cur.id) === String(aid) && (!loadedAccRef.current || cur === loadedAccRef.current)) {
+      const n = { ...cur }; let anders = false;
+      if (server.avatar !== undefined && cur.avatar !== server.avatar) { n.avatar = server.avatar; anders = true; }
+      if (server.name && server.name !== cur.name) { n.name = server.name; anders = true; }
+      if (server.color && server.color !== cur.color) { n.color = server.color; anders = true; }
+      if (anders) setAccount(n);
+    }
+    // Crew: der Server ist die eine Quelle — Löschen/Neuanlegen auf Gerät A
+    // kommt so beim nächsten Öffnen auch auf Gerät B an (statt wiederbelebt zu werden)
+    if (Array.isArray(server.crew) && (!loadedFamRef.current || familyRef.current === loadedFamRef.current)) {
+      const fam = healFam(server.crew); setFamily(fam); refreshLinkedCrew(fam);
+    } else refreshLinkedCrew(familyRef.current);
+    loadedAccRef.current = null; loadedFamRef.current = null;
+  };
+  const adoptServer = (acc, versuch = 0) => {
+    if (!acc || !acc.id) { setSynced(true); return; }
+    ACC.API.getAccount(acc.id)
+      .then(server => {
+        if (accIdRef.current !== acc.id) return;            // inzwischen abgemeldet oder gewechselt
+        if (server) applyServer(acc.id, server);
+        setSynced(true);
+      })
+      .catch(() => {
+        // Server nicht erreichbar. Dann wird auch nichts hochgeschoben — der
+        // Stand dieses Geraets kann veraltet sein. Spaeter nochmal versuchen.
+        if (versuch === 0) refreshLinkedCrew(familyRef.current);
+        setTimeout(() => { if (accIdRef.current === acc.id) adoptServer(acc, versuch + 1); }, Math.min(60000, 5000 * (versuch + 1)));
+      });
+  };
+  // Unterbrochener Link-Tausch (siehe API.rotateSecret): gilt der neue Wert
+  // beim Server schon, uebernimmt ihn das Geraet — gezielt gespeichert, dann
+  // neu geladen, damit jeder Aufruf ihn traegt. Bis zum Neuladen schreibt
+  // dieser Tab nichts mehr (STORE.reload friert ein), sonst kaeme der alte
+  // Wert aus dem Arbeitsspeicher zurueck. Ist der neue dem Server unbekannt,
+  // bleibt er noch zwei Minuten stehen: die Anfrage kann unterwegs sein.
+  const settlePending = (acc, bisher) => {
+    const unterwegs = ACC.PENDING.get();
+    if (!unterwegs) return;
+    if (!acc || !acc.id) { ACC.PENDING.clear(); return; }
+    ACC.API.resolveAccount(unterwegs)
+      .then(server => {
+        if (server && String(server.id) === String(acc.id)) {
+          ACC.STORE.patch({ secret: unterwegs });
+          ACC.PENDING.clear();
+          if (unterwegs !== bisher) ACC.STORE.reload();
+        } else if (ACC.PENDING.age() > 120000) ACC.PENDING.clear();
+      })
+      .catch(() => {});
+  };
+  // Die Runde bringt Anlage UND Bahnenzahl mit. Ohne die Zahl rechnete ein Gast
+  // mit der eigenen gemerkten Anlage oder mit 18.
+  const adoptVenue = (sess) => {
+    const known = OB.venueByName(sess.venue);
+    const holes = sess.holes || (known && known.holes) || (venue && venue.holes) || 18;
+    const v = known ? { ...known, holes } : (sess.venue ? { slug: null, name: sess.venue, holes, illu: 'generic' } : null);
+    if (v) setVenue(v);
+    GAME.setHoles(holes);
+  };
+  // Kontowechsel = Rucksack ausräumen: ab hier gelten Zugang, Crew und Verlauf
+  // des geholten Kontos; das Runden-Lesezeichen nur, wenn es diesem Konto gehört.
+  const switchTo = (acc, token, bookmark) => {
+    useSecret(token);
+    setAccount({ id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', avatar: acc.avatar || '', created: acc.created || Date.now() });
+    const fam = healFam(Array.isArray(acc.crew) ? acc.crew : []); setFamily(fam); refreshLinkedCrew(fam); // server crew wins on a fresh device
+    setActiveSession(bookmark && String(bookmark.accountId || '') === String(acc.id) ? bookmark : null);
+    setHistory([]);
+    setSwitchAsk(null);
+    setSynced(true);
+    setScreen('home');
+    return ACC.API.listGames(acc.id).then(server => { if (server) setHistory(server); }).catch(() => {});
+  };
+
+  // Ein zweiter Tab dieses Browsers hat Konto oder Zugang geaendert (Link
+  // erneuert, abgemeldet, Konto gewechselt oder geloescht). Dieser Tab haelt
+  // noch den alten Stand im Speicher und wuerde ihn beim naechsten Speichern
+  // zurueckschreiben — samt einem Zugang, den der Server nicht mehr kennt.
+  // Also neu laden und den aktuellen Stand uebernehmen.
+  useAE(() => {
+    const onStore = (e) => {
+      if (e.key !== ACC.STORE.KEY) return;
+      let d = {};
+      try { d = JSON.parse(e.newValue || 'null') || {}; } catch (x) { return; }
+      const sec = d.secret || null, aid = (d.account && d.account.id) || null;
+      if (sec !== secretRef.current || aid !== accIdRef.current) ACC.STORE.reload();
+    };
+    window.addEventListener('storage', onStore);
+    return () => window.removeEventListener('storage', onStore);
+  }, []);
+
   // load once
   useAE(() => {
-    const d = ACC.STORE.load();
+    const d = ACC.STORE.open();
     // Gleich zu Beginn, damit schon der erste Server-Aufruf das Geheimnis traegt.
     if (d.secret) { ACC.setSecret(d.secret); setSecretState(d.secret); }
     // Neuer persoenlicher Link: /m/#<geheimnis>. Alles ab '#' bleibt im
@@ -120,11 +247,35 @@ function App() {
     // Zugriffsprotokoll. Alte Links tragen die Konto-Nummer noch im Pfad;
     // die funktionieren weiter, solange das Konto noch kein Geheimnis hat.
     const onM = typeof location !== 'undefined' && /^\/m(\/|$)/.test(location.pathname);
-    const mHash = typeof location !== 'undefined' ? (location.hash || '').replace(/^#/, '') : '';
+    // Was hinter dem '#' stand, hat ein kleines Skript in index.html schon beim
+    // Laden aus der Adresszeile genommen und hier abgelegt — noch bevor Babel
+    // fertig ist. Einmal lesen, dann weg damit.
+    let stash = '';
+    try { stash = sessionStorage.getItem('plonky.hash') || ''; sessionStorage.removeItem('plonky.hash'); } catch (e) {}
+    const safeDecode = (v) => { try { return decodeURIComponent(v); } catch (e) { return ''; } };
+    const mHash = stash || (typeof location !== 'undefined' ? (location.hash || '').replace(/^#/, '') : '');
+
+    // Was auf diesem Geraet gespeichert ist, gilt in JEDEM Einstieg. Frueher
+    // stellten die Zweige fuer /fb, /j/ und /m/ nur einen Teil wieder her, und
+    // der naechste Speichervorgang schrieb den Rest leer zurueck: ein toter
+    // persoenlicher Link loeschte so Konto, Crew und Verlauf (Audit 22.11.2026).
+    const restoreLocal = () => {
+      let a = d.account || null;
+      if (a && !a.id) a = { ...a, id: ACC.newAccountId() };
+      if (a && !d.secret) { const sc = ACC.newAccountSecret(); ACC.setSecret(sc); setSecretState(sc); }
+      if (a) { loadedAccRef.current = a; setAccount(a); }
+      if (d.family) { const fam = healFam(d.family); loadedFamRef.current = fam; setFamily(fam); }
+      if (d.history) setHistory(d.history);
+      settlePending(a, d.secret);
+      if (d.activeSession) setActiveSession(d.activeSession);
+      if (d.defaultMode) setDefaultMode(d.defaultMode);
+      if (d.autoCrew != null) setAutoCrew(d.autoCrew);
+      return a;
+    };
     const mPath = typeof location !== 'undefined' ? ((location.pathname.match(/^\/m\/([^\/?#]+)/) || [])[1] || '') : '';
     const linkMatch = onM && (mHash || mPath);
     const joinMatch = typeof location !== 'undefined' && location.pathname.match(/^\/j\/([^\/?#]+)/);
-    // Nur noch /fb — der Schluessel wird serverseitig von /fb/<key> gegen eine
+    // Nur noch /fb — der Schluessel kommt hinter dem # und wird per POST /fb/login gegen eine
     // Cookie-Sitzung getauscht und erreicht das Frontend nie.
     const fbMatch = typeof location !== 'undefined' && /^\/fb\/?$/.test(location.pathname);
 
@@ -134,12 +285,14 @@ function App() {
     const remembered = storedVenue(d);
     if (remembered) { setVenue(remembered); GAME.setHoles(remembered.holes); }
 
-    // opened via the private feedback inbox link (/fb/<key>)
+    // opened via the private feedback inbox link (/fb#<key>)
     if (fbMatch) {
-      // Kein replaceState mehr: in /fb steckt kein Geheimnis, und so
-      // funktioniert ein Neuladen des Posteingangs waehrend der Sitzung.
-      if (d.account) setAccount(d.account.id ? d.account : { ...d.account, id: ACC.newAccountId() });
-      ACC.API.listFeedback()
+      adoptServer(restoreLocal());
+      // Anmeldung: /fb#<schluessel>. Der Schluessel steht hinter dem '#', das
+      // der Browser nie an den Server schickt; er geht in einer Kopfzeile
+      // hinueber und wird gegen eine Sitzung getauscht.
+      (stash ? ACC.API.feedbackLogin(safeDecode(stash)).catch(() => {}) : Promise.resolve())
+        .then(() => ACC.API.listFeedback())
         .then(items => { setFeedbackItems(items || []); setScreen('feedbackInbox'); })
         .catch(() => { setFeedbackItems(null); setScreen('feedbackInbox'); })
         .finally(() => setHydrated(true));
@@ -148,20 +301,16 @@ function App() {
 
     // opened via a live-session link (/j/<code>): join that shared round
     if (joinMatch) {
-      const code = decodeURIComponent(joinMatch[1]).toUpperCase();
+      const code = safeDecode(joinMatch[1]).toUpperCase();
       if (window.history && window.history.replaceState) window.history.replaceState({}, '', '/');
-      let acc = d.account || null;
-      if (acc && !acc.id) acc = { ...acc, id: ACC.newAccountId() };
-      if (acc) setAccount(acc);
-      if (d.family) setFamily(healFam(d.family));
-      if (d.defaultMode) setDefaultMode(d.defaultMode);
-      if (d.autoCrew != null) setAutoCrew(d.autoCrew);
+      const acc = restoreLocal();
+      adoptServer(acc);
       ACC.API.getSession(code, true)
         .then(sess => {
           if (!sess) { setScreen(acc ? 'home' : 'cover'); return; } // code expired/unknown
           setSessionCode(sess.code);
           setMode(sess.mode || 'sequential');
-          const sv = OB.venueByName(sess.venue); if (sv) { setVenue(sv); GAME.setHoles(sv.holes); } // join the round's venue
+          adoptVenue(sess); // join the round's venue + hole count
           setPlayers(overlaySelf((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })), acc));
           setRole('others');
           setScreen('join');
@@ -173,33 +322,46 @@ function App() {
 
     // opened via a personal link (/m/<code>): adopt that account on this device
     if (linkMatch) {
-      const token = decodeURIComponent(mHash || mPath);
+      const token = safeDecode(mHash || mPath);
       if (window.history && window.history.replaceState) window.history.replaceState({}, '', '/');
-      // Kontowechsel = Rucksack ausräumen: Crew/Verlauf kommen NUR vom Server des
-      // neuen Kontos; das Runden-Lesezeichen nur, wenn es DIESEM Konto gehört.
-      if (d.defaultMode) setDefaultMode(d.defaultMode);
-      if (d.autoCrew != null) setAutoCrew(d.autoCrew);
-      // Das Lesezeichen gehoert erst dann wieder uns, wenn das Konto da ist —
-      // der Link traegt jetzt das Geheimnis, nicht mehr die Konto-Nummer.
+      // ERST den Stand dieses Geraets laden — er bleibt, falls der Link nichts
+      // taugt. Ersetzt wird er nur nach einer ERFOLGREICHEN Aufloesung.
+      const lokal = restoreLocal();
       const altesLesezeichen = d.activeSession || null;
-      ACC.API.resolveAccount(token)
+      // Link taugt nicht (alt, vertippt, kein Netz): mit dem bisherigen Konto
+      // weiter, als waere nichts gewesen. Ohne Konto: Wiederherstellen-Dialog.
+      const bleibWieDuBist = () => {
+        adoptServer(lokal);          // auch hier gilt: erst der Stand des Servers
+        if (lokal) { setScreen('home'); return; }
+        setRestoreErr('Kein Konto gefunden. Prüfe deinen Link und versuch es nochmal.'); setScreen('restore');
+      };
+      (token ? ACC.API.resolveAccount(token) : Promise.resolve(null))
         .then(acc => {
-          // A 404 is a definite answer: this account does not exist. Inventing one
-          // from the token would show a stranger an empty "logged in" account under
-          // an id nobody owns — say so instead, like the paste-a-link flow does.
-          if (!acc || !acc.id) { setRestoreErr('Kein Konto gefunden. Prüfe deinen Link und versuch es nochmal.'); setScreen('restore'); return null; }
-          // Das Geheimnis aus dem Link ist ab jetzt der Zugang dieses Geraets.
-          // Kam der Link noch aus der alten Zeit (Nummer im Pfad), erzeugen wir
-          // ein frisches — der Server bindet es beim naechsten Speichern.
-          useSecret(token === acc.id ? ACC.newAccountSecret() : token);
-          setAccount({ id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', avatar: acc.avatar || '', created: acc.created || Date.now() });
-          if (Array.isArray(acc.crew)) { const fam = healFam(acc.crew); setFamily(fam); refreshLinkedCrew(fam); } // server crew wins on a fresh device
-          if (altesLesezeichen && String(altesLesezeichen.accountId || '') === String(acc.id)) setActiveSession(altesLesezeichen);
-          setScreen('home');
-          return ACC.API.listGames(acc.id);
+          if (!acc || !acc.id) { bleibWieDuBist(); return null; }
+          // Der eigene Link auf dem eigenen Geraet: nichts ausraeumen, sonst
+          // gingen Runden verloren, die erst lokal gespeichert sind.
+          if (lokal && String(lokal.id) === String(acc.id)) {
+            useSecret(token);
+            // Die Antwort IST der Stand des Servers (mit Crew). Den uebernehmen
+            // — sonst schiebt ein altes Geraet beim Oeffnen seines Lesezeichens
+            // seinen alten Namen und seine alte Crew ueber den aktuellen Stand.
+            applyServer(acc.id, acc);
+            setSynced(true);
+            setScreen('home');
+            return ACC.API.listGames(acc.id).then(server => setHistory(local => ACC.mergeGames(local, server)));
+          }
+          // Der Link gehoert zu einem ANDEREN Konto, und auf diesem Geraet ist
+          // schon eines. Erst fragen: der Wechsel vergisst den bisherigen
+          // Zugang — wer seinen Link nie gespeichert hat, kaeme nie mehr zurueck.
+          if (lokal && lokal.id) {
+            adoptServer(lokal);
+            setSwitchAsk({ acc, token, bookmark: altesLesezeichen });
+            setScreen('switch');
+            return null;
+          }
+          return switchTo(acc, token, altesLesezeichen);
         })
-        .then(server => { if (server) setHistory(server); })
-        .catch(() => {}) // link unreachable: stay on cover, nothing lost
+        .catch(() => bleibWieDuBist())
         .finally(() => setHydrated(true));
       return;
     }
@@ -212,7 +374,7 @@ function App() {
     let pickedVenue = null;
     if (pMatch) {
       if (window.history && window.history.replaceState) window.history.replaceState({}, '', '/');
-      pickedVenue = OB.venueBySlug(decodeURIComponent(pMatch[1]));
+      pickedVenue = OB.venueBySlug(safeDecode(pMatch[1]));
     }
     if (!pickedVenue) pickedVenue = remembered; // sonst die gemerkte (auch die getippte ohne slug)
     if (pickedVenue) { setVenue(pickedVenue); GAME.setHoles(pickedVenue.holes); }
@@ -229,40 +391,37 @@ function App() {
     else if (acc) setScreen('home');
     else setScreen('cover');
 
-    if (d.family) { const fam = healFam(d.family); setFamily(fam); refreshLinkedCrew(fam); }
+    if (acc) loadedAccRef.current = acc;
+    if (d.family) { const fam = healFam(d.family); loadedFamRef.current = fam; setFamily(fam); if (!acc) refreshLinkedCrew(fam); }
     if (d.history) setHistory(d.history);
     if (d.activeSession) setActiveSession(d.activeSession);
     if (d.defaultMode) setDefaultMode(d.defaultMode);
     if (d.autoCrew != null) setAutoCrew(d.autoCrew);
     setHydrated(true);
+    settlePending(acc, d.secret);
     if (acc && acc.id) ACC.API.listGames(acc.id)
-      .then(server => setHistory(local => ACC.mergeGames(local, server)))
+      .then(server => setHistory(local => accIdRef.current === acc.id ? ACC.mergeGames(local, server) : local))
       .catch(() => {}); // offline / old static host: keep localStorage only
-    // adopt this account's photo from the server (the shared source), so a change
-    // made on another device — e.g. the master setting your crew photo — shows here
-    if (acc && acc.id) ACC.API.getAccount(acc.id)
-      .then(server => {
-        if (!server) return;
-        if (server.avatar !== undefined) setAccount(a => (a && String(a.id) === String(acc.id) && a.avatar !== server.avatar) ? { ...a, avatar: server.avatar } : a);
-        // Crew: der Server ist die eine Quelle — Löschen/Neuanlegen auf Gerät A
-        // kommt so beim nächsten Öffnen auch auf Gerät B an (statt wiederbelebt zu werden)
-        if (Array.isArray(server.crew)) { const fam = healFam(server.crew); setFamily(fam); refreshLinkedCrew(fam); }
-      })
-      .catch(() => {});
+    // adopt this account's photo, name, colour and crew from the server (the
+    // shared source), so a change made on another device shows here
+    adoptServer(acc);
   }, []);
   // Anlagen-Verzeichnis laden (Kanton-Browsing im "Wo spielst du?"-Screen). Async & unkritisch:
   // fehlt es (alter Static-Host / offline), bleibt die Auswahl aufs Freitextfeld beschränkt.
   useAE(() => { fetch('/venues.json').then(r => (r.ok ? r.json() : [])).then(d => { if (Array.isArray(d)) setDirectory(d); }).catch(() => {}); }, []);
   // persist
-  useAE(() => { if (hydrated) ACC.STORE.save({ account, secret, family, history, defaultMode, autoCrew, activeSession, venueSlug: venue && venue.slug, venueCustom: venue && !venue.slug ? { name: venue.name, holes: venue.holes } : null }); }, [hydrated, account, secret, family, history, defaultMode, autoCrew, activeSession, venue]);
+  useAE(() => { if (hydrated) ACC.STORE.save({ account, secret, family, history, defaultMode, autoCrew, activeSession, venueSlug: venue && venue.slug, venueCustom: venue ? { name: venue.name, holes: venue.holes, slug: venue.slug || null } : null }); }, [hydrated, account, secret, family, history, defaultMode, autoCrew, activeSession, venue]);
   // keep the server copy of the account (name/color/photo) in sync. Skip the very
   // first run after load: otherwise this device's stale localStorage would clobber
   // a change made elsewhere (e.g. the master set your crew photo) before we adopt it.
   useAE(() => {
-    if (!hydrated || !account || !account.id) return;
-    if (firstAccountSyncRef.current) { firstAccountSyncRef.current = false; return; }
-    ACC.API.saveAccount(account, family).catch(() => {});
-  }, [hydrated, account, family]);
+    if (!hydrated || !synced || !account || !account.id) return;
+    ACC.API.saveAccount(account, family).catch(e => {
+      // 410: das Konto wurde auf einem anderen Geraet geloescht. Dann vergisst
+      // es auch dieses — statt es bei jedem Speichern neu anlegen zu wollen.
+      if (/ 410$/.test(String(e && e.message))) logout();
+    });
+  }, [hydrated, synced, account, family]);
   // when a crew slot is claimed by someone with their own account, remember the
   // link (crew member ↔ account) so the master shows their current photo later
   useAE(() => {
@@ -271,9 +430,14 @@ function App() {
       const id = String(p.id);
       if (p.account_id && id.startsWith('c')) {
         const cid = id.slice(1);
-        setFamily(fam => fam.some(m => String(m.id) === cid && m.accountId === p.account_id)
-          ? fam
-          : fam.map(m => String(m.id) === cid ? { ...m, accountId: p.account_id } : m));
+        // Nur ein NEUES Array liefern, wenn es wirklich etwas zu aendern gibt.
+        // Vorher gab fam.map() bei jedem Abgleich ein neues Array zurueck, auch
+        // ohne Treffer — das stiess alle 3 Sekunden ein Speichern des Kontos an.
+        setFamily(fam => {
+          const i = fam.findIndex(m => String(m.id) === cid);
+          if (i < 0 || fam[i].accountId === p.account_id) return fam;
+          return fam.map(m => String(m.id) === cid ? { ...m, accountId: p.account_id } : m);
+        });
       }
     });
   }, [players, account]);
@@ -281,7 +445,12 @@ function App() {
   // remember the live round you're in, so "Mein plonky" can dive back into it
   // (the bookmark survives going home; it's cleared on finish/save or delete)
   useAE(() => {
-    if (hydrated && sessionCode) setActiveSession({ code: sessionCode, role, me, mode: mode || 'sequential', venue: (venue && venue.name) || '', accountId: (account && account.id) || null });
+    if (!hydrated || !sessionCode) return;
+    // Eine Einladung bloss zu oeffnen ist noch kein Mitspielen. Frueher
+    // ueberschrieb schon das Ansehen einer zweiten Runde das Lesezeichen der
+    // eigenen laufenden — die war danach nicht mehr erreichbar.
+    if (me == null && !ACC.ROUNDS.get(sessionCode).host) return;
+    setActiveSession({ code: sessionCode, role, me, mode: mode || 'sequential', venue: (venue && venue.name) || '', accountId: (account && account.id) || null });
   }, [hydrated, sessionCode, role, me, mode, account]);
 
   // accounts from the start: a fresh host (or a joiner) gets a real account from
@@ -308,17 +477,24 @@ function App() {
   useAE(() => {
     if (!hydrated || sessionCode || screen !== 'game' || me != null || !account || !players.length || soloSessionRef.current) return;
     soloSessionRef.current = true;
-    ACC.API.createSession({ mode: mode || 'sequential', venue: (venue && venue.name) || '', players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '', account_id: p.account_id || null })) })
+    ACC.API.createSession({ mode: mode || 'sequential', venue: (venue && venue.name) || '', holes: (venue && venue.holes) || undefined, players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '', account_id: p.account_id || null })) })
       .then(sess => setSessionCode(sess.code))
-      .catch(() => {})
+      // Gescheitert (Funkloch): in ein paar Sekunden nochmal. Sonst lebt die
+      // Runde nur im Arbeitsspeicher dieses Tabs.
+      .catch(() => { setTimeout(() => setSoloRetry(n => n + 1), 5000); })
       .finally(() => { soloSessionRef.current = false; });
-  }, [hydrated, screen, sessionCode, me, account, players.length]);
+  }, [hydrated, screen, sessionCode, me, account, players.length, soloRetry]);
 
   // opening home: re-pull my games from the server so the host's ONE shared
   // record (where I'm a participant) and any later host edit show up.
   useAE(() => {
     if (!hydrated || !account || !account.id) return;
-    if (screen === 'home') ACC.API.listGames(account.id).then(server => setHistory(local => ACC.mergeGames(local, server || []))).catch(() => {});
+    if (screen !== 'home') return;
+    const aid = account.id;
+    history.filter(g => g.unsynced).forEach(g => pushGame(aid, g));   // was im Funkloch haengen blieb
+    // (accIdRef: eine Antwort, die erst nach dem Abmelden eintrifft, darf den
+    // Verlauf des Vorgaengers nicht wieder auf das Geraet schreiben)
+    ACC.API.listGames(aid).then(server => setHistory(local => accIdRef.current === aid ? ACC.mergeGames(local, server || []) : local)).catch(() => {});
   }, [screen, hydrated]);
 
   // you are never your own crew member — drop any self-entry (from older auto-adds).
@@ -358,6 +534,26 @@ function App() {
   // leave the round view and go home — the round stays live & bookmarked; you can dive back in
   const restart = () => { gameSavedRef.current = false; setPlayers([]); setRole(null); setMode(null); setMe(null); setSessionCode(null); go(account ? 'home' : 'cover'); };
 
+  // Eine Runde zum Server bringen. Solange das nicht geklappt hat, traegt sie
+  // lokal die Marke "unsynced" — dann gewinnt beim Abgleich die lokale Fassung,
+  // und die Startseite schickt sie nach. Frueher wurde ein Fehlschlag einfach
+  // verschluckt: "Im Verlauf gespeichert" stand da, die Mitspieler bekamen die
+  // Runde nie, und eine Korrektur war beim naechsten Abgleich wieder weg.
+  const pushGame = (aid, g) => {
+    const marke = g.unsynced;
+    const { unsynced, mine, dirty, ...rumpf } = g;
+    // Als Mitspieler nur die Spieler schicken, deren Schlaege HIER geaendert
+    // wurden. Der Server ersetzt die Schlaege jedes mitgeschickten Spielers —
+    // eine alte Kopie wuerde sonst die Korrektur des Besitzers ueberschreiben.
+    if (mine === false && Array.isArray(dirty)) rumpf.players = (rumpf.players || []).filter(p => dirty.indexOf(String(p.id)) >= 0);
+    const erledigt = () => setHistory(h => h.map(x => { if (x.id !== g.id || x.unsynced !== marke) return x; const { unsynced: _weg, dirty: _d, ...rest } = x; return rest; }));
+    return ACC.API.saveGame(aid, rumpf).then(erledigt).catch(e => {
+      // Vom Server ausdruecklich und endgueltig abgelehnt: Wiederholen hilft
+      // nicht. (403 gehoert NICHT dazu — das kann ein veralteter Zugang sein,
+      // und mit dem neuen Link klappt es dann.)
+      if (/ (400|409|410|413)$/.test(String(e && e.message))) erledigt();
+    });
+  };
   const saveGame = (pls, acc) => {
     if (gameSavedRef.current) return;
     if (!pls.some(p => GAME.totals(p).played > 0)) return;
@@ -367,7 +563,7 @@ function App() {
     // accounts that joined with their own device become participants of this ONE
     // shared record (so they see it — and any later host edit — in their history)
     const participants = [...new Set(pls.map(p => p.account_id).filter(id => id && id !== owner))];
-    const game = { id: ACC.newGameId(), date: Date.now(), venue: (venue && venue.name) || '', mode: mode || 'sequential', code: sessionCode || '', participants,
+    const game = { id: ACC.newGameId(), date: Date.now(), venue: (venue && venue.name) || '', mode: mode || 'sequential', code: sessionCode || '', participants, unsynced: Date.now(),
       players: pls.map(p => ({ id: p.id, name: p.name, color: p.color, avatar: p.avatar || '', account_id: p.account_id || null, scores: { ...p.scores } })) };
     setHistory(h => [...h, game]);
     setFamily(fam => {
@@ -380,7 +576,7 @@ function App() {
         .map((p, i) => ({ id: 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + i, name: p.name, color: p.color, accountId: p.account_id || undefined }));
       return [...fam, ...add];
     });
-    if (owner) ACC.API.saveGame(owner, game).catch(() => {}); // best-effort; local copy already saved
+    if (owner) pushGame(owner, game); // lokal ist sie schon; scheitert das, wird sie auf der Startseite nachgeschickt
   };
 
   // A joined guest does NOT own the game — the host saves ONE shared record with
@@ -390,7 +586,7 @@ function App() {
   const pullSharedGames = (aid, tries = 0) => {
     if (!aid) return;
     ACC.API.listGames(aid)
-      .then(server => { setHistory(local => ACC.mergeGames(local, server || [])); if (tries < 3) setTimeout(() => pullSharedGames(aid, tries + 1), 1600); })
+      .then(server => { setHistory(local => accIdRef.current === aid ? ACC.mergeGames(local, server || []) : local); if (tries < 3) setTimeout(() => pullSharedGames(aid, tries + 1), 1600); })
       .catch(() => { if (tries < 3) setTimeout(() => pullSharedGames(aid, tries + 1), 1600); });
   };
   const saveCompanionGame = (pls, acc) => {
@@ -427,10 +623,13 @@ function App() {
     else if (b.me != null) ACC.API.sessionLeave(c, b.me).catch(() => {});
   };
   // save edits to a game from the history detail (server upserts by id)
-  const saveEditedGame = (g) => {
+  const saveEditedGame = (g0) => {
+    const alt = history.find(x => x.id === g0.id) || { players: [] };
+    const geaendert = (g0.players || []).filter(p => JSON.stringify(p.scores || {}) !== JSON.stringify(((alt.players || []).find(o => String(o.id) === String(p.id)) || {}).scores || {})).map(p => String(p.id));
+    const g = { ...g0, unsynced: Date.now(), dirty: Array.from(new Set([...(alt.dirty || []), ...geaendert])) };
     setHistory(h => h.map(x => x.id === g.id ? g : x));
     const aid = account && account.id;
-    if (aid) ACC.API.saveGame(aid, g).catch(() => {});
+    if (aid) pushGame(aid, g);
   };
   // a joined player leaves the finished round → quietly keep their copy, then home
   const leaveJoined = () => {
@@ -444,9 +643,12 @@ function App() {
       gameSavedRef.current = false;
       setSessionCode(sess.code);
       setMode(sess.mode || 'sequential');
-      const sv = OB.venueByName(sess.venue) || (sess.venue ? { slug: null, name: sess.venue, holes: 18, illu: 'generic' } : null); if (sv) setVenue(sv); GAME.setHoles((sv || venue || { holes: 18 }).holes); // resume into the round's venue
+      adoptVenue(sess); // resume into the round's venue + hole count
       setPlayers(overlaySelf((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })), account));
       const b = activeSession || {};
+      // Weder Gastgeber dieser Runde noch auf einem Platz: dann erst einen
+      // Platz waehlen — nicht mit lauter editierbaren Zeilen ins Spiel.
+      if (b.me == null && !ACC.ROUNDS.get(sess.code).host) { setRole('others'); setMe(null); go('join'); return; }
       setRole(b.role || (b.me != null ? 'others' : 'me'));
       setMe(b.me != null ? b.me : null);
       go('game');
@@ -484,25 +686,34 @@ function App() {
     if (!fin || me != null) return;
     // host pressed "Spiel beenden": pull the authoritative final scores, mark the
     // round finished on every device, save the canonical game.
-    const finalize = (finalPlayers) => {
-      if (sessionCode) ACC.API.sessionFinish(sessionCode).catch(() => {});
-      if (account) saveGame(finalPlayers);
-    };
-    if (sessionCode) {
-      ACC.API.getSession(sessionCode).then(sess => {
+    // Erst beenden, DANN den Endstand holen: nach dem Beenden nimmt der Server
+    // nichts mehr an, der Abruf danach ist also wirklich der letzte Stand.
+    // Umgekehrt fehlte ein Schlag, den ein Gast genau dazwischen eintrug.
+    // Hoechstens vier Sekunden warten — das Beenden versucht es im Hintergrund
+    // weiter, das Speichern soll daran nicht haengen.
+    const sichern = (finalPlayers) => { if (account) saveGame(finalPlayers); };
+    if (!sessionCode) { sichern(players); return; }
+    const beendet = ACC.API.sessionFinish(sessionCode).catch(() => {});
+    Promise.race([beendet, new Promise(res => setTimeout(res, 4000))])
+      .then(() => ACC.API.getSession(sessionCode))
+      .then(sess => {
         let finalPlayers = players;
         if (sess && sess.players) {
           finalPlayers = players.map(p => {
             const sp = sess.players.find(x => String(x.id) === String(p.id));
-            return sp ? { ...p, scores: sp.scores || {}, account_id: sp.account_id || p.account_id } : p;
+            if (!sp) return p;
+            // Hat ein Gast den Platz selbst belegt, zaehlt der Stand des
+            // Servers (dort tippt er). Fuer alle anderen Plaetze tippt DIESES
+            // Geraet — ein Schlag, der den Server nicht erreicht hat, darf
+            // beim Speichern nicht fehlen.
+            const scores = (sp.claimed && !sp.host) ? (sp.scores || {}) : { ...(sp.scores || {}), ...(p.scores || {}) };
+            return { ...p, scores, account_id: sp.account_id || p.account_id };
           });
           setPlayers(finalPlayers);
         }
-        finalize(finalPlayers);
-      }).catch(() => finalize(players));
-    } else {
-      finalize(players);
-    }
+        sichern(finalPlayers);
+      })
+      .catch(() => sichern(players));
   };
   const createAccount = (name) => {
     const acc = { id: ACC.newAccountId(), name, color: AV[0], created: Date.now() };
@@ -561,7 +772,7 @@ function App() {
     setSessionCode(sess.code);
     setMode(sess.mode || 'sequential');
     // Anlage der Runde übernehmen — auch wenn's eine getippte ist, die nicht im Verzeichnis steht
-    const sv = OB.venueByName(sess.venue) || (sess.venue ? { slug: null, name: sess.venue, holes: 18, illu: 'generic' } : null); if (sv) setVenue(sv); GAME.setHoles((sv || venue || { holes: 18 }).holes); // adopt the round's venue + hole count
+    adoptVenue(sess); // adopt the round's venue + hole count
     setPlayers(overlaySelf((sess.players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, claimed: !!p.claimed, host: !!p.host, avatar: p.avatar || '', account_id: p.account_id || null })), account));
     setRole('others');
     setMe(null);
@@ -576,12 +787,38 @@ function App() {
   // zurueck.
   const logout = () => {
     ACC.ROUNDS.clear();   // auch die Schluessel laufender Runden
+    ACC.PENDING.clear();
     useSecret(null);
     setAccount(null);
     setFamily([]);
     setHistory([]);
     setActiveSession(null);
+    // Auch die Runde im Arbeitsspeicher: sonst schreibt der Lesezeichen-Effekt
+    // sie gleich nach dem Abmelden wieder in den Speicher zurueck.
+    gameSavedRef.current = false;
+    setPlayers([]); setRole(null); setMode(null); setMe(null); setSessionCode(null);
+    setSwitchAsk(null);
     go('cover');
+  };
+  // Zugangslink erneuern: der alte gilt danach nicht mehr. Der neue wird SOFORT
+  // fest gespeichert, erst dann die Merkhilfe geraeumt.
+  const rotateAccess = () => ACC.API.rotateSecret(account && account.id).then(neu => {
+    useSecret(neu);
+    ACC.STORE.patch({ secret: neu });
+    ACC.PENDING.clear();
+  });
+  // Konto loeschen: erst auf dem Server, dann vergisst das Geraet alles.
+  const deleteAccount = () => ACC.API.deleteAccount().then(() => { logout(); }).catch(e =>
+    // Antwort verloren? Kennt der Server den Zugang nicht mehr, ist das Konto
+    // weg — dann raeumt auch das Geraet, statt fuer immer "abgelehnt" zu melden.
+    // (Gefragt wird nach dem KONTO, nicht nach dem Zugang: ein veralteter
+    // Zugang wuerde sonst "geloescht" melden, waehrend das Konto weiterlebt.)
+    ACC.API.getAccount(account && account.id).then(acc => { if (acc === null) { logout(); return; } throw e; }));
+  // Eine fremde Runde aus dem eigenen Verlauf nehmen.
+  const removeFromHistory = (g) => {
+    setHistory(h => h.filter(x => x.id !== g.id));
+    ACC.API.leaveGame(g.id).catch(() => {});
+    go(histFrom || 'history');
   };
   // restore an existing account into THIS browser context (e.g. the home-screen
   // app) by pasting its personal link — bridges Safari ↔ installed app, which
@@ -589,14 +826,16 @@ function App() {
   const restoreAccount = (raw) => {
     // Akzeptiert /m/#<geheimnis>, den alten /m/<nummer> und beides blank getippt.
     const m = String(raw || '').match(/\/m\/#?([^\/?#\s]+)/) || String(raw || '').match(/#([^\s]+)$/);
-    const token = m ? decodeURIComponent(m[1]) : String(raw || '').trim();
+    let token = String(raw || '').trim();
+    if (m) { try { token = decodeURIComponent(m[1]); } catch (e) { token = m[1]; } }
     if (!token) return Promise.reject(new Error('empty'));
     return ACC.API.resolveAccount(token).then(acc => {
       if (!acc || !acc.id) throw new Error('not found');
-      useSecret(token === acc.id ? ACC.newAccountSecret() : token);
+      useSecret(token);
       setAccount({ id: acc.id, name: acc.name || 'Spieler', color: acc.color || AV[0], kind: acc.kind || 'master', avatar: acc.avatar || '', created: acc.created || Date.now() });
       setFamily(healFam(Array.isArray(acc.crew) ? acc.crew : []));
       setActiveSession(as => (as && String(as.accountId || '') === String(acc.id)) ? as : null); // fremdes Lesezeichen verwerfen
+      setSynced(true);
       ACC.API.listGames(acc.id).then(server => setHistory(server || [])).catch(() => {});
       go('home');
       return acc;
@@ -629,17 +868,20 @@ function App() {
     case 'cover': view = <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={startGame} companion={isCompanion} venue={venue} onVenues={openVenues} viaQr={entryViaQr} />; break;
     case 'account': view = <OB.AccountScreen go={go} onCreate={me != null ? createCompanion : createAccount} companion={me != null} presetName={me != null ? ((players.find(p => String(p.id) === String(me)) || {}).name || '') : ''} back={me != null ? 'results' : 'cover'} />; break;
     case 'home': view = <ACC.HomeScreen account={account || { name: 'Gast', color: AV[0] }} family={family} history={history} go={go} openGame={openGame} newGame={startGame} scanEnabled={scanEnabled} companion={isCompanion} activeSession={activeSession} onResume={resumeSession} onDiscard={discardActiveSession} openFeedback={openFeedback} />; break;
-    case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} onMemberPhoto={setCrewPhoto} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} openLegal={openLegal} openFeedback={openFeedback} openFaq={openFaq} />; break;
+    case 'settings': view = <ACC.SettingsScreen account={account || { name: 'Gast', color: AV[0] }} setAccount={setAccount} family={family} setFamily={setFamily} onMemberPhoto={setCrewPhoto} onRotate={rotateAccess} onDeleteAccount={deleteAccount} go={go} logout={logout} defaultMode={defaultMode} setDefaultMode={setDefaultMode} autoCrew={autoCrew} setAutoCrew={setAutoCrew} companion={isCompanion} openLegal={openLegal} openFeedback={openFeedback} openFaq={openFaq} />; break;
     case 'joinCode': view = <OB.JoinCodeScreen go={go} onJoined={enterSession} back={account ? 'home' : 'cover'} />; break;
     case 'history': view = <ACC.HistoryScreen history={history} go={go} openGame={openGame} account={account} family={family} />; break;
-    case 'historyDetail': view = <ACC.HistoryDetailScreen game={history.find(g => g.id === histId)} go={go} from={histFrom} onSave={isCompanion ? undefined : saveEditedGame} account={account} family={family} nameOf={nameOf} />; break;
+    case 'historyDetail': view = <ACC.HistoryDetailScreen game={history.find(g => g.id === histId)} go={go} from={histFrom} onSave={isCompanion ? undefined : saveEditedGame} onRemove={removeFromHistory} account={account} family={family} nameOf={nameOf} />; break;
     case 'scan': view = <OB.ScanScreen go={go} express={t.onboardingFlow === 'express'} venue={venue} />; break;
     case 'welcome': view = <OB.RoleScreen go={go} role={role} setRole={setRole} back={scanEnabled ? 'scan' : 'cover'} venue={venue} onVenues={openVenues} />; break;
     case 'players': view = <OB.PlayersScreen go={go} players={players} setPlayers={setPlayers} role={role} family={family} />; break;
-    case 'invite': view = <OB.InviteScreen go={go} players={players} mode={mode} sessionCode={sessionCode} setSessionCode={setSessionCode} venueName={venue ? venue.name : ''} back={inviteFrom} resume={inviteFrom !== 'players'} />; break;
+    case 'invite': view = <OB.InviteScreen go={go} players={players} mode={mode} sessionCode={sessionCode} setSessionCode={setSessionCode} venueName={venue ? venue.name : ''} holes={venue ? venue.holes : undefined} back={inviteFrom} resume={inviteFrom !== 'players'} />; break;
+    case 'switch': view = switchAsk
+      ? <SwitchScreen from={account} to={switchAsk.acc} onSwitch={() => switchTo(switchAsk.acc, switchAsk.token, switchAsk.bookmark)} onStay={() => { setSwitchAsk(null); go(account ? 'home' : 'cover'); }} />
+      : <OB.CoverScreen go={go} account={account} scanEnabled={scanEnabled} onStart={startGame} companion={isCompanion} venue={venue} onVenues={openVenues} viaQr={entryViaQr} />; break;
     case 'join': view = <OB.JoinScreen go={go} players={players} setMe={setMe} sessionCode={sessionCode} account={account} />; break;
     case 'express': view = <GAME.ExpressSetup go={go} role={role} setRole={setRole} mode={mode} setMode={setMode} players={players} setPlayers={setPlayers} family={family} />; break;
-    case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} onHome={account && sessionCode ? restart : null} account={account} family={family} venueName={venue ? venue.name : ''} nameOf={nameOf} />; break;
+    case 'game': view = <GAME.GameScreen players={players} setPlayers={setPlayers} go={go} voiceOn={t.voiceInput} showTotals={t.showTotals} openResults={openResults} sessionCode={sessionCode} me={me} onHome={account && sessionCode ? restart : null} onLost={() => { setActiveSession(null); restart(); }} account={account} family={family} venueName={venue ? venue.name : ''} nameOf={nameOf} />; break;
     case 'results': view = <GAME.ResultsScreen players={players} go={go} restart={restart} account={account} family={family} onSave={saveGame} onCompanionSave={saveCompanionGame} final={resultsFinal} onFinish={() => openResults(true)} joined={me != null} sessionCode={sessionCode} me={me} onLeaveJoined={leaveJoined} venueName={venue ? venue.name : ''} nameOf={nameOf}
       /* Einladen nur für den Gastgeber einer geteilten Runde (me == null) und nur im Zwischenstand */
       onInvite={sessionCode && me == null && !resultsFinal ? () => { setInviteFrom('results'); go('invite'); } : null} />; break;
@@ -680,6 +922,41 @@ function App() {
       <IOSDevice>{view}</IOSDevice>
       {panel}
     </UI.AvatarCtx.Provider>
+  );
+}
+
+// Ein fremder persoenlicher Link auf einem Geraet, das schon ein Konto hat.
+function SwitchScreen({ from, to, onSwitch, onStay }) {
+  const { Screen, AppHeader, Body, Avatar, Btn } = UI;
+  const [copied, setCopied] = useAS(false);
+  const [copyErr, setCopyErr] = useAS(false);
+  const copy = () => {
+    const ja = () => { setCopyErr(false); setCopied(true); setTimeout(() => setCopied(false), 1800); };
+    const nein = () => setCopyErr(true);
+    try { navigator.clipboard.writeText(ACC.accountLink()).then(ja, nein); } catch (e) { nein(); }
+  };
+  const wer = (from && from.name) || 'dein Konto';
+  return (
+    <Screen>
+      <AppHeader title="Konto wechseln?" />
+      <Body>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '14px 16px' }}>
+          <Avatar name={to.name || 'Spieler'} color={to.color} size={44} src={to.avatar} />
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>Der Link gehört zu</div>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>{to.name || 'Spieler'}</div>
+          </div>
+        </div>
+        <div style={{ fontSize: 14, lineHeight: 1.55, color: 'var(--ink-2)', marginTop: 16 }}>
+          Auf diesem Gerät bist du als <b>{wer}</b> angemeldet. Wechselst du, vergisst das Gerät dieses Konto — zurück kommst du <b>nur mit seinem Zugangslink</b>.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 22 }}>
+          <Btn kind="primary" onClick={onStay}>Bei {wer} bleiben</Btn>
+          <button onClick={copy} style={{ height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--accent)', fontFamily: 'var(--font)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>{copied ? '✓ Link kopiert' : copyErr ? 'Kopieren hat nicht geklappt' : `Link von ${wer} kopieren`}</button>
+          <button onClick={onSwitch} style={{ height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'transparent', color: 'var(--bad)', fontFamily: 'var(--font)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Zu {to.name || 'diesem Konto'} wechseln</button>
+        </div>
+      </Body>
+    </Screen>
   );
 }
 

@@ -227,6 +227,9 @@ function TweaksPanel({ title = 'Tweaks', children }) {
 
   React.useEffect(() => {
     const onMsg = (e) => {
+      // Nur das eigene Elternfenster darf das Panel oeffnen — keine fremde
+      // Seite, die plonky in einem Rahmen oder Popup anspricht.
+      if (e.source !== window.parent || window.parent === window) return;
       const t = e?.data?.type;
       if (t === '__activate_edit_mode') setOpen(true);
       else if (t === '__deactivate_edit_mode') setOpen(false);

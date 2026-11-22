@@ -14,10 +14,24 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="plonky" />
-<script>window.PLONKY_SCAN = false;/* Beta: kein Scan — QR routet direkt hierher. v1 (mit Scan) liegt in "Plonky v1 (mit Scan).html" */</script>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script nonce="__NONCE__">
+  // Geheimnisse hinter dem # sofort aus der Adresszeile nehmen — bevor
+  // irgendetwas anderes laedt. So landen sie weder im Verlauf noch auf einem
+  // Bildschirmfoto. Die App holt sie gleich aus dem Sitzungsspeicher ab.
+  (function(){
+    try {
+      var p = location.pathname, h = (location.hash || '').replace(/^#/, '');
+      if (h && (/^\/m\/?$/.test(p) || /^\/fb\/?$/.test(p))) {
+        sessionStorage.setItem('plonky.hash', h);
+        history.replaceState(null, '', p);
+      }
+    } catch (e) {}
+  })();
+</script>
+<script nonce="__NONCE__">window.PLONKY_SCAN = false;/* Beta: kein Scan — QR routet direkt hierher. v1 (mit Scan) liegt in "Plonky v1 (mit Scan).html" */</script>
+<!-- Schriften und Bibliotheken liegen auf dem eigenen Server: kein Abruf bei
+     Dritten, also auch keine IP-Adresse, die dorthin geht. -->
+<link href="/assets/fonts/fonts.css" rel="stylesheet" />
 <style>
   :root{
     --accent:#15A35A;
@@ -80,22 +94,22 @@
     </svg>
   </template>
 
-  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js" integrity="sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js" integrity="sha384-b5Ya4Bq3qCyz39m2ISh+4DxjAIljdeFwK/BsXLuj9gugaNwAcj/ia15fxNZL9Nlx" crossorigin="anonymous"></script>
+  <script nonce="__NONCE__" src="/vendor/react.production.min.js"></script>
+  <script nonce="__NONCE__" src="/vendor/react-dom.production.min.js"></script>
+  <script nonce="__NONCE__" src="/vendor/babel.min.js"></script>
+  <script nonce="__NONCE__" src="/vendor/qrcode.js"></script>
+  <script nonce="__NONCE__" src="/vendor/jsQR.js"></script>
 
-  <script type="text/babel" src="ios-frame.jsx"></script>
-  <script type="text/babel" src="tweaks-panel.jsx"></script>
-  <script type="text/babel" src="src/icons.jsx"></script>
-  <script type="text/babel" src="src/ui.jsx"></script>
-  <script type="text/babel" src="src/onboarding.jsx"></script>
-  <script type="text/babel" src="src/game.jsx"></script>
-  <script type="text/babel" src="src/account.jsx"></script>
-  <script type="text/babel" src="src/app.jsx"></script>
+  <script nonce="__NONCE__" type="text/babel" src="ios-frame.jsx"></script>
+  <script nonce="__NONCE__" type="text/babel" src="tweaks-panel.jsx"></script>
+  <script nonce="__NONCE__" type="text/babel" src="src/icons.jsx"></script>
+  <script nonce="__NONCE__" type="text/babel" src="src/ui.jsx"></script>
+  <script nonce="__NONCE__" type="text/babel" src="src/onboarding.jsx"></script>
+  <script nonce="__NONCE__" type="text/babel" src="src/game.jsx"></script>
+  <script nonce="__NONCE__" type="text/babel" src="src/account.jsx"></script>
+  <script nonce="__NONCE__" type="text/babel" src="src/app.jsx"></script>
 
-  <script>
+  <script nonce="__NONCE__">
     // Real phone / installed PWA → fill the viewport. Desktop → fit the
     // 402x874 phone mockup with letterbox.
     function fitPhone(){

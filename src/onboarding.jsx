@@ -121,7 +121,7 @@ function FaqScreen({ go, back = 'home', openLegal }) {
       <Body>
         <A>Das Wichtigste in Kürze — damit ihr in 30 Sekunden loslegt.</A>
 
-        <Q>Was ist PLONKY?</Q>
+        <Q>Was ist plonky?</Q>
         <A>Dein digitaler Mini-Golf-Zettel: Schläge eintragen, Stand sehen, fertig. Kein Download, keine Anmeldung.</A>
 
         <Q>„Ich tippe für alle" oder „Andere tippen mit"?</Q>
@@ -162,24 +162,30 @@ function LegalScreen({ go, back = 'cover' }) {
     <Screen>
       <AppHeader title="Hinweise & Datenschutz" sub="Beta" onBack={() => go(back)} />
       <Body>
-        <P>PLONKY hilft dir, Mini-Golf-Runden digital zu zählen — aktuell in einer offenen Testphase (Beta).</P>
+        <P>plonky hilft dir, Mini-Golf-Runden digital zu zählen — aktuell in einer offenen Testphase (Beta).</P>
         <H>Beta — keine Gewähr</H>
         <P>Diese App wird gerade getestet. Wir übernehmen keine Garantie für Verfügbarkeit, Fehlerfreiheit oder die Richtigkeit der Resultate. Nutzung zum Vergnügen, auf eigene Verantwortung.</P>
         <H>Welche Daten gespeichert werden</H>
-        <P>Dein Name und — wenn du magst — dein Profilfoto, deine Spielergebnisse (Schläge pro Bahn), die Crew-Mitglieder, die du selbst anlegst, sowie optionales Feedback, das du uns schickst. Es gibt kein Passwort: der Zugang läuft allein über deinen persönlichen Link.</P>
+        <P>Dein Name und — wenn du magst — dein Profilfoto, deine Spielergebnisse (Schläge pro Bahn), die Crew-Mitglieder, die du selbst anlegst, sowie optionales Feedback, das du uns schickst. Es gibt kein Passwort: der Zugang läuft allein über deinen persönlichen Link. Behandle ihn wie ein Passwort — in den Einstellungen kannst du ihn jederzeit erneuern.</P>
+        <P style={{ marginTop: 8 }}>Eine laufende Runde, die niemand abschliesst, wird nach 14 Tagen automatisch gelöscht.</P>
         <H>Wo & wie</H>
-        <P>Die Daten liegen in einer Datenbank auf den Servern unseres Hosters (render), Standort Frankfurt — also innerhalb der EU. Wir machen kein Werbe-Tracking.</P>
+        <P>Die Daten liegen in einer Datenbank bei unserem Hoster Render, Standort Frankfurt — also innerhalb der EU. Wie bei jeder Website sieht der Hoster dabei technisch deine IP-Adresse; vor seinen Servern steht das Netzwerk von Cloudflare, das Angriffe abfängt.</P>
+        <P style={{ marginTop: 8 }}>Die App lädt nichts von Dritten nach: Schriften und Programmteile kommen vom selben Server. Kein Werbe-Tracking, keine Analyse-Dienste, keine Cookies für Besucher.</P>
+        <P style={{ marginTop: 8 }}>Wenn ein neues Konto entsteht, bekommen wir eine kurze Meldung über den Dienst Telegram — ohne deinen Namen und ohne dein Foto.</P>
+        <H>Wer was sieht</H>
+        <P>Dein Name und dein Foto sind für die Leute sichtbar, mit denen du spielst — genauer: für jeden, der die Einladung (QR-Code oder Link) zu einer deiner Runden hat. Deinen Verlauf und deine Crew sieht nur, wer deinen persönlichen Link hat.</P>
         <H>Fotos</H>
-        <P>Ein Profilfoto ist freiwillig. Es wird klein gespeichert und ist nur für die Leute sichtbar, mit denen du spielst — sonst nirgends.</P>
+        <P>Ein Profilfoto ist freiwillig. Es wird klein gespeichert.</P>
         <P style={{ marginTop: 8 }}>Das gilt auch für die Fotos, die du deiner <b>Crew</b> gibst: Das sind Bilder anderer Personen. Lade sie nur hoch, wenn die Person einverstanden ist — bei deinen Kindern entscheidest du.</P>
         <P style={{ marginTop: 8 }}>Dein Foto und das Foto jedes Mitspielers mit eigenem Konto liegen an genau einer Stelle und werden überall von dort geholt. Entfernst du so ein Foto in den Einstellungen, ist es wirklich weg — auch aus früheren Spielen, es bleiben keine Kopien zurück.</P>
         <P style={{ marginTop: 8 }}>Eine Ausnahme in der Beta: Gibst du einem Crew-Mitglied <b>ohne</b> eigenes Konto ein Foto, bleibt es in bereits gespeicherten Spielen vorerst erhalten. Wir bauen das gerade um — bis dahin genügt eine kurze Mail an <b>delete@plonky.ch</b> und wir entfernen es.</P>
         <P style={{ marginTop: 8 }}>Du bist auf einem Foto und möchtest es weg haben, hast aber selbst kein Konto? Schreib uns an <b>delete@plonky.ch</b> — mit deinem Namen, wie er in der App steht, und wer dich eingetragen hat. Wir entfernen es.</P>
         <H>Löschen & Auskunft</H>
-        <P>Du möchtest dein Konto oder deine Daten löschen lassen, oder wissen, was gespeichert ist? Eine kurze Mail an <b>delete@plonky.ch</b> genügt.</P>
+        <P>Dein Konto löschst du selbst: <b>Einstellungen → Konto löschen</b>. Damit verschwinden Profil, Foto, Crew und deine gespeicherten Runden sofort. In Runden, die jemand anderes gespeichert hat, bleibt dein Name als Text stehen — ohne Verbindung zu einem Konto.</P>
+        <P style={{ marginTop: 8 }}>Du willst wissen, was gespeichert ist, oder kommst nicht mehr in dein Konto? Eine kurze Mail an <b>delete@plonky.ch</b> genügt.</P>
         <H>Kontakt</H>
         <P>plonky.app@gmail.com</P>
-        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 22, lineHeight: 1.45 }}>Stand: August 2026 · Dies ist ein Hinweistext für die Testphase, keine Rechtsberatung.</div>
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 22, lineHeight: 1.45 }}>Stand: November 2026 · Dies ist ein Hinweistext für die Testphase, keine Rechtsberatung.</div>
       </Body>
     </Screen>
   );
@@ -295,7 +301,7 @@ function AccountScreen({ go, onCreate, companion = false, presetName = '', back 
             </div>
             <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 10, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '13px 16px', textAlign: 'left' }}>
               <Ic.link size={18} color="var(--ink-3)" />
-              <span style={{ flex: 1, fontSize: 13.5, color: 'var(--ink-2)', fontFamily: 'var(--num)', wordBreak: 'break-all' }}>{link.replace(/^https?:\/\//, '')}</span>
+              <span style={{ flex: 1, fontSize: 13.5, color: 'var(--ink-2)', fontFamily: 'var(--num)', wordBreak: 'break-all' }}>{link.replace(/^https?:\/\//, '').replace(/#.*$/, '#••••••••••••')}</span>
             </div>
             <button onClick={copyLink} style={{ marginTop: 12, width: '100%', height: 48, borderRadius: 14, border: '1px solid var(--line)', background: copied ? 'var(--accent)' : 'var(--card)', color: copied ? '#fff' : 'var(--ink)', fontSize: 14.5, fontWeight: 600, fontFamily: 'var(--font)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all .15s' }}>
               {copied ? <><Ic.check size={18} /> Kopiert!</> : <><Ic.link size={17} /> Link kopieren</>}
@@ -528,7 +534,7 @@ function PlayersScreen({ go, players, setPlayers, role, family = [] }) {
 // back/resume: aus dem Einrichten kommt man von 'players' und geht danach ins Spiel.
 // Aus einer LAUFENDEN Runde (Zwischenstand) will man nur den QR nochmal sehen und
 // dann zurück — deshalb dort kein "Spiel starten" und keine Schritt-Anzeige.
-function InviteScreen({ go, players, mode, sessionCode, setSessionCode, venueName = VENUE, back = 'players', resume = false }) {
+function InviteScreen({ go, players, mode, sessionCode, setSessionCode, venueName = VENUE, holes = null, back = 'players', resume = false }) {
   const { Screen, AppHeader, Body, Footer, Btn, Steps, QRCode, Avatar } = UI;
   const [code, setCode] = useStateOB(sessionCode || null);
   const [claimed, setClaimed] = useStateOB({});
@@ -541,7 +547,7 @@ function InviteScreen({ go, players, mode, sessionCode, setSessionCode, venueNam
     if (code || creatingRef.current) return;
     creatingRef.current = true;
     ACC.API.createSession({
-      mode: mode || 'sequential', venue: venueName,
+      mode: mode || 'sequential', venue: venueName, holes: holes || undefined,
       players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '', account_id: p.account_id || null })),
     }).then(sess => { setCode(sess.code); setSessionCode && setSessionCode(sess.code); })
       .catch(() => setErr(true));
@@ -650,6 +656,20 @@ function InviteScreen({ go, players, mode, sessionCode, setSessionCode, venueNam
 function JoinScreen({ go, players, setMe, sessionCode, account = null }) {
   const { Screen, Body, Footer, Btn, Avatar } = UI;
   const [sel, setSel] = useStateOB(null);
+  const [busy, setBusy] = useStateOB(false);
+  const [err, setErr] = useStateOB('');
+  // Die Liste frisch halten: wer hier laenger steht, sah frueher einen alten
+  // Stand, waehlte einen inzwischen vergebenen Platz — und spielte dann eine
+  // ganze Runde, von der nichts beim Server ankam.
+  const [live, setLive] = useStateOB(null);
+  useEffectOB(() => {
+    if (!sessionCode) return;
+    let alive = true;
+    const tick = () => ACC.API.getSession(sessionCode).then(sess => { if (alive && sess && sess.players) setLive(sess.players); }).catch(() => {});
+    const iv = setInterval(tick, 3000);
+    return () => { alive = false; clearInterval(iv); };
+  }, [sessionCode]);
+  if (live) players = players.map(p => { const l = live.find(x => String(x.id) === String(p.id)); return l ? { ...p, claimed: !!l.claimed, account_id: l.account_id || p.account_id } : p; });
   const myName = account && account.name ? account.name.toLowerCase() : null;
   const myAccId = account && account.id ? String(account.id) : null;
   // Ein Slot, den ich selbst (mit meinem Konto) belegt habe, darf ich wieder
@@ -666,10 +686,19 @@ function JoinScreen({ go, players, setMe, sessionCode, account = null }) {
     if (mine) setSel(mine.id);
   }, [myName, myAccId, players]);
   const enter = () => {
-    if (sel == null) return;
-    if (sessionCode) ACC.API.sessionClaim(sessionCode, sel, account && account.avatar, account && account.id).catch(() => {});
-    setMe && setMe(sel);
-    go('game');
+    if (sel == null || busy) return;
+    const drin = () => { setMe && setMe(sel); go('game'); };
+    if (!sessionCode) { drin(); return; }
+    // Erst belegen, dann eintreten. Sagt der Server "schon vergeben" (409),
+    // bleibt man hier und waehlt neu. Bei einem Funkloch geht es trotzdem
+    // weiter — der erste Schlag holt das Belegen dann nach.
+    setBusy(true); setErr('');
+    ACC.API.sessionClaim(sessionCode, sel, account && account.avatar, account && account.id)
+      .then(drin)
+      .catch(e => {
+        if (/ 409$/.test(String(e && e.message))) { setBusy(false); setSel(null); setErr('Dieser Platz ist gerade vergeben worden. Wähl bitte einen anderen.'); }
+        else drin();
+      });
   };
   return (
     <Screen>
@@ -703,7 +732,8 @@ function JoinScreen({ go, players, setMe, sessionCode, account = null }) {
         </div>
       </Body>
       <Footer>
-        <Btn kind="primary" disabled={sel == null} onClick={enter} iconR={<Ic.arrowR size={20} />}>Eintreten</Btn>
+        {err && <div style={{ fontSize: 13, color: 'var(--bad)', textAlign: 'center', marginBottom: 10 }}>{err}</div>}
+        <Btn kind="primary" disabled={sel == null || busy} onClick={enter} iconR={<Ic.arrowR size={20} />}>Eintreten</Btn>
       </Footer>
     </Screen>
   );

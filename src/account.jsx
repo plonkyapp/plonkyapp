@@ -2,10 +2,36 @@
 const { useState: useAcS, useEffect: useAcE, useRef: useAcR } = React;
 
 // ── storage ───────────────────────────────────────────────
+// Der ganze Stand des Geraets liegt in EINEM Eintrag, und app.jsx schreibt ihn
+// bei jeder Aenderung komplett neu. Mit zwei offenen Tabs heisst das: der Tab,
+// der zuletzt schreibt, gewinnt — auch wenn er den aelteren Stand im Speicher
+// hat. So schrieb ein alter Tab einen laengst erneuerten Zugang zurueck oder
+// loeschte das Lesezeichen einer Runde, die im anderen Tab lief.
+// Deshalb traegt der Eintrag eine Zaehlnummer (rev). Ein Tab schreibt nur,
+// wenn er den aktuellen Stand kennt. Sonst laedt er neu und uebernimmt ihn.
 const STORE = {
   KEY: 'plonky.v1',
+  rev: null,       // der Stand, den DIESER Tab kennt (gesetzt von open())
+  frozen: false,   // true: der Tab laedt gleich neu — nichts mehr schreiben
   load() { try { return JSON.parse(localStorage.getItem(this.KEY) || 'null') || {}; } catch (e) { return {}; } },
-  save(d) { try { localStorage.setItem(this.KEY, JSON.stringify(d)); } catch (e) {} },
+  open() { const d = this.load(); this.rev = d.rev || 0; return d; },
+  _write(d) { try { localStorage.setItem(this.KEY, JSON.stringify(d)); return true; } catch (e) { return false; } },
+  reload() { this.frozen = true; try { location.reload(); } catch (e) {} },
+  save(d) {
+    if (this.frozen) return;
+    const cur = this.load().rev || 0;
+    if (this.rev != null && cur !== this.rev) { this.reload(); return; }   // ein anderer Tab war schneller
+    if (this._write(Object.assign({}, d, { rev: cur + 1 })) && this.rev != null) this.rev = cur + 1;
+  },
+  // EIN Feld aendern, auf dem Stand, der gerade gespeichert ist — nicht auf
+  // dem, den dieser Tab im Speicher hat.
+  patch(fields) {
+    if (this.frozen) return;
+    const d = this.load(); const cur = d.rev || 0;
+    const veraltet = this.rev != null && cur !== this.rev;
+    const ok = this._write(Object.assign({}, d, fields, { rev: cur + 1 }));
+    if (veraltet) this.reload(); else if (ok && this.rev != null) this.rev = cur + 1;
+  },
 };
 
 // "Show once" markers. They live OUTSIDE the STORE blob on purpose: app.jsx
@@ -104,7 +130,19 @@ const newRoundKey = () => {
   crypto.getRandomValues(bytes);
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 };
+// Ein Geheimnis, dessen Tausch gerade unterwegs ist (siehe API.rotateSecret).
+const PENDING = {
+  KEY: 'plonky.pending.v1',
+  read() { try { const d = JSON.parse(localStorage.getItem(this.KEY) || 'null'); return d && d.s ? d : null; } catch (e) { return null; } },
+  get() { const d = this.read(); return d ? d.s : ''; },
+  // Wie lange der Tausch schon unterwegs ist. Solange er jung ist, kann die
+  // Anfrage noch beim Server ankommen — dann darf der Wert nicht weg.
+  age() { const d = this.read(); return d ? Date.now() - (d.t || 0) : Infinity; },
+  set(v) { try { localStorage.setItem(this.KEY, JSON.stringify({ s: v, t: Date.now() })); } catch (e) {} },
+  clear() { try { localStorage.removeItem(this.KEY); } catch (e) {} },
+};
 // Kopfzeilen fuer einen Aufruf in einer Runde: was dieses Geraet dort hat.
+const POLLS = {};   // Runden-Code -> Zahl der Abrufe (siehe API.getSession)
 const roundAuth = (code, extra) => {
   const k = ROUNDS.get(code);
   const h = Object.assign({ 'Content-Type': 'application/json' }, extra || {});
@@ -139,11 +177,17 @@ const API = {
   },
   // batch photo lookup: ids -> [{id,name,color,avatar}] (the one place avatars come from)
   async getAccounts(ids) {
-    const list = (ids || []).filter(Boolean);
+    const list = Array.from(new Set((ids || []).filter(Boolean)));
     if (!list.length) return [];
-    const r = await fetch('/api/accounts?ids=' + encodeURIComponent(list.join(',')));
-    if (!r.ok) throw new Error('getAccounts ' + r.status);
-    return r.json();
+    // In Portionen: der Server nimmt hoechstens 25 Nummern pro Abruf, und eine
+    // lange Liste sprengte frueher die Laenge der Adresse (414).
+    const out = [];
+    for (let i = 0; i < list.length; i += 25) {
+      const r = await fetch('/api/accounts?ids=' + encodeURIComponent(list.slice(i, i + 25).join(',')));
+      if (!r.ok) throw new Error('getAccounts ' + r.status);
+      out.push(...(await r.json()));
+    }
+    return out;
   },
   async saveAccount(account, crew) {
     // Das Geheimnis reist in der Kopfzeile, NIE im Rumpf — der Rumpf landet
@@ -172,13 +216,71 @@ const API = {
     if (!r.ok) throw new Error('resolveAccount ' + r.status);
     return r.json();
   },
+  // Zugang erneuern: neues Geheimnis erzeugen, beim Server eintauschen, dann
+  // erst lokal uebernehmen. Der alte Link ist danach wertlos.
+  // Der neue Wert wird VOR dem Absenden als "unterwegs" gemerkt (PENDING) und
+  // bleibt es, bis feststeht, was der Server weiss. Sonst genuegt eine
+  // verlorene Antwort — und danach ein zweiter Tipp auf "Erneuern" —, um das
+  // Geraet fuer immer auszusperren: der Server kennt dann nur ein Geheimnis,
+  // das nirgends mehr gespeichert ist.
+  // Liefert das Geheimnis, das jetzt gilt. Der Aufrufer speichert es und
+  // raeumt PENDING erst DANACH.
+  async rotateSecret(myId) {
+    const gilt = async (sec) => {
+      const acc = await this.resolveAccount(sec);            // wirft, wenn offline
+      return !!(acc && acc.id && (!myId || String(acc.id) === String(myId)));
+    };
+    // 1. Ein frueherer Versuch ist noch offen: erst klaeren, nichts Neues erzeugen.
+    const offen = PENDING.get();
+    if (offen) {
+      if (await gilt(offen)) return offen;                   // der Tausch war durch
+      if (PENDING.age() < 120000) throw new Error('rotate unterwegs');  // kann noch ankommen
+      PENDING.clear();
+    }
+    // 2. Neuer Tausch.
+    const neu = newAccountSecret();
+    PENDING.set(neu);
+    let status = 0;
+    try {
+      const r = await fetch('/api/account/rotate', { method: 'POST', headers: auth({ 'Content-Type': 'application/json' }), body: JSON.stringify({ new_secret: neu }) });
+      if (r.ok) return neu;
+      status = r.status;
+    } catch (e) { status = 0; }
+    // 3. Keine saubere Zusage. Nachsehen, ob der Server den neuen Wert kennt.
+    //    Ist er nicht erreichbar, bleibt PENDING stehen (naechster Start klaert es).
+    if (await gilt(neu)) return neu;
+    // Erreichbar und unbekannt. Hat der Server ausdruecklich abgelehnt, ist der
+    // Versuch erledigt; ging nur die Leitung verloren, kann er noch ankommen.
+    if (status) PENDING.clear();
+    throw new Error('rotate ' + status);
+  },
+  async deleteAccount() {
+    const r = await fetch('/api/account', { method: 'DELETE', headers: auth() });
+    if (!r.ok) throw new Error('deleteAccount ' + r.status);
+    return r.json();
+  },
+  // als Teilnehmer eine Runde aus dem eigenen Verlauf nehmen
+  async leaveGame(gameId) {
+    const r = await fetch('/api/games/' + encodeURIComponent(gameId) + '/leave', { method: 'POST', headers: auth({ 'Content-Type': 'application/json' }) });
+    if (!r.ok) throw new Error('leaveGame ' + r.status);
+    return r.json();
+  },
+  // Posteingang: Schluessel in der Kopfzeile gegen eine Sitzung tauschen
+  async feedbackLogin(key) {
+    const r = await fetch('/fb/login', { method: 'POST', headers: { 'X-Plonky-Key': key }, credentials: 'same-origin' });
+    if (!r.ok) throw new Error('feedbackLogin ' + r.status);
+    return r.json();
+  },
   async createSession(session) {
     // Gastgeber-Schluessel: hier erzeugt, mitgeschickt, und unter dem Code
     // gemerkt, den der Server zurueckgibt.
     const host = newRoundKey();
     const r = await fetch('/api/session', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Plonky-Host': host },
+      // auth(): der Gastgeber weist sein Konto gleich beim Eroeffnen nach. Nur
+      // dann gilt er dem Server als nachweislich dabei — und nur dann landen
+      // die Mitspieler spaeter als Teilnehmer in der gespeicherten Runde.
+      headers: auth({ 'Content-Type': 'application/json', 'X-Plonky-Host': host }),
       body: JSON.stringify(session),
     });
     if (!r.ok) throw new Error('createSession ' + r.status);
@@ -187,8 +289,13 @@ const API = {
     return sess;
   },
   async getSession(code, full = false) {
-    // full=true also returns player photos (used once on join); the score-poll
-    // omits them to stay lean.
+    // full=true bringt die Fotos mit (beim Beitreten). Der Abgleich alle drei
+    // Sekunden laesst sie weg — sonst waeren das bei fuenf Spielern ueber
+    // 70 MB mobile Daten pro Stunde. Damit ein neu gesetztes Foto trotzdem bei
+    // allen ankommt, holt jeder zehnte Abruf (alle 30 s) sie nach.
+    const key = String(code || '').toUpperCase();
+    POLLS[key] = (POLLS[key] || 0) + 1;
+    if (!full && POLLS[key] % 10 === 0) full = true;
     const r = await fetch('/api/session/' + encodeURIComponent(code) + (full ? '?full=1' : ''));
     if (r.status === 404) return null;
     if (!r.ok) throw new Error('getSession ' + r.status);
@@ -204,12 +311,19 @@ const API = {
     // 403 als Beigetretener heisst: der Server kennt meinen Platz-Schluessel
     // (noch) nicht — etwa weil das Belegen im Funkloch verloren ging. Einmal
     // nachholen und den Schlag erneut schicken, statt ihn still zu verlieren.
-    if (r.status === 403 && !ROUNDS.get(code).host) {
+    // Nur fuer den EIGENEN Platz: sonst belegte ein Geraet, das eine Runde
+    // bloss geoeffnet hat, mit dem ersten Tipp irgendeinen fremden Platz.
+    if (r.status === 403 && !ROUNDS.get(code).host && ROUNDS.get(code).pid === String(playerId)) {
+      let fehler = null;
       try {
         const me = (STORE.load().account) || null;
         await API.sessionClaim(code, playerId, me && me.avatar, me && me.id);
         r = await send();
-      } catch (e) {}
+      } catch (e) { fehler = e; }
+      // "platz": der Server hat das Belegen ausdruecklich abgelehnt — der Platz
+      // gehoert jemand anderem. "netz": es kam nur nichts durch; das sagt
+      // nichts ueber den Platz.
+      if (fehler) throw new Error(/ (403|409)$/.test(String(fehler.message)) ? 'sessionScore platz' : 'sessionScore netz');
     }
     if (!r.ok) throw new Error('sessionScore ' + r.status);
     return r.json();
@@ -251,18 +365,25 @@ const API = {
   },
   // host ends the round → all devices show the final winner
   async sessionFinish(code) {
-    const r = await fetch('/api/session/' + encodeURIComponent(code) + '/finish', {
-      method: 'POST',
-      headers: roundAuth(code),
-    });
-    if (!r.ok) throw new Error('sessionFinish ' + r.status);
-    return r.json();
+    // Geht dieser eine Aufruf verloren, erfahren die Mitspieler nie, dass die
+    // Runde vorbei ist. Deshalb bis zu fuenf Versuche mit wachsender Pause.
+    let last = 0;
+    for (let i = 0; i < 5; i++) {
+      try {
+        const r = await fetch('/api/session/' + encodeURIComponent(code) + '/finish', { method: 'POST', headers: roundAuth(code) });
+        if (r.ok) return r.json();
+        last = r.status;
+        if (r.status === 403 || r.status === 404) break;   // nicht der Gastgeber / Runde weg: Wiederholen hilft nicht
+      } catch (e) { last = 0; }
+      await new Promise(res => setTimeout(res, 1500 * (i + 1)));
+    }
+    throw new Error('sessionFinish ' + last);
   },
   // replace the session roster (keeps claimed/scores for ids that already exist)
   async sessionPlayers(code, players) {
     const r = await fetch('/api/session/' + encodeURIComponent(code) + '/players', {
       method: 'POST',
-      headers: roundAuth(code),
+      headers: auth(roundAuth(code)),   // mit Kontonachweis, siehe createSession
       body: JSON.stringify({ players: (players || []).map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '', account_id: p.account_id || null })) }),
     });
     if (!r.ok) throw new Error('sessionPlayers ' + r.status);
@@ -278,7 +399,7 @@ const API = {
     return r.json();
   },
   // Kein Schluessel im Aufruf: die Sitzung steckt im HttpOnly-Cookie, das
-  // /fb/<key> gesetzt hat. Vorher lief das als /api/feedback?key=... — und
+  // /fb#<key> (POST /fb/login) gesetzt hat. Vorher lief das als /api/feedback?key=... — und
   // Query-Parameter landen im Klartext in den Zugriffsprotokollen.
   async listFeedback() {
     const r = await fetch('/fb/daten', { credentials: 'same-origin' });
@@ -300,7 +421,10 @@ const sessionLink = (code) => appOrigin() + '/j/' + code;
 function mergeGames(local, server) {
   const byId = {};
   (local || []).forEach(g => { byId[g.id] = g; });
-  (server || []).forEach(g => { byId[g.id] = { ...byId[g.id], ...g }; }); // keep local-only fields like the round code
+  // Eine lokale Fassung, die den Server noch nicht erreicht hat (unsynced),
+  // gewinnt — sonst macht der naechste Abgleich eine Korrektur rueckgaengig,
+  // deren Speichern im Funkloch gescheitert ist.
+  (server || []).forEach(g => { byId[g.id] = (byId[g.id] && byId[g.id].unsynced) ? { ...g, ...byId[g.id] } : { ...byId[g.id], ...g }; }); // keep local-only fields like the round code
   return Object.values(byId).sort((a, b) => (a.date || 0) - (b.date || 0));
 }
 
@@ -315,7 +439,8 @@ const fmtShort = (ts) => new Date(ts).toLocaleDateString('de-CH', { day: 'numeri
 const aPar = h => GAME.PARS[(h - 1) % GAME.PARS.length];
 function aTotals(p) {
   let strokes = 0, played = 0, pp = 0;
-  for (let h = 1; h <= 18; h++) { const v = p.scores[h]; if (v > 0) { strokes += v; played++; pp += aPar(h); } }
+  // ueber die Bahnen, die es in DIESER Runde gibt — nicht fest 18 (es gibt Anlagen mit 36)
+  Object.keys(p.scores || {}).forEach(k => { const h = +k; const v = p.scores[k]; if (h > 0 && v > 0) { strokes += v; played++; pp += aPar(h); } });
   return { strokes, played, toPar: strokes - pp };
 }
 const aFmtPar = n => n === 0 ? 'Par' : n > 0 ? '+' + n : '' + n;
@@ -376,10 +501,10 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
 
         {activeSession && (confirmDiscard ? (
           <div style={{ marginTop: 12, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 18, padding: '14px 16px' }}>
-            <div style={{ fontSize: 15, fontWeight: 700 }}>Laufende Runde verwerfen?</div>
-            <div style={{ fontSize: 12.5, color: 'var(--ink-2)', margin: '4px 0 12px' }}>Die eingetragenen Schläge gehen verloren.</div>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>{joinedRound ? 'Runde verlassen?' : 'Laufende Runde verwerfen?'}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-2)', margin: '4px 0 12px' }}>{joinedRound ? 'Dein Platz wird wieder frei. Für die anderen läuft die Runde weiter.' : 'Die eingetragenen Schläge gehen verloren.'}</div>
             <div style={{ display: 'flex', gap: 9 }}>
-              <button onClick={() => { setConfirmDiscard(false); onDiscard && onDiscard(); }} style={{ flex: 1, height: 44, borderRadius: 13, border: 'none', background: 'var(--bad)', color: '#fff', fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 700, cursor: 'pointer' }}>Verwerfen</button>
+              <button onClick={() => { setConfirmDiscard(false); onDiscard && onDiscard(); }} style={{ flex: 1, height: 44, borderRadius: 13, border: 'none', background: 'var(--bad)', color: '#fff', fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 700, cursor: 'pointer' }}>{joinedRound ? 'Verlassen' : 'Verwerfen'}</button>
               <button onClick={() => setConfirmDiscard(false)} style={{ flex: 1, height: 44, borderRadius: 13, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)', fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 600, cursor: 'pointer' }}>Abbrechen</button>
             </div>
           </div>
@@ -400,7 +525,8 @@ function HomeScreen({ account, family, history, go, openGame, newGame, scanEnabl
             </button>
             {/* Only the HOST may discard the round. A joiner / Sub-Konto just dives
                 back in; it's not her round to delete — so no trash button at all. */}
-            {!joinedRound && <button onClick={() => setConfirmDiscard(true)} title="Runde verwerfen" style={{ width: 52, flexShrink: 0, borderRadius: 18, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><Ic.trash size={20} /></button>}
+            {/* Auch wer beigetreten ist, kommt hier heraus — vorher hing er fest, bis der Gastgeber beendete. */}
+            {<button onClick={() => setConfirmDiscard(true)} title={joinedRound ? 'Runde verlassen' : 'Runde verwerfen'} style={{ width: 52, flexShrink: 0, borderRadius: 18, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><Ic.trash size={20} /></button>}
           </div>
         ))}
 
@@ -510,11 +636,13 @@ function HistoryScreen({ history, go, openGame, account = null, family = [] }) {
 }
 
 // ── History detail (scorecard, editable) ──────────────────
-function HistoryDetailScreen({ game, go, from, onSave, account = null, family = [], nameOf = (x) => x.name }) {
+function HistoryDetailScreen({ game, go, from, onSave, onRemove, account = null, family = [], nameOf = (x) => x.name }) {
   const { Screen, AppHeader, Body, Avatar } = UI;
   const [editing, setEditing] = useAcS(false);
   const [draft, setDraft] = useAcS({});   // { [pid]: { [hole]: strokes } } while editing
   const [sel, setSel] = useAcS(null);     // { pid, hole } selected cell
+  const [askRemove, setAskRemove] = useAcS(false);
+  const freshCellRef = useAcR(true);
   if (!game) return <Screen><AppHeader title="Spiel" onBack={() => go(from)} /></Screen>;
   // Bahnenzahl aus dem Spiel selbst (Anlagen im Verlauf können sich unterscheiden):
   // erst die Anlage per Name nachschlagen, sonst die höchste gespielte Bahn, sonst 18.
@@ -533,7 +661,6 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
   const startEdit = () => { const d = {}; game.players.forEach(p => { d[p.id] = { ...p.scores }; }); setDraft(d); setSel(null); setEditing(true); };
   // Erste Ziffer nach Zell-Auswahl ERSETZT den Wert, eine zweite hängt an (1 → 15, max 99); 0 = leeren.
   // Das Flag wird synchron beim Zell-Klick gesetzt (pickCell), nicht per Effekt — zuverlässig.
-  const freshCellRef = useAcR(true);
   const pickCell = (pid, hole) => { freshCellRef.current = true; setSel({ pid, hole }); };
   const setCell = (val) => {
     if (!sel) return;
@@ -610,6 +737,22 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
             </div>
           ))}
         </div>
+        {/* Eine Runde, die jemand anderes gespeichert hat, landet ungefragt im
+            eigenen Verlauf. Hier wird man sie wieder los. */}
+        {!editing && onRemove && game.mine === false && (
+          <div style={{ textAlign: 'center', marginTop: 18 }}>
+            {!askRemove
+              ? <button onClick={() => setAskRemove(true)} style={{ border: 'none', background: 'transparent', color: 'var(--ink-3)', fontFamily: 'var(--font)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Aus meinem Verlauf entfernen</button>
+              : <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '14px 16px', textAlign: 'left' }}>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>Runde aus deinem Verlauf entfernen?</div>
+                  <div style={{ fontSize: 12.5, color: 'var(--ink-2)', margin: '4px 0 12px', lineHeight: 1.45 }}>Bei den anderen bleibt sie stehen. Bei dir verschwindet sie.</div>
+                  <div style={{ display: 'flex', gap: 9 }}>
+                    <button onClick={() => onRemove(game)} style={{ flex: 1, height: 44, borderRadius: 13, border: 'none', background: 'var(--bad)', color: '#fff', fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 700, cursor: 'pointer' }}>Entfernen</button>
+                    <button onClick={() => setAskRemove(false)} style={{ flex: 1, height: 44, borderRadius: 13, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)', fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 700, cursor: 'pointer' }}>Abbrechen</button>
+                  </div>
+                </div>}
+          </div>
+        )}
       </Body>
       {editing && (
         <div style={{ flexShrink: 0, borderTop: '1px solid var(--line)', background: 'var(--card)', padding: '10px 16px 22px' }}>
@@ -627,16 +770,33 @@ function HistoryDetailScreen({ game, go, from, onSave, account = null, family = 
 }
 
 // ── Settings ──────────────────────────────────────────────
-function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto, go, logout, defaultMode, setDefaultMode, autoCrew, setAutoCrew, companion = false, openLegal, openFeedback, openFaq }) {
+function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto, onRotate, onDeleteAccount, go, logout, defaultMode, setDefaultMode, autoCrew, setAutoCrew, companion = false, openLegal, openFeedback, openFaq }) {
   const { Screen, AppHeader, Body, Avatar, AV_COLORS } = UI;
   const [editId, setEditId] = useAcS(null);
   const [confirmDel, setConfirmDel] = useAcS(null); // Mitglied-ID, für die die Lösch-Abfrage offen ist
   const [newName, setNewName] = useAcS('');
   const [copied, setCopied] = useAcS(false);
   const fullLink = account.id ? accountLink() : '';
-  const link = fullLink.replace(/^https?:\/\//, '');
+  // Angezeigt wird der Link OHNE das Geheimnis. Der Link IST der Zugang — ein
+  // Bildschirmfoto der Einstellungen haette ihn sonst komplett enthalten.
+  // Kopieren und Senden benutzen weiterhin den echten.
+  const link = fullLink.replace(/^https?:\/\//, '').replace(/#.*$/, '#••••••••••••');
+  const [ask, setAsk] = useAcS(null);      // 'rotate' | 'logout' | 'delete'
+  const [busy, setBusy] = useAcS(false);
+  const [note, setNote] = useAcS('');
+  const run = (fn, okNote) => { if (busy || !fn) return; setBusy(true); Promise.resolve(fn()).then(() => { setAsk(null); setNote(okNote || ''); }).catch(() => setNote('Das hat nicht geklappt — bist du online?')).finally(() => setBusy(false)); };
+  const askBox = { marginTop: 10, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '14px 16px' };
+  const askBtn = (bad) => ({ flex: 1, height: 44, borderRadius: 13, border: bad ? 'none' : '1px solid var(--line)', background: bad ? 'var(--bad)' : 'var(--card)', color: bad ? '#fff' : 'var(--ink-2)', fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 700, cursor: 'pointer' });
+  const textBtn = { border: 'none', background: 'transparent', color: 'var(--accent)', fontWeight: 600, fontSize: 12.5, cursor: 'pointer', fontFamily: 'var(--font)', padding: 0 };
 
-  const copy = () => { if (!fullLink) return; try { navigator.clipboard.writeText(fullLink); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1600); };
+  // "kopiert" erst melden, wenn es wirklich geklappt hat — vor dem Abmelden
+  // haengt daran, ob man je wieder ins Konto kommt.
+  const copy = () => {
+    if (!fullLink) return;
+    const ja = () => { setCopied(true); setTimeout(() => setCopied(false), 1600); };
+    const nein = () => setNote('Kopieren hat nicht geklappt. Nutz „Link senden" oder halt den Finger auf den Link.');
+    try { navigator.clipboard.writeText(fullLink).then(ja, nein); } catch (e) { nein(); }
+  };
   const canShare = typeof navigator !== 'undefined' && !!navigator.share;
   const shareLink = () => { if (!fullLink) return; if (navigator.share) navigator.share({ title: 'Mein plonky', text: 'Mein plonky-Zugangslink', url: fullLink }).catch(() => {}); else copy(); };
   const addMember = () => { const n = newName.trim(); if (!n) return; setFamily(f => [...f, { id: Date.now(), name: n, color: AV_COLORS[f.length % AV_COLORS.length] }]); setNewName(''); };
@@ -692,7 +852,19 @@ function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto,
           <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent)' }}>{copied ? '✓ Kopiert' : 'Kopieren'}</span>
         </button>
         {canShare && <button onClick={shareLink} style={{ width: '100%', marginTop: 8, cursor: 'pointer', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 14, padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'var(--font)', fontSize: 14.5, fontWeight: 700 }}><Ic.link size={18} color="#fff" /> Link senden</button>}
-        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 7, lineHeight: 1.4 }}>Per „Link senden" schickst du ihn dir selbst (WhatsApp, SMS, Mail) — oder „Kopieren" und als Lesezeichen speichern. Öffnet immer dein Konto, kein Passwort.</div>
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 7, lineHeight: 1.4 }}>Per „Link senden" schickst du ihn dir selbst (WhatsApp, SMS, Mail) — oder „Kopieren" und als Lesezeichen speichern. Öffnet immer dein Konto, kein Passwort. <b>Gib ihn nicht weiter:</b> wer ihn hat, hat dein Konto.{' '}
+          {onRotate && <button onClick={() => { setNote(''); setAsk('rotate'); }} style={textBtn}>Link erneuern</button>}</div>
+        {note && <div style={{ fontSize: 12.5, color: 'var(--ink-2)', marginTop: 8 }}>{note}</div>}
+        {ask === 'rotate' && (
+          <div style={askBox}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Zugangslink erneuern?</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-2)', margin: '4px 0 12px', lineHeight: 1.45 }}>Der bisherige Link gilt danach nicht mehr — auch nicht auf deinen anderen Geräten. Dort öffnest du einmal den neuen.</div>
+            <div style={{ display: 'flex', gap: 9 }}>
+              <button onClick={() => run(onRotate, 'Neuer Link ist aktiv. Kopier ihn dir gleich.')} style={askBtn(true)}>{busy ? '…' : 'Erneuern'}</button>
+              <button onClick={() => setAsk(null)} style={askBtn(false)}>Abbrechen</button>
+            </div>
+          </div>
+        )}
 
         {!companion && (<>
         {/* family management */}
@@ -781,7 +953,30 @@ function SettingsScreen({ account, setAccount, family, setFamily, onMemberPhoto,
           <Ic.chevR size={18} color="var(--ink-3)" />
         </a>
 
-        <button onClick={logout} style={{ width: '100%', marginTop: 16, height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'transparent', color: 'var(--bad)', fontFamily: 'var(--font)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Konto abmelden</button>
+        <button onClick={() => { setNote(''); setAsk(ask === 'logout' ? null : 'logout'); }} style={{ width: '100%', marginTop: 16, height: 50, borderRadius: 14, border: '1px solid var(--line)', background: 'transparent', color: 'var(--bad)', fontFamily: 'var(--font)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Konto abmelden</button>
+        {ask === 'logout' && (
+          <div style={askBox}>
+            {/* Abmelden vergisst den Zugang auf diesem Geraet. Ohne Link gibt es keinen Weg zurueck. */}
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Wirklich abmelden?</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-2)', margin: '4px 0 12px', lineHeight: 1.45 }}>Dieses Gerät vergisst dein Konto. Zurück kommst du <b>nur mit deinem Zugangslink</b> — hast du ihn gespeichert?</div>
+            <button onClick={copy} style={{ ...askBtn(false), width: '100%', flex: 'none', marginBottom: 9, color: 'var(--accent)' }}>{copied ? '✓ Link kopiert' : 'Link jetzt kopieren'}</button>
+            <div style={{ display: 'flex', gap: 9 }}>
+              <button onClick={logout} style={askBtn(true)}>Abmelden</button>
+              <button onClick={() => setAsk(null)} style={askBtn(false)}>Abbrechen</button>
+            </div>
+          </div>
+        )}
+        {onDeleteAccount && account.id && <div style={{ textAlign: 'center', marginTop: 12 }}><button onClick={() => { setNote(''); setAsk(ask === 'delete' ? null : 'delete'); }} style={{ ...textBtn, color: 'var(--ink-3)' }}>Konto löschen</button></div>}
+        {ask === 'delete' && (
+          <div style={askBox}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Konto endgültig löschen?</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-2)', margin: '4px 0 12px', lineHeight: 1.45 }}>Dein Profil, dein Foto, deine Crew und deine gespeicherten Runden werden gelöscht — auf dem Server und auf diesem Gerät. Das lässt sich nicht rückgängig machen.</div>
+            <div style={{ display: 'flex', gap: 9 }}>
+              <button onClick={() => run(onDeleteAccount)} style={askBtn(true)}>{busy ? '…' : 'Endgültig löschen'}</button>
+              <button onClick={() => setAsk(null)} style={askBtn(false)}>Abbrechen</button>
+            </div>
+          </div>
+        )}
         <button onClick={() => (openLegal ? openLegal() : go('legal'))} style={{ width: '100%', marginTop: 10, marginBottom: 10, height: 44, borderRadius: 14, border: 'none', background: 'transparent', color: 'var(--ink-3)', fontFamily: 'var(--font)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Hinweise &amp; Datenschutz</button>
 
         {photoAsk && (
@@ -830,6 +1025,7 @@ function FeedbackScreen({ go, account, back = 'home' }) {
   const [contact, setContact] = useAcS('');
   const [busy, setBusy] = useAcS(false);
   const [sent, setSent] = useAcS(false);
+  const [failed, setFailed] = useAcS(false);
   const hasContent = !!(rating || recommend || appWant || appPrice || liked.trim() || missing.trim() || msg.trim());
   const send = () => {
     if (!hasContent || busy) return;
@@ -849,10 +1045,22 @@ function FeedbackScreen({ go, account, back = 'home' }) {
       rating: rating || null,
       message: lines.join('\n'),
       contact: contact.trim(),
-      name: (account && account.name) || '',
-      account_id: (account && account.id) || null,
-    }).then(() => setSent(true)).catch(() => setSent(true)); // best-effort; thank either way
+      // "Ohne Kontakt ist dein Feedback anonym" — das stimmte nicht, solange
+      // Name und Konto-Nummer immer mitgingen. Die Konto-Nummer geht gar nicht
+      // mehr mit, der Name nur zusammen mit einem Kontakt.
+      name: contact.trim() ? ((account && account.name) || '') : '',
+    }).then(() => setSent(true)).catch(() => { setFailed(true); setBusy(false); });
   };
+  if (failed && !sent) return (
+    <UI.Screen>
+      <UI.AppHeader title="Feedback" sub="Nicht angekommen" onBack={() => setFailed(false)} />
+      <UI.Body>
+        <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 18, padding: '24px 18px', textAlign: 'center', color: 'var(--ink-2)', fontSize: 14.5, lineHeight: 1.5 }}>
+          Das hat gerade nicht geklappt — vielleicht kein Netz, oder der Text ist zu lang. Tipp auf Zurück und versuch es nochmal.
+        </div>
+      </UI.Body>
+    </UI.Screen>
+  );
   if (sent) return (
     <Screen>
       <AppHeader title="Feedback" onBack={() => go(back)} />
@@ -860,7 +1068,7 @@ function FeedbackScreen({ go, account, back = 'home' }) {
         <div style={{ textAlign: 'center', paddingTop: 40, animation: 'fadeUp .4s both' }}>
           <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--accent)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', animation: 'plonkPop .5s both' }}><Ic.check size={42} sw={2.6} /></div>
           <div style={{ fontSize: 21, fontWeight: 700, marginTop: 18 }}>Danke dir!</div>
-          <div style={{ fontSize: 14.5, color: 'var(--ink-2)', marginTop: 8, lineHeight: 1.45, padding: '0 12px' }}>Deine Rückmeldung ist angekommen und hilft uns, PLONKY besser zu machen.</div>
+          <div style={{ fontSize: 14.5, color: 'var(--ink-2)', marginTop: 8, lineHeight: 1.45, padding: '0 12px' }}>Deine Rückmeldung ist angekommen und hilft uns, plonky besser zu machen.</div>
         </div>
       </Body>
       <Footer><Btn kind="primary" onClick={() => go(back)} iconR={<Ic.arrowR size={20} />}>Zurück</Btn></Footer>
@@ -885,7 +1093,7 @@ function FeedbackScreen({ go, account, back = 'home' }) {
           ))}
         </div>
 
-        <label style={fieldLabel}>Würdest du PLONKY weiterempfehlen?</label>
+        <label style={fieldLabel}>Würdest du plonky weiterempfehlen?</label>
         <div style={{ display: 'flex', gap: 8 }}>
           {FB_REC.map(([v, l]) => (
             <button key={v} onClick={() => setRecommend(recommend === v ? '' : v)} style={segBtn(recommend === v)}>{l}</button>
@@ -913,7 +1121,7 @@ function FeedbackScreen({ go, account, back = 'home' }) {
         <input value={missing} onChange={e => setMissing(e.target.value)} placeholder="z.B. eine Funktion, ein Fehler …" style={fieldInput} />
 
         <label style={fieldLabel}>Deine Nachricht (frei)</label>
-        <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Schreib uns einfach, was du magst …"
+        <textarea value={msg} maxLength={3000} onChange={e => setMsg(e.target.value)} placeholder="Schreib uns einfach, was du magst …"
           style={{ ...fieldInput, height: 'auto', minHeight: 110, padding: '13px 15px', fontSize: 15.5, resize: 'vertical', lineHeight: 1.45 }} />
 
         <label style={fieldLabel}>Kontakt (optional)</label>
@@ -925,7 +1133,7 @@ function FeedbackScreen({ go, account, back = 'home' }) {
   );
 }
 
-// ── Feedback inbox (private, opened via /fb/<key>) ────────
+// ── Feedback inbox (private, opened via /fb#<key>) ────────
 function FeedbackInbox({ items, go }) {
   const { Screen, AppHeader, Body } = UI;
   return (
@@ -934,7 +1142,7 @@ function FeedbackInbox({ items, go }) {
       <Body>
         {!items ? (
           <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 18, padding: '24px 18px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 14, lineHeight: 1.5 }}>
-            Keine Sitzung. Entweder ist sie abgelaufen — sie hält 12 Stunden — oder der Link stimmt nicht. Zum Anmelden den Schlüssel-Link <code>/fb/&lt;FEEDBACK_KEY&gt;</code> öffnen.
+            Keine Sitzung. Entweder ist sie abgelaufen — sie hält 12 Stunden — oder der Link stimmt nicht. Zum Anmelden <code>/fb#&lt;FEEDBACK_KEY&gt;</code> öffnen — der Schlüssel steht hinter dem #.
           </div>
         ) : items.length === 0 ? (
           <div style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: 14, padding: '34px 0' }}>Noch kein Feedback.</div>
@@ -958,4 +1166,4 @@ function FeedbackInbox({ items, go }) {
   );
 }
 
-window.ACC = { STORE, ROUNDS, API, newAccountId, newAccountSecret, newGameId, setSecret, getSecret, accountLink, sessionLink, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, FeedbackScreen, FeedbackInbox, aTotals, fmtDate, fmtShort };
+window.ACC = { STORE, ROUNDS, PENDING, API, newAccountId, newAccountSecret, newGameId, setSecret, getSecret, accountLink, sessionLink, mergeGames, HomeScreen, HistoryScreen, HistoryDetailScreen, SettingsScreen, FeedbackScreen, FeedbackInbox, aTotals, fmtDate, fmtShort };
