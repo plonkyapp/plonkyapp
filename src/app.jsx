@@ -63,6 +63,7 @@ function App() {
   const gameSavedRef = useAR(false);
   const startAfterVenueRef = useAR(false); // "Spiel starten" ohne Anlage → erst Wo-spielst-du, nach der Wahl direkt ins Spiel
   const soloSessionRef = useAR(false); // guards one-time session creation for a solo "ich tippe für alle" game
+  const accountSaveRef = useAR(null);  // laufendes Anlegen des Kontos (die Solo-Runde wartet darauf)
   const pendingAvatarRef = useAR(new Set()); // account ids whose photo is being saved — a fetch must not overwrite them
   // Erst wenn der Stand des Servers uebernommen ist, darf dieses Geraet seinen
   // eigenen hochschieben — sonst ueberschreibt ein altes Geraet beim Oeffnen,
@@ -506,8 +507,15 @@ function App() {
     // Erst das Konto, DANN die Verknuepfung des Platzes: der Server verknuepft
     // nur noch ein Konto, dessen Zugang der Aufrufer nachweist — dazu muss es
     // dort schon existieren.
-    ACC.API.saveAccount(acc, me != null ? undefined : family).catch(() => {})
-      .then(() => { if (me != null && sessionCode) return ACC.API.sessionClaim(sessionCode, me, acc.avatar, acc.id); })
+    const gespeichert = ACC.API.saveAccount(acc, me != null ? undefined : family).catch(() => {});
+    accountSaveRef.current = gespeichert;
+    // Auch der GASTGEBER weist sein frisches Konto in der laufenden Runde nach
+    // (mit Gastgeber-Schluessel + Geheimnis). Ohne das kennt der Server ihn dort
+    // nie: keine Teilnehmer in der gespeicherten Runde, und Name/Foto der Gaeste
+    // waeren fuer ihn spaeter nicht sichtbar.
+    const platz = me != null ? me : (players[0] && players[0].id);
+    gespeichert
+      .then(() => { if (sessionCode && platz != null) return ACC.API.sessionClaim(sessionCode, platz, acc.avatar, acc.id); })
       .catch(() => {});
   }, [hydrated, screen, account, me, players.length, sessionCode]);
 
@@ -516,7 +524,9 @@ function App() {
   useAE(() => {
     if (!hydrated || sessionCode || screen !== 'game' || me != null || !account || !players.length || soloSessionRef.current) return;
     soloSessionRef.current = true;
-    ACC.API.createSession({ mode: mode || 'sequential', venue: (venue && venue.name) || '', holes: (venue && venue.holes) || undefined, players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '', account_id: p.account_id || null })) })
+    // Erst wenn das eben angelegte Konto auf dem Server ist: sonst kommt die
+    // Runde dort vor dem Konto an, und der Gastgeber gilt nicht als ausgewiesen.
+    Promise.resolve(accountSaveRef.current).catch(() => {}).then(() => ACC.API.createSession({ mode: mode || 'sequential', venue: (venue && venue.name) || '', holes: (venue && venue.holes) || undefined, players: players.map(p => ({ id: p.id, name: p.name, color: p.color, scores: p.scores || {}, avatar: p.avatar || '', account_id: p.account_id || null })) }))
       .then(sess => setSessionCode(sess.code))
       // Gescheitert (Funkloch): in ein paar Sekunden nochmal. Sonst lebt die
       // Runde nur im Arbeitsspeicher dieses Tabs.
@@ -556,13 +566,13 @@ function App() {
     if (account && account.id) ids.delete(account.id);
     const list = [...ids];
     if (!list.length) return;
-    ACC.API.getAccounts(list)
+    ACC.API.getAccounts(list, sessionCode)
       .then(accs => {
         setAvatars(prev => { const next = { ...prev }; (accs || []).forEach(a => { if (!pendingAvatarRef.current.has(a.id)) next[a.id] = a.avatar || ''; }); return next; });
         setLiveNames(prev => { const next = { ...prev }; (accs || []).forEach(a => { if (a.name) next[a.id] = a.name; }); return next; });
       })
       .catch(() => {});
-  }, [hydrated, screen, family.length, history.length, players.length]);
+  }, [hydrated, screen, family.length, history.length, players.length, sessionCode]);
 
   useAE(() => { document.documentElement.style.setProperty('--accent', t.accent); }, [t.accent]);
   // Bahnenzahl im Spiel folgt der aktiven Anlage (Backstop; Spielstart-Pfade setzen es zusätzlich synchron)

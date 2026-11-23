@@ -210,23 +210,31 @@ const API = {
     if (!r.ok) throw new Error('save ' + r.status);
     return r.json();
   },
-  // Mit Geheimnis liefert der Server das ganze Konto (inkl. Crew), ohne nur
-  // Name, Farbe und Foto — das, was Mitspieler sehen duerfen.
+  // Das eigene Konto kommt ganz (inkl. Crew). Ein fremdes nur, wenn der Server
+  // eine nachgewiesene Beziehung kennt (zusammen gespielt) — dann Name, Farbe
+  // und Foto. Sonst 403: das Konto gibt es, aber nicht fuer uns -> undefined.
+  // null heisst weiterhin "geloescht" (404).
   async getAccount(accountId) {
     const r = await fetch('/api/account/' + encodeURIComponent(accountId), { headers: auth() });
     if (r.status === 404) return null;
+    if (r.status === 403) return undefined;
     if (!r.ok) throw new Error('account ' + r.status);
     return r.json();
   },
   // batch photo lookup: ids -> [{id,name,color,avatar}] (the one place avatars come from)
-  async getAccounts(ids) {
+  // Der Server gibt nur her, was wir sehen duerfen: Konten, mit denen wir
+  // nachweislich gespielt haben (ueber unser Geheimnis), und die Plaetze der
+  // laufenden Runde (ueber deren Code in der Kopfzeile — auch ohne Konto).
+  // Was fehlt, fehlt still: dann bleibt das zuletzt bekannte Bild oder die Initiale.
+  async getAccounts(ids, roundCode) {
     const list = Array.from(new Set((ids || []).filter(Boolean)));
     if (!list.length) return [];
     // In Portionen: der Server nimmt hoechstens 25 Nummern pro Abruf, und eine
     // lange Liste sprengte frueher die Laenge der Adresse (414).
     const out = [];
     for (let i = 0; i < list.length; i += 25) {
-      const r = await fetch('/api/accounts?ids=' + encodeURIComponent(list.slice(i, i + 25).join(',')));
+      const r = await fetch('/api/accounts?ids=' + encodeURIComponent(list.slice(i, i + 25).join(',')),
+        { headers: auth(roundCode ? { 'X-Plonky-Round': roundCode } : {}) });
       if (!r.ok) throw new Error('getAccounts ' + r.status);
       out.push(...(await r.json()));
     }

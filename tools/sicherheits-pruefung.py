@@ -4,6 +4,7 @@ import json, sys, urllib.request, urllib.error, base64
 B = sys.argv[1].rstrip('/')
 ADMIN = sys.argv[2] if len(sys.argv) > 2 else ''     # Schluessel des Testservers
 FBKEY = sys.argv[3] if len(sys.argv) > 3 else ''
+SQLITE = sys.argv[4] if len(sys.argv) > 4 else ''    # Datei der Test-Datenbank (nur SQLite): fuer Altbestand-Faelle
 class _KeineUmleitung(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *a, **k): return None
 OPENER = urllib.request.build_opener(_KeineUmleitung)
@@ -50,7 +51,7 @@ st, a = call('POST', '/api/account', {'id': A, 'name': 'Anna B.'}, SA); check('N
 st, a = call('GET', '/api/account/' + A, secret=SA); check('eigenes Konto voll lesbar', st == 200 and 'crew' in a and a['avatar'] == FOTO)
 st, a = call('POST', '/api/account', {'id': A, 'avatar': ''}, SA); check('Foto entfernen', st == 200 and a['avatar'] == '')
 st, a = call('POST', '/api/account/resolve', {'secret': SA}); check('persönlicher Link', st == 200 and a['id'] == A)
-st, l = call('GET', '/api/accounts?ids=' + A + ',' + Bb); check('Foto-Sammelabfrage', st == 200 and len(l) == 2)
+st, l = call('GET', '/api/accounts?ids=' + A + ',' + Bb, secret=SA); check('Foto-Sammelabfrage: das eigene Konto, ein fremdes ohne Beziehung nicht', st == 200 and [x['id'] for x in l] == [A], str(l)[:80])
 
 # Teilnehmer wird nur, wer sich in einer Runde des Besitzers SELBST ausgewiesen hat.
 HK0 = 'e5' * 16
@@ -63,6 +64,11 @@ spiel = {'id': 'g1764000000000-ab12cd34ef56ab12', 'account_id': A, 'date': 17640
          'players': [{'id': 'me', 'name': 'Anna', 'color': '#15A35A', 'account_id': A, 'scores': {'1': 2, '2': 3, '18': 7}},
                      {'id': 1764000000000.4567, 'name': 'Gast', 'color': '#2F6FE0', 'avatar': FOTO, 'scores': {'1': 1}}]}
 st, g = call('POST', '/api/games', spiel, SA); check('Runde speichern', st == 200, f'{st} {g}')
+ids3 = '/api/accounts?ids=' + ','.join([A, Bb, C])
+st, l = call('GET', ids3, secret=SA); check('Fotos: Gastgeberin sieht, wer sich bei ihr ausgewiesen hat', st == 200 and sorted(x['id'] for x in l) == sorted([A, Bb, C]), str(l)[:80])
+st, l = call('GET', ids3, secret=SB); check('Fotos: Gast sieht Gastgeberin und — über die gemeinsame gespeicherte Runde — den Mitgast', st == 200 and sorted(x['id'] for x in l) == sorted([A, Bb, C]), str([x['id'][:1] for x in l]))
+st, l = call('GET', ids3, headers={'X-Plonky-Round': R0}); check('Fotos: mit der Runden-Einladung, auch ohne Konto', st == 200 and len(l) == 3, str(l)[:80])
+st, a_ = call('GET', '/api/account/' + Bb, secret=SA); check('Einzelabruf eines Mitspielers: Name und Foto, keine Crew', st == 200 and a_['id'] == Bb and 'crew' not in a_, f'{st}')
 st, l = call('GET', '/api/games', secret=SA, headers={'X-Plonky-Account': A})
 check('Verlauf: Schläge, Gast-Foto, Kennungen erhalten', st == 200 and len(l) == 1 and l[0]['players'][0]['scores'] == {'1': 2, '2': 3, '18': 7} and l[0]['players'][1]['avatar'] == FOTO and l[0]['players'][0]['id'] == 'me' and sorted(l[0]['participants']) == [Bb, C], str(l)[:200])
 spiel['players'][0]['scores']['1'] = 5
@@ -73,21 +79,23 @@ st, g = call('POST', '/api/games', mit, SB); check('Mitspieler B korrigiert Schl
 st, l = call('GET', '/api/games', secret=SC, headers={'X-Plonky-Account': C}); check('… und kann C dabei NICHT hinauswerfen', st == 200 and len(l) == 1, f'C sieht {len(l) if isinstance(l, list) else l}')
 st, l = call('GET', '/api/games', secret=SA, headers={'X-Plonky-Account': A}); check('… und Anna bleibt Besitzerin', st == 200 and len(l) == 1)
 
-st, s_ = call('POST', '/api/session', {'mode': 'sequential', 'venue': 'Dolder', 'players': [{'id': 'me', 'name': 'Anna', 'color': '#15A35A', 'account_id': A, 'scores': {}}, {'id': 'c17', 'name': 'Kind', 'color': '#2F6FE0', 'avatar': FOTO}, {'id': 1764000000000.25, 'name': 'Gast', 'color': '#E0792F'}]})
+HN = {'X-Plonky-Host': 'b1' * 16}; SN1 = {'X-Plonky-Slot': 'c2' * 16}
+st, s_ = call('POST', '/api/session', {'mode': 'sequential', 'venue': 'Dolder', 'players': [{'id': 'me', 'name': 'Anna', 'color': '#15A35A', 'account_id': A, 'scores': {}}, {'id': 'c17', 'name': 'Kind', 'color': '#2F6FE0', 'avatar': FOTO}, {'id': 1764000000000.25, 'name': 'Gast', 'color': '#E0792F'}]}, headers=HN)
 check('Live-Runde anlegen', st == 200 and len(s_['players']) == 3 and s_['players'][0]['host'] is True, f'{st} {str(s_)[:150]}')
 code = s_['code'] if st == 200 else 'X'
 st, voll = call('GET', f'/api/session/{code}?full=1'); st2, schlank = call('GET', f'/api/session/{code}')
 check('Fotos nur im vollen Abruf, der Abgleich bleibt schlank', st == 200 and voll['players'][1]['avatar'] == FOTO and schlank['players'][1]['avatar'] == '' and len(json.dumps(schlank)) < 1500)
-st, s_ = call('POST', f'/api/session/{code}/score', {'player_id': 'me', 'hole': 1, 'strokes': 3}); check('Schlag eintragen', st == 200 and s_['players'][0]['scores'] == {'1': 3})
-st, s_ = call('POST', f'/api/session/{code}/score', {'player_id': 1764000000000.25, 'hole': 2, 'strokes': 4}); check('Schlag für Spieler mit Zahlen-Kennung', st == 200 and s_['players'][2]['scores'] == {'2': 4}, str(s_)[:120])
-st, s_ = call('POST', f'/api/session/{code}/score', {'player_id': 'me', 'hole': 1, 'strokes': None}); check('Schlag löschen (null)', st == 200 and s_['players'][0]['scores'] == {})
-st, s_ = call('POST', f'/api/session/{code}/claim', {'player_id': 'c17', 'avatar': FOTO}); check('Gast belegt Platz mit Foto', st == 200 and s_['players'][1]['claimed'] is True and call('GET', f'/api/session/{code}?full=1')[1]['players'][1]['avatar'] == FOTO)
-st, s_ = call('POST', f'/api/session/{code}/players', {'players': [{'id': 'me', 'name': 'Anna', 'color': '#15A35A', 'account_id': A}, {'id': 'c17', 'name': 'Kind', 'color': '#2F6FE0'}, {'id': 1764000000000.25, 'name': 'Gast', 'color': '#E0792F'}, {'id': 'neu1', 'name': 'Vierte', 'color': '#9B4FD8'}]})
+st, s_ = call('POST', f'/api/session/{code}/score', {'player_id': 'me', 'hole': 1, 'strokes': 3}, headers=HN); check('Schlag eintragen', st == 200 and s_['players'][0]['scores'] == {'1': 3})
+st, s_ = call('POST', f'/api/session/{code}/score', {'player_id': 1764000000000.25, 'hole': 2, 'strokes': 4}, headers=HN); check('Schlag für Spieler mit Zahlen-Kennung', st == 200 and s_['players'][2]['scores'] == {'2': 4}, str(s_)[:120])
+st, s_ = call('POST', f'/api/session/{code}/score', {'player_id': 'me', 'hole': 1, 'strokes': None}, headers=HN); check('Schlag löschen (null)', st == 200 and s_['players'][0]['scores'] == {})
+st, s_ = call('POST', f'/api/session/{code}/claim', {'player_id': 'c17', 'avatar': FOTO}, headers=SN1); check('Gast belegt Platz mit Foto', st == 200 and s_['players'][1]['claimed'] is True and call('GET', f'/api/session/{code}?full=1')[1]['players'][1]['avatar'] == FOTO)
+st, s_ = call('POST', f'/api/session/{code}/players', {'players': [{'id': 'me', 'name': 'Anna', 'color': '#15A35A', 'account_id': A}, {'id': 'c17', 'name': 'Kind', 'color': '#2F6FE0'}, {'id': 1764000000000.25, 'name': 'Gast', 'color': '#E0792F'}, {'id': 'neu1', 'name': 'Vierte', 'color': '#9B4FD8'}]}, headers=HN)
 check('Spielerliste ergänzen, Belegung und Schläge bleiben', st == 200 and len(s_['players']) == 4 and s_['players'][1]['claimed'] is True and s_['players'][2]['scores'] == {'2': 4}, str(s_)[:160])
-st, s_ = call('POST', f'/api/session/{code}/leave', {'player_id': 'c17'}); check('Platz verlassen', st == 200 and s_['players'][1]['claimed'] is False)
-st, s_ = call('POST', f'/api/session/{code}/finish', {}); check('beenden', st == 200 and s_['finished'] is True)
-st, _ = call('POST', f'/api/session/{code}/score', {'player_id': 'me', 'hole': 1, 'strokes': 9}); check('danach gesperrt (409)', st == 409, st)
-st, _ = call('POST', f'/api/session/{code}/claim', {'player_id': 'c17', 'account_id': C}); check('Gast verknüpft Konto nach Ende', st == 200, st)
+st, s_ = call('POST', f'/api/session/{code}/leave', {'player_id': 'c17'}, headers=SN1); check('Platz verlassen', st == 200 and s_['players'][1]['claimed'] is False)
+st, s_ = call('POST', f'/api/session/{code}/claim', {'player_id': 'c17'}, headers=SN1); check('… und wieder belegen', st == 200 and s_['players'][1]['claimed'] is True, st)
+st, s_ = call('POST', f'/api/session/{code}/finish', {}, headers=HN); check('beenden', st == 200 and s_['finished'] is True)
+st, _ = call('POST', f'/api/session/{code}/score', {'player_id': 'me', 'hole': 1, 'strokes': 9}, headers=HN); check('danach gesperrt (409)', st == 409, st)
+st, _ = call('POST', f'/api/session/{code}/claim', {'player_id': 'c17', 'account_id': C}, SC, headers=SN1); check('Gast verknüpft Konto nach Ende', st == 200, st)
 st, _ = call('POST', '/api/feedback', {'rating': 3, 'message': 'Super', 'name': 'Anna', 'contact': 'a@b.ch', 'account_id': A}); check('Feedback absenden', st == 200, st)
 
 print('── Angriffe ──')
@@ -114,13 +122,13 @@ fremd = sec('fremd-x-'); call('POST', '/api/account', {'id': 'x77777777777777777
 st, _ = call('POST', '/api/games', dict(spiel, account_id='x7777777777777777777777777777777x', venue='GEFAELSCHT'), fremd, headers={'X-Plonky-Account': A}); check('Unbeteiligter mit Kopfzeilen-Trick → 403', st == 403, st)
 st, g = call('POST', '/api/games', {'id': 'g-typen', 'account_id': A, 'date': 'gestern', 'venue': {'a': 1}, 'players': [5, {'id': 1, 'name': 99, 'color': 'url(x)', 'avatar': 'https://x', 'scores': {'1': {'k': 1}, 'abc': 3, '2': 2.0, '3': '4', '4': True, '500': 2}}]}, SA)
 check('Runde mit falschen Typen: bereinigt statt 500', st == 200 and g['venue'] == '' and len(g['players']) == 1 and g['players'][0]['name'] == '' and g['players'][0]['color'] == '' and g['players'][0]['avatar'] == '' and g['players'][0]['scores'] == {'2': 2, '3': 4}, f'{st} {str(g)[:200]}')
-st, s2 = call('POST', '/api/session', {'players': [{'id': 1, 'name': 12345, 'color': ['x'], 'scores': {'1': {'kaputt': True}}}, 'kein-objekt', {'name': 'ohne Kennung'}]})
+st, s2 = call('POST', '/api/session', {'players': [{'id': 1, 'name': 12345, 'color': ['x'], 'scores': {'1': {'kaputt': True}}}, 'kein-objekt', {'name': 'ohne Kennung'}]}, headers={'X-Plonky-Host': 'd3' * 16})
 check('Live-Runde mit falschen Typen: bereinigt', st == 200 and len(s2['players']) == 1 and s2['players'][0]['name'] == '' and s2['players'][0]['scores'] == {}, f'{st} {str(s2)[:160]}')
 c2 = s2['code'] if st == 200 else 'X'
-st, _ = call('POST', f'/api/session/{c2}/score', {'player_id': 1, 'hole': 1, 'strokes': {'kaputt': True}}); check('Objekt als Schlag → 400', st == 400, st)
-st, _ = call('POST', f'/api/session/{c2}/score', {'player_id': 1, 'hole': 'abc', 'strokes': 2}); check('Text als Bahn → 400', st == 400, st)
+st, _ = call('POST', f'/api/session/{c2}/score', {'player_id': 1, 'hole': 1, 'strokes': {'kaputt': True}}, headers={'X-Plonky-Host': 'd3' * 16}); check('Objekt als Schlag → 400', st == 400, st)
+st, _ = call('POST', f'/api/session/{c2}/score', {'player_id': 1, 'hole': 'abc', 'strokes': 2}, headers={'X-Plonky-Host': 'd3' * 16}); check('Text als Bahn → 400', st == 400, st)
 st, _ = call('POST', f'/api/session/{c2}/score', {'player_id': 1, 'hole': 1, 'strokes': 5000}); check('5000 Schläge → 400', st == 400, st)
-st, s3 = call('POST', f'/api/session/{c2}/players', {'players': [{'id': 1, 'name': 777, 'avatar': 'https://x'}]}); check('Spielerliste mit falschen Typen: bereinigt', st == 200 and s3['players'][0]['name'] == '' and s3['players'][0]['avatar'] == '', str(s3)[:120])
+st, s3 = call('POST', f'/api/session/{c2}/players', {'players': [{'id': 1, 'name': 777, 'avatar': 'https://x'}]}, headers={'X-Plonky-Host': 'd3' * 16}); check('Spielerliste mit falschen Typen: bereinigt', st == 200 and s3['players'][0]['name'] == '' and s3['players'][0]['avatar'] == '', str(s3)[:120])
 st, _ = call('POST', '/api/feedback', raw=json.dumps({'rating': 3, 'message': 'x' * 30000}).encode()); check('Feedback über 20 KB → 413', st == 413, st)
 st, _ = call('POST', f'/api/session/{c2}/score', raw=json.dumps({'player_id': 1, 'hole': 1, 'strokes': 2, 'ballast': 'x' * 20000}).encode()); check('aufgeblähter Schlag (20 KB) → 413', st == 413, st)
 st, _ = call('POST', '/api/feedback', {'rating': 'drei', 'message': {'a': 1}}); check('Feedback mit falschen Typen → 400, kein 500', st == 400, st)
@@ -269,10 +277,10 @@ check('… auch später nicht, ohne Runden-Code', st == 200 and all(x['id'] != '
 st, _ = call('POST', '/api/games', {'id': 'g-vom-gastgeber', 'account_id': A, 'date': 1764000000000, 'venue': 'Z', 'code': RZ, 'participants': [V, G], 'players': [{'id': 'me', 'name': 'Anna', 'account_id': A, 'scores': {'1': 1}}]}, SA)
 st2, lv = call('GET', '/api/games', secret=SV, headers={'X-Plonky-Account': V})
 check('der Gastgeber dagegen schon — die Runde erscheint beim Gast', st == 200 and any(x['id'] == 'g-vom-gastgeber' for x in lv), st)
-# Runde OHNE Gastgeber-Schluessel: dort darf jeder jede Nummer an jeden Platz schreiben —
-# also darf so eine Runde nie als Nachweis taugen.
+# Runde OHNE Gastgeber-Schluessel: gibt es seit 23.11.2026 nicht mehr (siehe unten).
+# Und ein erfundener Runden-Code taugt erst recht nicht als Nachweis.
 st, ra = call('POST', '/api/session', {'players': [{'id': 'me', 'name': 'G', 'account_id': G}]}, SG); RA = ra['code'] if st == 200 else 'X'
-call('POST', f'/api/session/{RA}/claim', {'player_id': 'me', 'account_id': C}, SG)
+check('Runde ohne Gastgeber-Schlüssel wird nicht angelegt (400)', st == 400, st)
 st, _ = call('POST', '/api/games', {'id': 'g-altrunde', 'account_id': G, 'date': 1764000000000, 'venue': 'ERFUNDEN', 'code': RA, 'participants': [C], 'players': [{'id': 'me', 'name': 'G', 'scores': {'1': 1}}]}, SG)
 st2, lc = call('GET', '/api/games', secret=SN, headers={'X-Plonky-Account': C})
 check('Runde ohne Gastgeber-Schlüssel taugt nicht als Nachweis (Konto C bekommt nichts untergeschoben)', st == 200 and st2 == 200 and all(x['id'] != 'g-altrunde' for x in lc), f'{st} {st2} {[x["id"] for x in lc] if st2 == 200 else ""}')
@@ -285,11 +293,11 @@ st2, lc = call('GET', '/api/games', secret=SN, headers={'X-Plonky-Account': C})
 check('Gastgeber schreibt eine fremde Nummer in seine eigene Runde: zählt nicht als Nachweis', st == 200 and st2 == 200 and all(x['id'] != 'g-eigene-runde' for x in lc), f'{st} {st2}')
 check('Schlag für einen Platz, den es nicht gibt → 404', call('POST', f'/api/session/{RZ}/score', {'player_id': 'gibtsnicht', 'hole': 1, 'strokes': 2}, headers={'X-Plonky-Host': HKz})[0] == 404)
 check('Bahn 55 → 400 (höchstens 54)', call('POST', f'/api/session/{RZ}/score', {'player_id': 'me', 'hole': 55, 'strokes': 2}, headers={'X-Plonky-Host': HKz})[0] == 400)
-check('Runde ohne Spieler → 400', call('POST', '/api/session', {'players': []})[0] == 400 and call('POST', '/api/session', {})[0] == 400)
+check('Runde ohne Spieler → 400', call('POST', '/api/session', {'players': []}, headers={'X-Plonky-Host': 'e4' * 16})[0] == 400 and call('POST', '/api/session', {}, headers={'X-Plonky-Host': 'e4' * 16})[0] == 400)
 check('gelöschtes Konto lässt sich nicht wieder anlegen (410)', call('POST', '/api/account', {'id': D, 'name': 'Dora'}, sec('dora-neu-'))[0] == 410 and call('POST', '/api/games', {'id': 'g-dora2', 'account_id': D, 'players': []}, sec('dora-neu2-'))[0] == 410)
 for pfad, m in (('/api/account/%00', 'GET'), ('/api/session/%00', 'GET'), ('/api/session/%00/score', 'POST'), ('/api/session/%00', 'DELETE'), ('/api/games/%00/leave', 'POST'), ('/api/account/a%20b', 'GET')):
     st, _ = call(m, pfad, {} if m == 'POST' else None, SA); check(f'{m} {pfad} → 404, kein 500', st == 404, st)
-st, l = call('GET', '/api/accounts?ids=' + ','.join([A, Bb, C, G, V] * 12)); check('Sammelabfrage: höchstens 25 Nummern je Abruf', st == 200 and len(l) <= 25, len(l) if st == 200 else st)
+st, l = call('GET', '/api/accounts?ids=' + ','.join([A, Bb, C, G, V] * 12), secret=SA); check('Sammelabfrage: höchstens 25 Nummern je Abruf', st == 200 and len(l) <= 25, len(l) if st == 200 else st)
 import threading as _th
 erg = []
 def _gleich(i):
@@ -332,6 +340,89 @@ if ADMIN and FBKEY:
     st2, l = call('GET', '/fb/daten', headers={'Cookie': ck2.split(';')[0]}); check('Posteingang mit Sitzung', st == 200 and st2 == 200 and isinstance(l, list), f'{st} {st2}')
     check('… das Feedback trägt keine Konto-Nummer', st2 == 200 and all('account_id' not in f for f in l))
     check('Posteingang ohne Sitzung → 403', call('GET', '/fb/daten')[0] == 403)
+
+print('── Befund 23.11.2026: Gastgeber-Schlüssel Pflicht, Fotos nur mit Beziehung, Ablauf ──')
+print('  · Gastgeber-Schlüssel')
+PL = {'players': [{'id': 'me', 'name': 'H'}, {'id': 'p1', 'name': 'P'}]}
+check('neue Runde ohne Schlüssel → 400', call('POST', '/api/session', PL)[0] == 400)
+check('neue Runde mit zu kurzem Schlüssel → 400', call('POST', '/api/session', PL, headers={'X-Plonky-Host': 'kurz'})[0] == 400)
+check('… auch mit Konto, aber ohne Schlüssel → 400', call('POST', '/api/session', PL, SA)[0] == 400)
+HKx = {'X-Plonky-Host': '7c' * 16}
+st, rx = call('POST', '/api/session', PL, headers=HKx); RX = rx['code'] if st == 200 else 'X'
+check('mit Schlüssel entsteht sie', st == 200, st)
+check('wer nur den Code hat: kein Schlag, kein Beenden, kein Verwerfen, keine Spielerliste', call('POST', f'/api/session/{RX}/score', {'player_id': 'p1', 'hole': 1, 'strokes': 2})[0] == 403 and call('POST', f'/api/session/{RX}/finish', {})[0] == 403
+      and call('DELETE', f'/api/session/{RX}')[0] == 403 and call('POST', f'/api/session/{RX}/players', PL)[0] == 403)
+
+print('  · Name und Foto')
+call('POST', '/api/account', {'id': Bb, 'avatar': FOTO}, SB)
+FR = 'x8888888888888888888888888888888x'; SF = sec('fremd-88-')
+check('Vorlauf: fremdes Konto', call('POST', '/api/account', {'id': FR, 'name': 'Fremd'}, SF)[0] == 200)
+ziel = '/api/accounts?ids=' + Bb
+st, l = call('GET', ziel); check('ohne jeden Nachweis: nichts', st == 200 and l == [], str(l)[:60])
+st, _ = call('GET', '/api/account/' + Bb); check('… Einzelabruf → 403', st == 403, st)
+st, l = call('GET', ziel, secret=SF); check('fremdes Konto, das nur die Nummer kennt: nichts', st == 200 and l == [], str(l)[:60])
+st, _ = call('GET', '/api/account/' + Bb, secret=SF); check('… Einzelabruf → 403', st == 403, st)
+check('ein Konto, das es nicht gibt → 404 (nicht 403)', call('GET', '/api/account/gibtesnicht0000000000000000000000', secret=SF)[0] == 404)
+# Was sich bloss behaupten laesst, zaehlt nicht:
+HKf = {'X-Plonky-Host': '6d' * 16}
+st, rf = call('POST', '/api/session', {'players': [{'id': 'me', 'name': 'Fremd', 'account_id': FR}, {'id': 'p1', 'name': 'B', 'account_id': Bb}]}, SF, headers=HKf); RF = rf['code'] if st == 200 else 'X'
+call('POST', f'/api/session/{RF}/claim', {'player_id': 'p1', 'account_id': Bb}, SF, headers=HKf)
+st, l = call('GET', ziel, secret=SF, headers={'X-Plonky-Round': RF}); check('fremde Nummer auf einen Platz der EIGENEN Runde schreiben: nichts', st == 200 and l == [], str(l)[:60])
+call('POST', f'/api/session/{RF}/players', {'players': [{'id': 'me', 'name': 'Fremd', 'account_id': Bb, 'verified': True}, {'id': 'p1', 'name': 'B', 'account_id': Bb, 'verified': True}]}, SF, headers=HKf)
+st, l = call('GET', ziel, secret=SF, headers={'X-Plonky-Round': RF}); check('… auch nicht mit selbst gesetztem "verified"', st == 200 and l == [], str(l)[:60])
+call('POST', '/api/account', {'id': FR, 'crew': [{'id': 'f1', 'name': 'B', 'accountId': Bb}]}, SF)
+st, l = call('GET', ziel, secret=SF); check('fremde Nummer in die eigene Crew eintragen: nichts', st == 200 and l == [], str(l)[:60])
+call('POST', '/api/games', {'id': 'g-fremd-foto', 'account_id': FR, 'date': 1764000000000, 'venue': 'X', 'code': RF, 'participants': [Bb], 'players': [{'id': 'me', 'name': 'F', 'account_id': FR, 'scores': {'1': 1}}, {'id': 'p1', 'name': 'B', 'account_id': Bb, 'scores': {'1': 1}}]}, SF)
+st, l = call('GET', ziel, secret=SF); check('fremde Nummer in eine eigene gespeicherte Runde schreiben: nichts', st == 200 and l == [], str(l)[:60])
+st, l = call('GET', ziel, headers={'X-Plonky-Round': 'ERFUNDENERCODE22'}); check('erfundener Runden-Code: nichts', st == 200 and l == [], str(l)[:60])
+# Was nachgewiesen ist, bleibt sichtbar:
+st, l = call('GET', ziel, secret=SA); check('wer mit B gespielt hat, sieht Name und aktuelles Foto', st == 200 and len(l) == 1 and l[0]['avatar'] == FOTO, str(l)[:60])
+HKa = {'X-Plonky-Host': '5e' * 16}
+st, rn = call('POST', '/api/session', {'players': [{'id': 'me', 'name': 'Anna', 'account_id': A}, {'id': 'p1', 'name': 'B', 'account_id': Bb}, {'id': 'p2', 'name': 'Fremd', 'account_id': FR}]}, SA, headers=HKa); RN = rn['code'] if st == 200 else 'X'
+st, l = call('GET', '/api/accounts?ids=' + ','.join([A, Bb, FR]), headers={'X-Plonky-Round': RN})
+check('neue Runde: Gäste sehen die Gastgeberin und ihr bekanntes Crew-Mitglied, die bloss eingetragene Nummer nicht', st == 200 and sorted(x['id'] for x in l) == sorted([A, Bb]), str([x['id'][:1] for x in l]))
+# Gastgeber weist sich erst NACH dem Gast aus -> Vertrauen wird nachgetragen
+HKs = {'X-Plonky-Host': '4f' * 16}; SP = sec('spaet-99-'); SPID = 'y9999999999999999999999999999999y'
+st, rs = call('POST', '/api/session', {'players': [{'id': 'me', 'name': 'Neu'}, {'id': 'p1', 'name': 'B'}]}, headers=HKs); RS = rs['code'] if st == 200 else 'X'
+call('POST', f'/api/session/{RS}/claim', {'player_id': 'p1', 'account_id': Bb}, SB, headers={'X-Plonky-Slot': '3a' * 16})
+call('POST', '/api/account', {'id': SPID, 'name': 'Neu'}, SP)
+st, l0 = call('GET', ziel, secret=SP)
+call('POST', f'/api/session/{RS}/claim', {'player_id': 'me', 'account_id': SPID}, SP, headers=HKs)
+st2, l1 = call('GET', ziel, secret=SP)
+check('Gastgeber legt sein Konto erst während der Runde an: danach sieht er den Gast, vorher nicht', st == 200 and l0 == [] and st2 == 200 and len(l1) == 1, f'{l0} {str(l1)[:40]}')
+
+print('  · Ablauf und Altbestand')
+if SQLITE:
+    import sqlite3, time as _t
+    db_ = sqlite3.connect(SQLITE, timeout=20)
+    jetzt = int(_t.time() * 1000); tag = 86400 * 1000
+    host_hash = db_.execute("select data from session where code = ?", (RX,)).fetchone()[0]
+    zeilen = [('ALTERUNDE2222222', jetzt - 15 * tag, host_hash),                       # mit Schluessel, aber 15 Tage alt
+              ('FASTALT222222222', jetzt - 13 * tag, host_hash),                       # 13 Tage: lebt noch
+              ('OHNESCHLUESSEL22', jetzt, json.dumps({'players': [{'id': 'me', 'name': 'Alt', 'host': True}]}))]   # Altbestand ohne Abdruck
+    for c_, t_, d_ in zeilen:
+        db_.execute("insert into session (code, mode, venue, data, rev, created_at) values (?, 'sequential', '', ?, 1, ?)", (c_, d_, t_))
+    db_.commit()
+    check('Runde, 13 Tage alt: noch da', call('GET', '/api/session/FASTALT222222222')[0] == 200)
+    check('Runde, 15 Tage alt: beim Abruf weg (404)', call('GET', '/api/session/ALTERUNDE2222222')[0] == 404)
+    check('… und wirklich gelöscht', db_.execute("select count(*) from session where code = 'ALTERUNDE2222222'").fetchone()[0] == 0)
+    st1 = call('POST', '/api/session/OHNESCHLUESSEL22/score', {'player_id': 'me', 'hole': 1, 'strokes': 1})[0]
+    check('Altrunde ohne Gastgeber-Schlüssel: nimmt nichts an, ist weg (404)', st1 == 404 and call('GET', '/api/session/OHNESCHLUESSEL22')[0] == 404
+          and db_.execute("select count(*) from session where code = 'OHNESCHLUESSEL22'").fetchone()[0] == 0, st1)
+    db_.execute("insert into session (code, mode, venue, data, rev, created_at) values ('ALTEZWEI22222222', 'sequential', '', ?, 1, ?)", (host_hash, jetzt - 20 * tag)); db_.commit()
+    check('abgelaufene Runde: auch Schreiben, Beenden, Verwerfen → 404 bzw. wirkungslos', call('POST', '/api/session/ALTEZWEI22222222/finish', {}, headers=HKx)[0] == 404)
+    # Gespeicherte Runde mit dem Code einer abgelaufenen Live-Runde: kein Nachweis mehr
+    HKo = {'X-Plonky-Host': '2b' * 16}; SO_ = sec('alt-gast-'); OID = 'o7777777777777777777777777777777o'
+    call('POST', '/api/account', {'id': OID, 'name': 'Olga'}, SO_)
+    st, ro = call('POST', '/api/session', {'players': [{'id': 'me', 'name': 'F', 'account_id': FR}, {'id': 'p1', 'name': 'O'}]}, SF, headers=HKo); RO = ro['code'] if st == 200 else 'X'
+    call('POST', f'/api/session/{RO}/claim', {'player_id': 'p1', 'account_id': OID}, SO_, headers={'X-Plonky-Slot': '1c' * 16})
+    db_.execute("delete from trust where member_id = ? or owner_id = ?", (OID, OID))
+    db_.execute("update session set created_at = ? where code = ?", (jetzt - 30 * tag, RO)); db_.commit()
+    st, g_ = call('POST', '/api/games', {'id': 'g-abgelaufen', 'account_id': FR, 'date': 1764000000000, 'venue': 'X', 'code': RO, 'participants': [OID], 'players': [{'id': 'me', 'name': 'F', 'account_id': FR, 'scores': {'1': 1}}]}, SF)
+    check('gespeicherte Runde mit Code einer abgelaufenen Live-Runde: kein Teilnehmer daraus', st == 200 and g_.get('participants', []) == [], f'{st} {str(g_)[:80]}')
+    db_.close()
+else:
+    print('    (übersprungen: ohne SQLite-Datei als 4. Argument)')
 
 print(f'\n  {ok} bestanden, {bad} fehlgeschlagen')
 sys.exit(1 if bad else 0)

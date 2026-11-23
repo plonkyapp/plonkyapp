@@ -1256,7 +1256,9 @@ def _upsert_game(data):
         erwiesen = set()
         if game.code:
             live = db.session.get(Session, game.code.upper())
-            if live is not None:
+            # Abgelaufene Runden zaehlen auch hier nicht mehr (wie ueberall sonst).
+            # Nur pruefen, nicht loeschen: das hier laeuft mitten im Speichern.
+            if live is not None and not _session_gone(live, _session_payload(live), loeschen=False):
                 try:
                     roh = json.loads(live.data or "{}")
                 except (ValueError, TypeError):
@@ -1308,12 +1310,106 @@ def leave_game(game_id):
 # jeder benutzen kann, gehört weg statt abgesichert.
 
 
+# ══ Wer darf Name und Foto eines Kontos sehen? ════════════════════════════
+# Bis 23.11.2026: jeder, der die Konto-Nummer kannte — fuer immer. Die Nummer
+# steht in jeder Runde, in der man mitgespielt hat; wer sie einmal gesehen
+# hatte, konnte Name und Foto spaeter beliebig oft neu abrufen, auch ein
+# inzwischen ausgetauschtes Foto.
+#
+# Jetzt braucht es eine NACHGEWIESENE Beziehung. Nachgewiesen heisst: der
+# Server hat sie selbst beobachtet — nichts davon laesst sich vom Aufrufer
+# bloss behaupten.
+#
+#   Mit Konto (X-Plonky-Secret):
+#     - das eigene Konto
+#     - wer sich in einer meiner Runden selbst ausgewiesen hat, oder ich in
+#       seiner (Tabelle trust)
+#     - wer mit mir in derselben gespeicherten Runde steht (Besitzer oder
+#       Teilnehmer — die Teilnehmerliste ist ihrerseits nur Nachgewiesenes)
+#
+#   Mit Runden-Einladung (X-Plonky-Round: <Code>), auch ohne Konto:
+#     - Plaetze dieser Runde, deren Inhaber sich dort selbst ausgewiesen hat
+#     - Plaetze, deren Konto der ausgewiesene Gastgeber der Runde sehen darf
+#       (sein Crew-Mitglied, das heute ohne eigenes Handy mitspielt)
+#
+# NICHT genuegt: eine Konto-Nummer auf einen Platz der eigenen Runde zu
+# schreiben, sie in die eigene Crew einzutragen oder als Spieler einer
+# gespeicherten Runde zu nennen. Das alles kann jeder mit jeder Nummer tun.
+ROUND_HEADER = "X-Plonky-Round"
+
+
+def _related_ids(account_id, ids):
+    """Die Teilmenge von ids, zu der account_id eine nachgewiesene Beziehung hat."""
+    account_id = str(account_id)
+    offen = {str(i) for i in ids}
+    ok = set()
+    if account_id in offen:
+        ok.add(account_id)
+        offen.discard(account_id)
+    if offen:
+        for (m,) in db.session.query(Trust.member_id).filter(Trust.owner_id == account_id, Trust.member_id.in_(offen)):
+            ok.add(str(m))
+        for (o,) in db.session.query(Trust.owner_id).filter(Trust.member_id == account_id, Trust.owner_id.in_(offen)):
+            ok.add(str(o))
+        offen -= ok
+    if offen:
+        meine = [g for (g,) in db.session.query(Game.id).filter(Game.account_id == account_id).limit(MAX_GAMES)]
+        meine += [g for (g,) in db.session.query(GameParticipant.game_id).filter(GameParticipant.account_id == account_id).limit(MAX_GAMES)]
+        if meine:
+            for (o,) in db.session.query(Game.account_id).filter(Game.id.in_(meine), Game.account_id.in_(offen)).distinct():
+                ok.add(str(o))
+            for (t,) in db.session.query(GameParticipant.account_id).filter(GameParticipant.game_id.in_(meine), GameParticipant.account_id.in_(offen)).distinct():
+                ok.add(str(t))
+    return ok
+
+
+def _round_ids(ids):
+    """Die Teilmenge von ids, die ueber die mitgeschickte Runden-Einladung
+    sichtbar ist (siehe oben)."""
+    code = (request.headers.get(ROUND_HEADER) or "").strip().upper()
+    if not (4 <= len(code) <= 40) or not ids:
+        return set()
+    s = db.session.get(Session, code)
+    if s is None:
+        return set()
+    payload = _session_payload(s)
+    if _session_gone(s, payload):
+        return set()
+    offen = {str(i) for i in ids}
+    ok, rest = set(), set()
+    for p in _dicts(payload.get("players")):
+        aid = _account_ref(p.get("account_id"))
+        if not aid or str(aid) not in offen:
+            continue
+        if p.get("verified"):
+            ok.add(str(aid))
+        else:
+            rest.add(str(aid))
+    rest -= ok
+    gastgeber = _account_ref(payload.get("host_account"))
+    if rest and gastgeber:
+        ok |= _related_ids(gastgeber, rest)
+    return ok
+
+
+def _visible_ids(ids):
+    ids = {str(i) for i in ids}
+    ok = set()
+    rufer = _caller()
+    if rufer is not None:
+        ok |= _related_ids(rufer.id, ids)
+    if ids - ok:
+        ok |= _round_ids(ids - ok)
+    return ok
+
+
 @app.route("/api/account/<account_id>", methods=["GET"])
 def get_account(account_id):
-    """Mit gueltigem Geheimnis das ganze Konto, sonst nur das Oeffentliche.
+    """Das eigene Konto ganz; ein fremdes nur mit nachgewiesener Beziehung,
+    und dann nur Name, Farbe und Foto — nie die Crew.
 
-    Die Nummer steht in jeder Runde, in der man mitgespielt hat. Sie darf
-    deshalb Name, Farbe und Foto hergeben — aber nicht die Crew.
+    404 = das Konto gibt es nicht. 403 = es gibt es, aber nicht fuer dich.
+    Die App liest 404 als "geloescht" — deshalb die Unterscheidung.
     """
     acc = db.session.get(Account, account_id)
     if acc is None:
@@ -1321,6 +1417,8 @@ def get_account(account_id):
     eigen = _caller()
     if eigen is not None and str(eigen.id) == str(acc.id):
         return jsonify(account_to_dict(acc))
+    if str(acc.id) not in _visible_ids([acc.id]):
+        abort(403)
     return jsonify(account_public(acc))
 
 
@@ -1347,8 +1445,13 @@ def get_accounts():
     """Batch photo lookup: ?ids=a,b,c -> [{id,name,color,avatar}]. The one place
     every avatar is resolved from — account id -> current photo."""
     raw = request.args.get("ids") or ""
-    # 25 statt 200: ohne Anmeldung abrufbar, und jede Antwort traegt Fotos.
+    # Hoechstens 25 pro Abruf: jede Antwort traegt Fotos.
     ids = [i for i in (s.strip() for s in raw.split(",")) if _account_ref(i)][:ACCOUNTS_PER_LOOKUP]
+    if not ids:
+        return jsonify([])
+    # Nur, was der Aufrufer sehen darf — der Rest fehlt in der Antwort, ohne
+    # Hinweis, ob es das Konto gibt.
+    ids = list(_visible_ids(ids))
     if not ids:
         return jsonify([])
     accs = Account.query.filter(Account.id.in_(ids)).all()
@@ -1513,6 +1616,14 @@ def create_session():
         })
     if not players:
         abort(400)                 # eine Runde ohne Spieler ist keine
+    # Ohne Gastgeber-Schluessel entsteht keine Runde mehr. Bis 23.11.2026 nahm
+    # der Server sie an und behandelte dann JEDEN mit dem Einladungslink als
+    # Gastgeber (fremde Schlaege aendern, beenden, verwerfen). Die App schickt
+    # den Schluessel seit dem 22.11. immer mit — die Luecke war nur noch fuer
+    # jemanden offen, der den Server direkt anspricht.
+    host_key = _round_key(HOST_HEADER)
+    if not host_key:
+        abort(400)
     # Erst jetzt zaehlen: eine abgewiesene Anfrage soll niemandem das
     # Kontingent wegnehmen. Ist das der Adresse aufgebraucht (jemand im selben
     # WLAN flutet), darf ein nachgewiesenes Konto trotzdem weiterspielen.
@@ -1526,18 +1637,11 @@ def create_session():
     holes = _int(data.get("holes"), 1, MAX_HOLE)
     if holes:
         payload["holes"] = holes
-    host_key = _round_key(HOST_HEADER)
-    if host_key:
-        payload["host_hash"] = _hash_secret(host_key)
+    payload["host_hash"] = _hash_secret(host_key)
     # Eine Konto-Nummer an einem Platz ist erst einmal nur eine Behauptung des
     # Gastgebers. "verified" bekommt ein Platz, wenn der Inhaber des Kontos sich
     # selbst ausgewiesen hat — hier: der Gastgeber fuer seinen eigenen Platz.
-    # NUR in einer Runde mit Gastgeber-Schluessel. Eine Runde ohne ihn laesst
-    # jeden alles aendern (Altbestand) — auch die Konto-Nummer an einem Platz.
-    # In der Gegenpruefung legte ein Angreifer so eine Runde an, wies sich als
-    # Gastgeber aus, schrieb danach eine FREMDE Nummer auf den Platz und hatte
-    # damit einen "nachgewiesenen" Mitspieler erfunden.
-    if host_key and players and rufer is not None and str(players[0].get("account_id")) == str(rufer.id):
+    if players and rufer is not None and str(players[0].get("account_id")) == str(rufer.id):
         players[0]["verified"] = True
         payload["host_account"] = rufer.id
     s = Session(
@@ -1552,10 +1656,42 @@ def create_session():
     return jsonify(session_to_dict(s))
 
 
+def _session_payload(s):
+    try:
+        payload = json.loads(s.data or "{}")
+    except (ValueError, TypeError):
+        payload = {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _session_gone(s, payload, loeschen=True):
+    """True, wenn es die Runde nicht (mehr) geben darf — sie wird dann geloescht.
+
+    Zwei Gruende:
+    - Aelter als SESSION_DAYS. Das Aufraeumen lief bisher nur beim Start und
+      beim Anlegen einer neuen Runde; in einer ruhigen Woche blieb ein alter
+      Einladungslink deshalb laenger gueltig, als die App verspricht. Jetzt
+      wird das Alter bei JEDEM Zugriff geprueft.
+    - Ohne Gastgeber-Abdruck: eine Runde aus der Zeit vor dem 22.11.2026, in
+      der jeder mit dem Link alles durfte. Solche Runden gibt es nicht mehr.
+    """
+    alt = (s.created_at or 0) < int((time.time() - SESSION_DAYS * 86400) * 1000)
+    if not alt and payload.get("host_hash"):
+        return False
+    if not loeschen:
+        return True          # mitten in einer anderen Aenderung: nur pruefen
+    try:
+        db.session.delete(s)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+    return True
+
+
 @app.route("/api/session/<code>", methods=["GET"])
 def get_session(code):
     s = db.session.get(Session, (code or "").upper())
-    if s is None:
+    if s is None or _session_gone(s, _session_payload(s)):
         abort(404)
     return jsonify(session_to_dict(s, full=request.args.get("full") == "1"))
 
@@ -1577,6 +1713,8 @@ def _cleanup_sessions(force=False):
     try:
         cutoff = int((now - SESSION_DAYS * 86400) * 1000)
         Session.query.filter(Session.created_at < cutoff).delete(synchronize_session=False)
+        # Runden ohne Gastgeber-Abdruck (Altbestand) gleich mit — siehe _session_gone().
+        Session.query.filter(~Session.data.contains('"host_hash"')).delete(synchronize_session=False)
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -1608,12 +1746,9 @@ def _mutate_session(code):
     s = db.session.get(Session, (code or "").upper(), with_for_update=True)
     if s is None:
         abort(404)
-    try:
-        payload = json.loads(s.data or "{}")
-    except (ValueError, TypeError):
-        payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
+    payload = _session_payload(s)
+    if _session_gone(s, payload):
+        abort(404)
     players = _dicts(payload.get("players"))
     return s, payload, players
 
@@ -1636,8 +1771,10 @@ def _mutate_session(code):
 # einfach. Gespeichert wird nur der Abdruck, und keiner der beiden verlaesst je
 # den Server — session_to_dict() gibt nur feste, gepruefte Felder heraus.
 #
-# Eine Runde OHNE Gastgeber-Abdruck stammt aus der Zeit davor (oder von einem
-# noch offenen alten Tab) und verhaelt sich wie bisher.
+# Eine Runde OHNE Gastgeber-Abdruck gibt es seit 23.11.2026 nicht mehr: sie
+# kann nicht mehr angelegt werden, und Altbestand wird beim Zugriff geloescht
+# (_session_gone). Die Abfragen "_enforced(...)" weiter unten sind seither
+# immer wahr; sie bleiben als zweite Sicherung stehen.
 HOST_HEADER = "X-Plonky-Host"
 SLOT_HEADER = "X-Plonky-Slot"
 
@@ -1655,7 +1792,7 @@ def _enforced(payload):
 def _is_host(payload):
     h = payload.get("host_hash")
     if not h:
-        return True                    # Runde aus der Zeit davor: wie bisher
+        return False                   # ohne Abdruck ist niemand Gastgeber
     given = _round_key(HOST_HEADER)
     return bool(given) and hmac.compare_digest(str(h), _hash_secret(given))
 
@@ -1672,6 +1809,18 @@ def _remember_trust(owner_id, member_id):
         return
     if Trust.query.filter_by(owner_id=owner_id, member_id=member_id).first() is None:
         db.session.add(Trust(owner_id=owner_id, member_id=member_id))
+
+
+def _trust_round(payload, players):
+    """Alle, die sich in dieser Runde selbst ausgewiesen haben, dem Gastgeber
+    gutschreiben. Noetig, weil der Gastgeber sein Konto manchmal erst NACH den
+    Gaesten nachweist — deren Beitritt lief dann noch ohne bekannten Gastgeber."""
+    host = payload.get("host_account")
+    if not host:
+        return
+    for p in players:
+        if p.get("verified") and p.get("account_id"):
+            _remember_trust(host, p.get("account_id"))
 
 
 def _require_host(payload):
@@ -1780,6 +1929,7 @@ def session_players(code):
             and str(merged[0].get("account_id")) == str(rufer.id)):
         merged[0]["verified"] = True
         payload["host_account"] = rufer.id
+        _trust_round(payload, merged)
     payload["players"] = merged
     s.data = _session_blob(payload)
     s.rev = (s.rev or 0) + 1
@@ -1800,8 +1950,6 @@ def session_claim(code):
     # Eine Konto-Verknuepfung gilt nur, wenn der Aufrufer dieses Konto IST.
     # Frueher genuegte die blosse Nummer — und die kennt jeder Mitspieler.
     belegt_konto = account_id if (account_id and rufer is not None and str(rufer.id) == str(account_id)) else None
-    if not _enforced(payload):
-        belegt_konto = account_id      # Runde aus der Zeit davor: wie bisher
     for p in players:
         if str(p.get("id")) == str(pid):
             if _enforced(payload):
@@ -1845,6 +1993,7 @@ def session_claim(code):
                     # ein frisches Geraet bekommt sein Konto beim ersten Schlag.
                     if p.get("host") and host:
                         payload["host_account"] = belegt_konto
+                        _trust_round(payload, players)
                     _remember_trust(payload.get("host_account"), belegt_konto)
             # an account-less joiner has nowhere but the round to keep a photo
             p["avatar"] = snapshot_avatar(belegt_konto or p.get("account_id"), avatar or _avatar(p.get("avatar")))
@@ -1902,13 +2051,8 @@ def session_finish(code):
 def session_delete(code):
     """Host discards a round — remove the live session entirely."""
     s = db.session.get(Session, (code or "").upper())
-    if s is not None:
-        try:
-            payload = json.loads(s.data or "{}")
-        except (ValueError, TypeError):
-            payload = {}
-        if not isinstance(payload, dict):
-            payload = {}
+    if s is not None and not _session_gone(s, _session_payload(s)):
+        payload = _session_payload(s)
         # Verwerfen geht nur, solange gespielt wird. Danach brauchen die
         # Mitspieler die Runde noch, um ihre Kopie mit dem Endstand zu sichern.
         _require_open(payload)

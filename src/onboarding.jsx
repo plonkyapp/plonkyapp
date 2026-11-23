@@ -173,7 +173,7 @@ function LegalScreen({ go, back = 'cover' }) {
         <P style={{ marginTop: 8 }}>Die App lädt nichts von Dritten nach: Schriften und Programmteile kommen vom selben Server. Kein Werbe-Tracking, keine Analyse-Dienste, keine Cookies für Besucher.</P>
         <P style={{ marginTop: 8 }}>Wenn ein neues Konto entsteht, bekommen wir eine kurze Meldung über den Dienst Telegram — ohne deinen Namen und ohne dein Foto.</P>
         <H>Wer was sieht</H>
-        <P>Dein Name und dein Foto sind für die Leute sichtbar, mit denen du spielst — genauer: für jeden, der die Einladung (QR-Code oder Link) zu einer deiner Runden hat. Deinen Verlauf und deine Crew sieht nur, wer deinen persönlichen Link hat.</P>
+        <P>Deinen Namen und dein Foto sehen die Leute, mit denen du spielst: wer die Einladung (QR-Code oder Link) zu einer laufenden Runde hat, in der du dabei bist — und wer mit dir in einer gespeicherten Runde steht. Diese Mitspieler sehen auch später dein jeweils aktuelles Foto. Wer bloss deine Konto-Nummer kennt, sieht nichts. Deinen Verlauf und deine Crew sieht nur, wer deinen persönlichen Link hat.</P>
         <H>Fotos</H>
         <P>Ein Profilfoto ist freiwillig. Es wird klein gespeichert.</P>
         <P style={{ marginTop: 8 }}>Das gilt auch für die Fotos, die du deiner <b>Crew</b> gibst: Das sind Bilder anderer Personen. Lade sie nur hoch, wenn die Person einverstanden ist — bei deinen Kindern entscheidest du.</P>
